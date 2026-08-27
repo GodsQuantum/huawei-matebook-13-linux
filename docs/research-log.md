@@ -185,3 +185,24 @@ independently; GCC `-fanalyzer` reports no issue; the passive preflight still
 compiles without being executed; the source audit finds no active write,
 GPIO264/reset or firmware primitive in the new drain code. No SPI bind/open/
 transfer, GPIO request/write or reset occurred during this verification.
+
+## 2026-08-27: Linux active-research backend validated offline
+
+**IMPLEMENTED OFF-HARDWARE:** `research/linux/active_backend.*` composes the
+restricted Milan packet/state/RX layers with the existing exact spidev
+primitives. NOP and A/4 each remain two distinct physical transactions with a
+2 ms gap. The backend checks cancellation before every physical SPI write/read
+and preserves one A/4 retransmission only through the already-tested
+`milan_attempt` state machine.
+
+**DESIGN CORRECTION:** GPIO48 readiness is level-only. The target is ACPI
+level-triggered ActiveHigh and its Intel pad is firmware configuration-locked,
+so the runtime does not request edge detection or change IRQ trigger
+configuration. It polls the already-proven input value in bounded 5 ms sleeps.
+
+**VERIFIED ON THE TARGET LAPTOP WITHOUT HARDWARE I/O:** the complete suite
+passes GCC and Clang + ASan/UBSan; the active-backend test and GCC `-fanalyzer`
+pass; the real runtime object and passive preflight compile but are not
+executed; source guards confirm no GPIO264/reset, GPIO output, IRQ trigger
+change or firmware-management API in this milestone. No SPI bind/open/transfer,
+GPIO request/write, IRQ reconfiguration or reset occurred.
