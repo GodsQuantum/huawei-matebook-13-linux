@@ -11,10 +11,12 @@ TEST_IRQ_LOGIC := $(BUILD_DIR)/test_irq_logic
 TEST_MILAN_RX := $(BUILD_DIR)/test_milan_rx
 TEST_MILAN_RX_DRAIN := $(BUILD_DIR)/test_milan_rx_drain
 TEST_LINUX_ACTIVE_BACKEND := $(BUILD_DIR)/test_linux_active_backend
+TEST_PROBE_HARNESS := $(BUILD_DIR)/test_probe_harness
 ACTIVE_RUNTIME_OBJ := $(BUILD_DIR)/active_runtime.o
+PROBE_BIN := $(BUILD_DIR)/gxfp-live-probe
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_active_runtime_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile
+.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile
 
 all: test
 
@@ -53,8 +55,15 @@ test_linux_active_backend: prepare-build
 	$(CC) $(CFLAGS) -I. tests/test_linux_active_backend.c linux/active_backend.c linux/linux_spi.c milan_packet.c milan_rx.c milan_rx_drain.c milan_attempt.c -o "$(TEST_LINUX_ACTIVE_BACKEND)"
 	"$(TEST_LINUX_ACTIVE_BACKEND)"
 
+test_probe_harness: prepare-build
+	$(CC) $(CFLAGS) -I. tests/test_probe_harness.c probe_harness.c milan_attempt.c -o "$(TEST_PROBE_HARNESS)"
+	"$(TEST_PROBE_HARNESS)"
+
 test_active_runtime_source_safety:
 	./tests/test_active_runtime_source_safety.sh
+
+test_probe_runtime_source_safety:
+	./tests/test_probe_runtime_source_safety.sh
 
 test_passive_safety:
 	./tests/test_passive_safety.sh
@@ -62,7 +71,7 @@ test_passive_safety:
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_active_runtime_source_safety test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \
@@ -78,6 +87,20 @@ passive-preflight: prepare-build
 active-runtime-compile: prepare-build
 	$(CC) $(CFLAGS) -I. -c linux/active_runtime.c -o "$(ACTIVE_RUNTIME_OBJ)"
 	@echo "$(ACTIVE_RUNTIME_OBJ)"
+
+probe-runtime-compile: prepare-build
+	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \
+	if [ "$$major" != "2" ]; then \
+		echo "ERROR: probe-runtime-compile requires libgpiod major version 2" >&2; \
+		exit 1; \
+	fi
+	$(CC) $(CFLAGS) -I. $$(pkg-config --cflags libgpiod) \
+		linux/probe_runtime.c linux/gpiod_reset.c linux/gpiod_irq.c \
+		linux/active_runtime.c linux/active_backend.c linux/linux_spi.c \
+		linux/spidev_discovery.c probe_harness.c milan_packet.c milan_rx.c \
+		milan_rx_drain.c milan_attempt.c \
+		$$(pkg-config --libs libgpiod) -o "$(PROBE_BIN)"
+	@echo "$(PROBE_BIN)"
 
 clean:
 	rm -rf -- "$(BUILD_DIR)"

@@ -206,3 +206,28 @@ pass; the real runtime object and passive preflight compile but are not
 executed; source guards confirm no GPIO264/reset, GPIO output, IRQ trigger
 change or firmware-management API in this milestone. No SPI bind/open/transfer,
 GPIO request/write, IRQ reconfiguration or reset occurred.
+
+## 2026-08-27: single-purpose live-probe harness validated offline
+
+**IMPLEMENTED OFF-HARDWARE:** the research tree now contains a one-purpose probe
+harness with the proven GPIO264 HIGH-10-ms / LOW-100-ms reset both before the
+experiment and unconditionally during cleanup. GPIO264 is accepted only when
+libgpiod reports an already-configured free active-high OUTPUT and is then
+requested `AS_IS`.
+
+**EXPERIMENT SCOPE FIXED:** the harness keeps the earlier Linux DriverState
+preamble constant (NOP, 5 ms, Install, 100 ms, Install, 100 ms) and executes
+exactly one Windows-faithful `GetEvkVersion` logical attempt. A/4 remains the
+explicit deterministic Linux `00 00` fixture. It does not implement the
+separate DriverState hard-reset branch or the full three-attempt common-init
+fallback.
+
+**VERIFIED ON TARGET WITHOUT HARDWARE I/O:** GCC and Clang+ASan/UBSan suites,
+the probe-harness and active-backend tests, GCC `-fanalyzer`, source safety
+guards, and build-directory-with-spaces regression all pass. The real
+`gxfp-live-probe` binary links against libgpiod 2.3.1; it was built only and
+never executed. No SPI bind/open/transfer, GPIO request/write, IRQ trigger
+change or reset occurred during this gate.
+
+**NEXT:** validate an external supervisor and separate GPIO264-only restore
+helper before authorizing a single live probe.

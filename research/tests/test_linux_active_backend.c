@@ -25,6 +25,10 @@ struct fake_ctx {
     size_t cancel_on_sleep_call;
     int64_t raise_irq_at_ns;
     int64_t now_ns;
+    enum gxfp_linux_transfer_direction trace_dir[32];
+    size_t trace_len[32];
+    int trace_rc[32];
+    size_t trace_count;
 };
 
 static struct fake_ctx *g_fake;
@@ -99,6 +103,20 @@ static enum gxfp_io_result fake_sleep(void *ctx, unsigned ms)
         f->sleep_count == f->cancel_on_sleep_call)
         f->cancelled = 1;
     return GXFP_IO_OK;
+}
+
+
+static void fake_trace(void *ctx,
+                       enum gxfp_linux_transfer_direction direction,
+                       size_t len,
+                       int rc)
+{
+    struct fake_ctx *f = ctx;
+    assert(f->trace_count < 32);
+    f->trace_dir[f->trace_count] = direction;
+    f->trace_len[f->trace_count] = len;
+    f->trace_rc[f->trace_count] = rc;
+    f->trace_count++;
 }
 
 static struct gxfp_linux_level_ops level_ops(struct fake_ctx *f)
@@ -346,6 +364,81 @@ static void test_ff_header_is_terminal_and_never_reads_a_body(void)
     assert(active.rx.stop_reason == GXFP_EVK_RX_STOP_FF_HEADER);
 }
 
+
+static void test_driver_install_uses_exact_confirmed_vector(void)
+{
+    static const uint8_t outer[] = {0xa0, 0x06, 0x00, 0xa6};
+    static const uint8_t inner[] = {0x96, 0x03, 0x00, 0x01, 0x00, 0x10};
+    const struct gxfp_spi_ops spi_ops = {
+        .open_fn = dummy_open,
+        .close_fn = dummy_close,
+        .ioctl_fn = fake_ioctl,
+    };
+    struct fake_ctx f = {0};
+    struct gxfp_spi spi = {
+        .fd = 7,
+        .max_speed_hz = GXFP_SPI_MAX_SPEED_HZ,
+        .ops = &spi_ops,
+    };
+    struct gxfp_linux_level_ops irq = level_ops(&f);
+    struct gxfp_linux_active_backend active;
+
+    g_fake = &f;
+    assert(gxfp_linux_active_backend_init(&active, &spi, &irq,
+                                          fake_sleep, &f));
+    assert(gxfp_linux_active_backend_send_driver_install(&active) == GXFP_IO_OK);
+    assert(f.xfer_count == 2);
+    assert(f.sleep_count == 1 && f.sleeps[0] == 2);
+    assert_write(&f.xfers[0], outer, sizeof(outer));
+    assert_write(&f.xfers[1], inner, sizeof(inner));
+}
+
+
+static void test_transfer_trace_reports_exact_physical_io(void)
+{
+    static const uint8_t ack_header[] = {0xa0, 0x06, 0x00, 0xa6};
+    static const uint8_t ack_body[] = {0xb0, 0x03, 0x00, 0xa8, 0x00, 0x4f};
+    static const uint8_t rsp_header[] = {0xa0, 0x07, 0x00, 0xa7};
+    static const uint8_t rsp_body[] = {0xa8, 0x04, 0x00, 0x11, 0x22, 0x33, 0x98};
+    const struct gxfp_spi_ops spi_ops = {
+        .open_fn = dummy_open,
+        .close_fn = dummy_close,
+        .ioctl_fn = fake_ioctl,
+    };
+    struct fake_ctx f = {
+        .reads = {ack_header, ack_body, rsp_header, rsp_body},
+        .read_lens = {4, 6, 4, 7},
+        .irq_level = 1,
+    };
+    struct gxfp_spi spi = {
+        .fd = 7,
+        .max_speed_hz = GXFP_SPI_MAX_SPEED_HZ,
+        .ops = &spi_ops,
+    };
+    struct gxfp_linux_level_ops irq = level_ops(&f);
+    struct gxfp_linux_active_backend active;
+    struct gxfp_attempt_backend attempt;
+    const uint8_t payload[2] = {0, 0};
+    const size_t expected_len[] = {4, 8, 4, 6, 4, 6, 4, 7};
+    size_t i;
+
+    g_fake = &f;
+    assert(gxfp_linux_active_backend_init(&active, &spi, &irq,
+                                          fake_sleep, &f));
+    gxfp_linux_active_backend_set_trace(&active, fake_trace, &f);
+    assert(gxfp_linux_active_backend_attempt(&active, &attempt));
+    assert(gxfp_get_evk_attempt(&attempt, payload) == GXFP_ATTEMPT_OK);
+    assert(f.trace_count == 8);
+    for (i = 0; i < f.trace_count; i++) {
+        assert(f.trace_len[i] == expected_len[i]);
+        assert(f.trace_rc[i] == 0);
+        if (i < 4)
+            assert(f.trace_dir[i] == GXFP_LINUX_TRANSFER_WRITE);
+        else
+            assert(f.trace_dir[i] == GXFP_LINUX_TRANSFER_READ);
+    }
+}
+
 int main(void)
 {
     test_full_attempt_uses_separate_windows_transactions();
@@ -354,6 +447,8 @@ int main(void)
     test_ack_timeout_retransmits_same_a4_once_then_succeeds();
     test_cancel_between_outer_and_inner_stops_before_second_write();
     test_ff_header_is_terminal_and_never_reads_a_body();
+    test_driver_install_uses_exact_confirmed_vector();
+    test_transfer_trace_reports_exact_physical_io();
     puts("test_linux_active_backend: OK");
     return 0;
 }

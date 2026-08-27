@@ -13,6 +13,7 @@ struct gxfp_wire_packet {
 
 /* Deliberately restricted builders: no generic/arbitrary Milan command API. */
 bool gxfp_build_nop(struct gxfp_wire_packet *packet);
+bool gxfp_build_driver_state_install(struct gxfp_wire_packet *packet);
 bool gxfp_build_a4(const uint8_t payload[2], struct gxfp_wire_packet *packet);
 
 #endif

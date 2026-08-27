@@ -19,3 +19,25 @@ Do not perform firmware flashing, UPFW, firmware erase, bootloader programming, 
 ## Active-experiment checklist
 
 Record the hypothesis, minimum writes, expected IRQ/read result, stop condition, logging, and final reset restoration (HIGH 10 ms, LOW 100 ms, final state LOW). Stop at the condition; do not add opportunistic commands, firmware operations, or a second read.
+
+## Live-probe harness execution gate
+
+The single-purpose live-probe harness may be committed and compiled while
+remaining **not authorized for execution**. Before the first live run, an
+independent parent supervisor must be validated off-hardware.
+
+The supervisor must:
+
+- own the temporary spidev bind and clear it afterward;
+- impose a hard wall-clock timeout;
+- treat the probe's `CLEANUP_RESULT=0` plus `GPIO264_AFTER=0` markers as the
+  only normal-cleanup confirmation;
+- if those markers are missing, wait until the probe process is terminated,
+  then invoke a separate GPIO264-only restore helper;
+- restore GPIO264 using HIGH 10 ms -> LOW 100 ms -> final LOW;
+- unbind spidev and clear `driver_override` on every exit path;
+- contain no Milan packet, SPI transfer, firmware, enrollment or libfprint logic.
+
+This external layer protects against a crash/hang of the probe process. It
+cannot guarantee cleanup after system power loss or SIGKILL of the supervisor
+itself; userspace cannot make such a guarantee.
