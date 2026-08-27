@@ -9,9 +9,10 @@ TEST_DISCOVERY := $(BUILD_DIR)/test_spidev_discovery
 TEST_LINUX_SPI := $(BUILD_DIR)/test_linux_spi
 TEST_IRQ_LOGIC := $(BUILD_DIR)/test_irq_logic
 TEST_MILAN_RX := $(BUILD_DIR)/test_milan_rx
+TEST_MILAN_RX_DRAIN := $(BUILD_DIR)/test_milan_rx_drain
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_passive_safety test_makefile_space_build_dir passive-preflight
+.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_passive_safety test_makefile_space_build_dir passive-preflight
 
 all: test
 
@@ -42,13 +43,17 @@ test_milan_rx: prepare-build
 	$(CC) $(CFLAGS) -I. tests/test_milan_rx.c milan_rx.c -o "$(TEST_MILAN_RX)"
 	"$(TEST_MILAN_RX)"
 
+test_milan_rx_drain: prepare-build
+	$(CC) $(CFLAGS) -I. tests/test_milan_rx_drain.c milan_rx.c milan_rx_drain.c milan_attempt.c -o "$(TEST_MILAN_RX_DRAIN)"
+	"$(TEST_MILAN_RX_DRAIN)"
+
 test_passive_safety:
 	./tests/test_passive_safety.sh
 
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \

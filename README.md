@@ -6,7 +6,7 @@
 
 ## Status
 
-**CONFIRMED:** no working fingerprint driver exists yet. The Windows common-init/ACK/response state machine is statically resolved far enough to model one `GetEvkVersion` attempt, the passive spidev/libgpiod hardware gate has passed with zero SPI transfers, and a restricted RX parser is validated off-hardware. The next gate is an off-hardware IRQ/RX drain model; no new active Milan command is authorized yet.
+**CONFIRMED:** no working fingerprint driver exists yet. The Windows common-init/ACK/response state machine is statically resolved far enough to model one `GetEvkVersion` attempt, the passive spidev/libgpiod hardware gate has passed with zero SPI transfers, and both the restricted RX parser and exact-length IRQ/RX drain state machine are validated off-hardware on the target laptop. No new active Milan command is authorized yet.
 
 ## Confirmed platform summary
 
@@ -26,7 +26,7 @@ Huawei MateBook 13 2021: DMI `WRTB-WXX9`, version `M1020`, board `WRTB-WXX9-PCB`
 
 ## Current boundary
 
-**CONFIRMED:** 1.1.141.36 independently corroborates the 1.1.141.40 `GetEvkVersion` behavior and closes RX classification: B/0 with payload byte `A8` is the ACK for A/4, while A/4 is the EVK response that signals event 9. Both builds pass the two A/4 payload bytes from storage not initialized in the visible function. The target laptop has also passed the passive hardware preflight (`SPI_TRANSFER_COUNT=0`, GPIO48 LOW, GPIO264 never requested, full cleanup). The immediate next step is an **off-hardware** exact-length IRQ/RX drain model; see [protocol](docs/protocol.md), [1.1.141.36 cross-check](docs/windows-14136-crosscheck.md), [cross-machine research](docs/cross-machine-research.md), and [handoff](PROJECT_HANDOFF.md).
+**CONFIRMED:** 1.1.141.36 independently corroborates the 1.1.141.40 `GetEvkVersion` behavior and closes RX classification: B/0 with payload byte `A8` is the ACK for A/4, while A/4 is the EVK response that signals event 9. Both builds pass the two A/4 payload bytes from storage not initialized in the visible function. The target laptop has passed the passive hardware preflight and now also validates the exact-length RX drain model under GCC, Clang+ASan/UBSan and GCC `-fanalyzer`. The next gate is a reviewed Linux active-research backend that connects the already-tested state machine to real spidev exact reads and GPIO48 readiness without introducing reset or firmware APIs; see [protocol](docs/protocol.md), [1.1.141.36 cross-check](docs/windows-14136-crosscheck.md), [cross-machine research](docs/cross-machine-research.md), and [handoff](PROJECT_HANDOFF.md).
 
 ## Repository map
 

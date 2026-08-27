@@ -6,7 +6,7 @@
 
 ## État
 
-**CONFIRMÉ :** aucun pilote d’empreinte fonctionnel n’existe encore. La machine d’état Windows common-init/ACK/réponse est suffisamment résolue pour modéliser une tentative `GetEvkVersion`, le gate matériel passif spidev/libgpiod a réussi avec zéro transfert SPI, et un parser RX restreint est validé hors matériel. Le prochain gate est un modèle IRQ/RX hors matériel ; aucune nouvelle commande Milan active n’est encore autorisée.
+**CONFIRMÉ :** aucun pilote d’empreinte fonctionnel n’existe encore. La machine d’état Windows common-init/ACK/réponse est suffisamment résolue pour modéliser une tentative `GetEvkVersion`, le gate matériel passif spidev/libgpiod a réussi avec zéro transfert SPI, et le parser RX restreint ainsi que la machine d’état de drain IRQ/RX à longueur exacte sont validés hors matériel sur le portable cible. Aucune nouvelle commande Milan active n’est encore autorisée.
 
 ## Résumé confirmé de la plate-forme
 
@@ -26,7 +26,7 @@ Huawei MateBook 13 2021 : DMI `WRTB-WXX9`, version `M1020`, carte `WRTB-WXX9-PCB
 
 ## Limite actuelle
 
-**CONFIRMÉ :** la version 1.1.141.36 corrobore indépendamment le comportement `GetEvkVersion` de la 1.1.141.40 et ferme la classification RX : B/0 avec l’octet de payload `A8` est l’ACK de A/4, tandis que A/4 est la réponse EVK qui signale l’événement 9. Les deux versions passent les deux octets de payload A/4 depuis une zone non initialisée dans la fonction visible. Le portable cible a également réussi le preflight matériel passif (`SPI_TRANSFER_COUNT=0`, GPIO48 LOW, GPIO264 jamais demandé, cleanup complet). L’étape immédiate est un modèle **hors matériel** de drain IRQ/RX à longueur exacte ; voir [protocole](docs/protocol.md), [cross-check 1.1.141.36](docs/windows-14136-crosscheck.md), [recherche cross-machine](docs/cross-machine-research.md) et [handoff](PROJECT_HANDOFF.md).
+**CONFIRMÉ :** la version 1.1.141.36 corrobore indépendamment le comportement `GetEvkVersion` de la 1.1.141.40 et ferme la classification RX : B/0 avec l’octet de payload `A8` est l’ACK de A/4, tandis que A/4 est la réponse EVK qui signale l’événement 9. Les deux versions passent les deux octets de payload A/4 depuis une zone non initialisée dans la fonction visible. Le portable cible a réussi le preflight matériel passif et valide maintenant aussi le modèle de drain RX à longueur exacte sous GCC, Clang+ASan/UBSan et GCC `-fanalyzer`. Le prochain gate est un backend Linux de recherche active revu qui relie la machine d’état déjà testée aux lectures exactes spidev et à l’état de disponibilité GPIO48 sans introduire d’API de reset ou firmware ; voir [protocole](docs/protocol.md), [cross-check 1.1.141.36](docs/windows-14136-crosscheck.md), [recherche cross-machine](docs/cross-machine-research.md) et [handoff](PROJECT_HANDOFF.md).
 
 ## Carte du dépôt
 
