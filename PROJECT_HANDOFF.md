@@ -124,10 +124,15 @@ See [docs/protocol.md](docs/protocol.md) and
 - SPI mode 0 / 8-bit / 10-MHz configuration and explicit exact-length transfer primitives;
 - level-oriented IRQ wait logic;
 - passive libgpiod 2.x GPIO48 reader;
-- restricted RX parser for `FF FF FF FF`, B/0 ACK(A8), and A/4 EVK response.
+- restricted RX parser for `FF FF FF FF`, B/0 ACK(A8), and A/4 EVK response;
+- off-hardware exact-length RX drain/state adapter that composes readiness,
+  exact header/body reads, ACK/response classification, response caching,
+  one-retransmission generation invalidation, cancellation, and terminal
+  fail-closed behavior.
 
-All current unit tests pass with GCC and with Clang + ASan/UBSan. A regression test
-covers build directories containing spaces.
+All current unit tests pass with GCC and with Clang + ASan/UBSan. The RX drain
+also passes GCC `-fanalyzer`; a regression test covers build directories
+containing spaces.
 
 ## Passive hardware gate completed
 
@@ -158,18 +163,20 @@ See [docs/cross-machine-research.md](docs/cross-machine-research.md).
 
 Do **not** jump directly to a live A/4 write.
 
-Next implement and test, entirely off-hardware, an RX drain/state-machine adapter that:
+The off-hardware exact-length RX drain/state-machine gate is complete. Next,
+design and implement a **narrow Linux active-research backend** for one
+`GetEvkVersion` attempt only. It should:
 
-1. waits for IRQ level readiness;
-2. reads exactly 4 bytes;
-3. stops immediately on `FF FF FF FF`;
-4. validates outer length;
-5. reads exactly the announced body length;
-6. classifies B/0 ACK(A8) vs A/4 EVK response;
-7. continues draining only while justified by IRQ level/state;
-8. models ACK timeout, one retransmission, and separate response timeout;
-9. guarantees cancellation and cleanup without extra SPI operations.
+1. reuse dynamic spidev discovery and the existing mode-0/8-bit/10-MHz setup;
+2. expose the already-tested exact-length SPI read primitive to `milan_rx_drain`;
+3. add a real GPIO48 readiness adapter using level-oriented semantics, where an
+   edge/event is only a wakeup and the current HIGH level is authoritative;
+4. preserve the terminal stop after `FF FF FF FF` and after fatal read/parser errors;
+5. preserve the effective 1000 ms ACK and response windows and exactly one A/4
+   retransmission already modeled by `milan_attempt`;
+6. contain no GPIO264 output/reset API and no firmware-management API;
+7. compile and pass fake/off-hardware tests before any real SPI transfer is authorized.
 
-Only after that model is reviewed and fully tested should a single active
-`GetEvkVersion` experiment be designed. The full three-attempt + reset + final-attempt
-fallback remains out of scope.
+Only after this backend is reviewed, tested and statically audited should a
+single live `GetEvkVersion` experiment be designed. The full three-attempt +
+hard-reset + final-attempt common-init fallback remains out of scope.

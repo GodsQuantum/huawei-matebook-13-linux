@@ -161,3 +161,27 @@ and A/4 EVK response. Fragmented frames are rejected instead of guessed.
 **VERIFIED:** the complete research unit-test suite passes with GCC and with
 Clang + ASan/UBSan. The build-directory-with-spaces regression test also passes.
 No GPIO, SPI, or firmware operation occurred during this verification.
+
+## 2026-08-27: exact-length RX drain/state model validated offline
+
+**IMPLEMENTED OFF-HARDWARE:** `research/milan_rx_drain.*` now composes readiness
+with the restricted Milan parser and the one-attempt `GetEvkVersion` state
+machine. It performs exactly one four-byte header read after readiness, stops
+terminally on `FF FF FF FF`, validates the announced body length before an
+exact body read, classifies B/0 ACK(A8) and A/4 response frames, and permits
+ACK plus response to be drained while the same IRQ-high readiness window is
+active.
+
+**IMPLEMENTED OFF-HARDWARE:** if an A/4 response is observed before ACK, it may
+be cached for the separate response phase. If that ACK wait times out and
+`milan_attempt` retransmits A/4, the cached pre-timeout response is invalidated
+so a response from the first send cannot be paired with the second-send ACK.
+Fatal header/body read errors, invalid/oversize frames, cancellation and the
+`FF FF FF FF` sentinel fail closed for that drain instance.
+
+**VERIFIED ON THE TARGET LAPTOP WITHOUT HARDWARE I/O:** the complete research
+suite passes with GCC and with Clang + ASan/UBSan; `test_milan_rx_drain` passes
+independently; GCC `-fanalyzer` reports no issue; the passive preflight still
+compiles without being executed; the source audit finds no active write,
+GPIO264/reset or firmware primitive in the new drain code. No SPI bind/open/
+transfer, GPIO request/write or reset occurred during this verification.

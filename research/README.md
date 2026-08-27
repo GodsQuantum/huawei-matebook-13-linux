@@ -16,6 +16,11 @@ a fingerprint driver and exposes no firmware-management API.
   recognizes `FF FF FF FF` as the no-data stop sentinel, classifies B/0 messages
   targeting packed command `A8` as A/4 ACKs, and classifies A/4 as the separate
   EVK response. Fragmented frames are intentionally rejected for now.
+- `milan_rx_drain.*` is the off-hardware exact-length drain/state adapter used by
+  `milan_attempt.*`. It waits for readiness, reads exactly four header bytes,
+  stops terminally on `FF FF FF FF`, reads exactly the announced body, classifies
+  ACK/response frames, permits ACK and response in one IRQ-high window, and
+  invalidates a response cached before an ACK timeout before retransmission.
 - The model uses the effective 1000 ms minimum ACK and response timeouts
   observed in Goodix FP `1.1.141.40`, not merely the 100 ms / 500 ms values
   requested by `GetEvkVersion`.
@@ -65,9 +70,15 @@ must include `SPI_TRANSFER_COUNT=0`, `GPIO264_REQUESTED=NO`, and
 ## Current gate and deliberately excluded work
 
 The passive target-hardware preflight has completed successfully with zero SPI
-transfers and no GPIO264 request. There is still no GPIO reset implementation,
-three-attempt fallback, DriverState fallback, active Linux RX drain loop,
-enrollment, firmware operation, or libfprint integration. The next task is an
-off-hardware exact-length IRQ/RX drain model that composes the existing IRQ logic,
-SPI primitives, and restricted Milan RX parser. A live A/4 experiment remains
-gated on that model and review.
+transfers and no GPIO264 request. The exact-length RX drain/state model is also
+implemented and validated off-hardware on the target laptop with GCC,
+Clang+ASan/UBSan, GCC `-fanalyzer`, the passive-safety guard, and the
+build-directory-with-spaces regression.
+
+There is still no GPIO264/reset implementation, three-attempt fallback,
+DriverState fallback, enrollment, firmware operation, or libfprint integration.
+The next task is a reviewed Linux active-research backend that connects this
+tested state machine to the existing spidev exact-read primitive and a real
+GPIO48 readiness adapter. It must remain narrowly scoped to one
+`GetEvkVersion` attempt and must not itself implement the full common-init
+fallback. A live A/4 experiment remains gated on that backend, tests, and review.
