@@ -6,7 +6,16 @@
 
 ## Status
 
-**CONFIRMED:** no working fingerprint driver exists yet. The Windows common-init/ACK/response state machine is statically resolved far enough to model one `GetEvkVersion` attempt, the passive spidev/libgpiod hardware gate has passed with zero SPI transfers, and both the restricted RX parser and exact-length IRQ/RX drain state machine are validated off-hardware on the target laptop. No new active Milan command is authorized yet.
+
+**CONFIRMED:** no working fingerprint driver exists yet. The first supervised
+one-shot live probe has been executed without firmware activity. GPIO48 remained
+LOW through the DriverState and A/4 ACK windows, so the exact-length RX gate
+performed zero SPI reads. Static follow-up established that the probe's
+historical DriverState preamble was incomplete: DriverState:Install uses generic
+B/0 ACK bookkeeping for CHIP 9/3, an effective 1000 ms ACK window, one exact
+retransmission per transport call, two wrapper calls, and a hard reset only
+after both wrapper calls fail. That corrected model is now validated
+off-hardware on the target laptop. No probe #2 has been executed.
 
 ## Confirmed platform summary
 
@@ -22,20 +31,35 @@ Huawei MateBook 13 2021: DMI `WRTB-WXX9`, version `M1020`, board `WRTB-WXX9-PCB`
 
 ## Latest live result
 
-**CONFIRMED:** every controlled Linux SPI submission returned `0`, but GPIO48 did not transition, IRQ remained low, and the single four-byte read was `FF FF FF FF`. No second read and no firmware operation occurred. Controller submission is not MCU acceptance.
+
+**CONFIRMED:** the first supervised one-shot probe completed its bounded path
+and cleanup. Twelve physical SPI write transactions were submitted: the
+historical DriverState preamble, one `GetEvkVersion` attempt, and the single A/4
+retransmission allowed by the model. GPIO48 remained LOW throughout, so the
+exact-length RX gate correctly performed **zero SPI reads**. A/4 ended in ACK
+timeout after its one retransmission. Internal cleanup restored GPIO264 LOW and
+the supervisor restored the temporary spidev state. No firmware operation
+occurred. Controller submission is not MCU acceptance.
 
 ## Current boundary
 
-**CONFIRMED:** the single-purpose live-probe harness and its independent
-external fail-safe are now validated off-hardware on the target laptop. The
-supervisor owns temporary spidev bind/unbind, enforces an 8-second wall-clock
-timeout with TERM then KILL-after-2s, requires the probe's cleanup/final-LOW
-markers, and invokes a separate GPIO264-only restore helper when those markers
-are missing. The helper reuses the proven HIGH 10 ms -> LOW 100 ms -> final LOW
-sequence and contains no SPI or Milan protocol logic. The real probe and restore
-binaries compile against libgpiod 2.3.1 but have not been executed. The next
-step is a final command-path review followed by at most one reviewed hardware
-probe; no firmware operation or full common-init fallback is authorized.
+
+**CONFIRMED:** DriverState is no longer represented by fixed 100 ms sleeps.
+Generic B/0 ACK handling now matches the packed command being acknowledged;
+DriverState:Install targets `0x96` (CHIP 9/3), waits the effective 1000 ms ACK
+window, permits one exact retransmission per wrapper call, makes at most two
+wrapper calls, and performs the proven hard reset only after both calls time
+out. The target-laptop offline gate passes GCC, Clang+ASan/UBSan, GCC
+`-fanalyzer`, source-safety/privacy checks, and real libgpiod 2.3.1 build/link
+without executing those binaries.
+
+The independent supervisor now requires the probe-#2 confirmation token
+`GXFP51A0_REVIEWED_PROBE_2` and uses a 12-second wall-clock timeout while
+retaining TERM/KILL fail-safe handling, cleanup-marker verification,
+GPIO264-only restore fallback, and unconditional spidev restoration. The next
+gate is final review of this exact corrected command path, followed by at most
+one supervised probe #2. Firmware operations and the full three-attempt
+common-init fallback remain excluded.
 
 ## Repository map
 

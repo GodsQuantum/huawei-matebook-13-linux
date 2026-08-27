@@ -6,7 +6,17 @@
 
 ## État
 
-**CONFIRMÉ :** aucun pilote d’empreinte fonctionnel n’existe encore. La machine d’état Windows common-init/ACK/réponse est suffisamment résolue pour modéliser une tentative `GetEvkVersion`, le gate matériel passif spidev/libgpiod a réussi avec zéro transfert SPI, et le parser RX restreint ainsi que la machine d’état de drain IRQ/RX à longueur exacte sont validés hors matériel sur le portable cible. Aucune nouvelle commande Milan active n’est encore autorisée.
+
+**CONFIRMÉ :** aucun pilote d’empreinte fonctionnel n’existe encore. Le premier
+probe one-shot supervisé a été exécuté sans aucune opération firmware. GPIO48
+est resté LOW pendant les fenêtres ACK DriverState et A/4 ; le gate RX à
+longueur exacte a donc effectué zéro lecture SPI. L’analyse statique qui a suivi
+a établi que le préambule DriverState historique du probe était incomplet :
+DriverState:Install utilise l’ACK générique B/0 pour CHIP 9/3, une fenêtre ACK
+effective de 1000 ms, une retransmission exacte par appel transport, deux appels
+wrapper, puis un hard reset uniquement si les deux appels échouent. Ce modèle
+corrigé est maintenant validé hors matériel sur le portable cible. Aucun probe
+#2 n’a été exécuté.
 
 ## Résumé confirmé de la plate-forme
 
@@ -22,21 +32,37 @@ Huawei MateBook 13 2021 : DMI `WRTB-WXX9`, version `M1020`, carte `WRTB-WXX9-PCB
 
 ## Dernier résultat en direct
 
-**CONFIRMÉ :** chaque soumission SPI Linux contrôlée a retourné `0`, mais GPIO48 n’a pas changé d’état, l’IRQ est restée basse et l’unique lecture de quatre octets était `FF FF FF FF`. Aucune seconde lecture ni aucune opération firmware n’a eu lieu. Une soumission contrôleur n’est pas une acceptation MCU.
+
+**CONFIRMÉ :** le premier probe one-shot supervisé a terminé son chemin borné et
+son cleanup. Douze transactions physiques d’écriture SPI ont été soumises : le
+préambule DriverState historique, une tentative `GetEvkVersion` et l’unique
+retransmission A/4 autorisée par le modèle. GPIO48 est resté LOW pendant toute
+l’expérience ; le gate RX à longueur exacte a donc correctement effectué
+**zéro lecture SPI**. A/4 s’est terminé en timeout ACK après son unique
+retransmission. Le cleanup interne a restauré GPIO264 LOW et le superviseur a
+restauré l’état spidev temporaire. Aucune opération firmware n’a eu lieu. Une
+soumission contrôleur n’est pas une acceptation MCU.
 
 ## Limite actuelle
 
-**CONFIRMÉ :** le harness de probe unique et son filet de sécurité externe
-indépendant sont maintenant validés hors matériel sur le portable cible. Le
-superviseur possède le bind/unbind spidev temporaire, impose un timeout global
-de 8 secondes avec TERM puis KILL après 2 secondes, exige les marqueurs de
-cleanup/LOW final du probe et appelle un helper séparé limité à GPIO264 si ces
-marqueurs manquent. Ce helper réutilise le reset prouvé HIGH 10 ms -> LOW 100 ms
--> état final LOW et ne contient aucune logique SPI/Milan. Les binaires réels se
-compilent contre libgpiod 2.3.1 mais n'ont pas été exécutés. La prochaine étape
-est la revue finale du chemin de commande puis au maximum un probe hardware
-revu ; aucune opération firmware ni fallback common-init complet n'est
-autorisé.
+
+**CONFIRMÉ :** DriverState n’est plus représenté par de simples pauses fixes de
+100 ms. Le traitement ACK générique B/0 correspond maintenant à la commande
+packed acquittée ; DriverState:Install cible `0x96` (CHIP 9/3), attend la
+fenêtre ACK effective de 1000 ms, autorise une retransmission exacte par appel
+wrapper, effectue au maximum deux appels wrapper et n’exécute le hard reset
+prouvé qu’après timeout des deux appels. Le gate hors matériel sur la machine
+cible passe GCC, Clang+ASan/UBSan, GCC `-fanalyzer`, les contrôles
+source/privacy et le build/link réel contre libgpiod 2.3.1 sans exécuter ces
+binaires.
+
+Le superviseur indépendant exige désormais le token
+`GXFP51A0_REVIEWED_PROBE_2` et utilise un timeout global de 12 secondes tout en
+conservant TERM/KILL, la validation des marqueurs de cleanup, le helper de
+restauration limité à GPIO264 et la restauration inconditionnelle de spidev. La
+prochaine étape est la revue finale de ce chemin de commande corrigé, puis au
+maximum un probe #2 supervisé. Les opérations firmware et le fallback
+common-init complet à trois tentatives restent exclus.
 
 ## Carte du dépôt
 

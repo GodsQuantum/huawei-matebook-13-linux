@@ -394,6 +394,41 @@ static void test_driver_install_uses_exact_confirmed_vector(void)
 }
 
 
+static void test_driverstate_wait_ack_reads_generic_b0_target_96(void)
+{
+    static const uint8_t ack_header[] = {0xa0, 0x06, 0x00, 0xa6};
+    static const uint8_t ack_body[] = {0xb0, 0x03, 0x00, 0x96, 0x00, 0x61};
+    const struct gxfp_spi_ops spi_ops = {
+        .open_fn = dummy_open,
+        .close_fn = dummy_close,
+        .ioctl_fn = fake_ioctl,
+    };
+    struct fake_ctx f = {
+        .reads = {ack_header, ack_body},
+        .read_lens = {sizeof(ack_header), sizeof(ack_body)},
+        .irq_level = 1,
+    };
+    struct gxfp_spi spi = {
+        .fd = 7,
+        .max_speed_hz = GXFP_SPI_MAX_SPEED_HZ,
+        .ops = &spi_ops,
+    };
+    struct gxfp_linux_level_ops irq = level_ops(&f);
+    struct gxfp_linux_active_backend active;
+    struct gxfp_attempt_backend attempt;
+
+    g_fake = &f;
+    assert(gxfp_linux_active_backend_init(&active, &spi, &irq,
+                                          fake_sleep, &f));
+    assert(gxfp_linux_active_backend_attempt(&active, &attempt));
+    assert(gxfp_linux_active_backend_send_driver_install(&active) == GXFP_IO_OK);
+    assert(attempt.wait_ack(attempt.ctx, 0x09, 0x03, 1000) == GXFP_IO_OK);
+    assert(f.read_pos == 2);
+    assert(f.xfer_count == 4);
+    assert(f.xfers[2].is_write == 0 && f.xfers[2].len == 4);
+    assert(f.xfers[3].is_write == 0 && f.xfers[3].len == 6);
+}
+
 static void test_transfer_trace_reports_exact_physical_io(void)
 {
     static const uint8_t ack_header[] = {0xa0, 0x06, 0x00, 0xa6};
@@ -448,6 +483,7 @@ int main(void)
     test_cancel_between_outer_and_inner_stops_before_second_write();
     test_ff_header_is_terminal_and_never_reads_a_body();
     test_driver_install_uses_exact_confirmed_vector();
+    test_driverstate_wait_ack_reads_generic_b0_target_96();
     test_transfer_trace_reports_exact_physical_io();
     puts("test_linux_active_backend: OK");
     return 0;

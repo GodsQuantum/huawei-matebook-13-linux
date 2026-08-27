@@ -427,9 +427,31 @@ static void test_full_attempt_retransmits_once_then_uses_separate_response_phase
     assert(f.rx.response_seen);
 }
 
+static void test_generic_ack_wait_ignores_unrelated_ack_and_matches_driverstate(void)
+{
+    struct fake_io f = { .irq_level = 1, .wait_result = GXFP_IO_OK };
+    struct gxfp_evk_rx_adapter adapter;
+    const uint8_t header[4] = {0xa0, 0x06, 0x00, 0xa6};
+    const uint8_t a4_ack[6] = {0xb0, 0x03, 0x00, 0xa8, 0x00, 0x4f};
+    const uint8_t driver_ack[6] = {0xb0, 0x03, 0x00, 0x96, 0x00, 0x61};
+
+    add_frame(&f, header, a4_ack, sizeof(a4_ack));
+    add_frame(&f, header, driver_ack, sizeof(driver_ack));
+    adapter = make_adapter(&f);
+
+    assert(gxfp_evk_rx_wait_ack(&adapter, 0x09, 0x03, 1000) == GXFP_IO_OK);
+    assert(f.read_pos == 4);
+    assert(adapter.ack_seen);
+    assert(adapter.ack_status == 0);
+
+    assert(gxfp_evk_rx_wait_ack(&adapter, 0x10, 0x00, 1000) == GXFP_IO_ERROR);
+    assert(gxfp_evk_rx_wait_ack(&adapter, 0x00, 0x08, 1000) == GXFP_IO_ERROR);
+}
+
 int main(void)
 {
     test_ack_then_response_can_share_one_irq_high_window();
+    test_generic_ack_wait_ignores_unrelated_ack_and_matches_driverstate();
     test_response_before_ack_is_cached_without_extra_read();
     test_ff_header_is_terminal_and_forbids_any_second_read();
     test_low_irq_wait_timeout_performs_no_spi_read();

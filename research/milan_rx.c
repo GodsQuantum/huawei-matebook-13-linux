@@ -8,7 +8,6 @@
 #define GXFP_CMD_MSG 0x0bu
 #define GXFP_CMD1_EVK 0x04u
 #define GXFP_CMD1_MSG_ACK 0x00u
-#define GXFP_PACKED_A4 0xa8u
 #define GXFP_EVK_MAX_RESPONSE 64u
 
 static uint8_t sum8(const uint8_t *buf, size_t len)
@@ -84,11 +83,19 @@ bool gxfp_milan_rx_classify_evk(const uint8_t *body,
     frame->cmd1 = cmd1;
     frame->payload = payload;
     frame->payload_len = payload_len;
+    frame->ack_cmd0 = 0;
+    frame->ack_cmd1 = 0;
     frame->ack_status = 0;
 
     if (cmd0 == GXFP_CMD_MSG && cmd1 == GXFP_CMD1_MSG_ACK &&
-        payload_len >= 2 && payload[0] == GXFP_PACKED_A4) {
+        payload_len >= 2) {
+        uint8_t ack_packed = payload[0];
+
+        if ((ack_packed & 0x01u) != 0)
+            return false;
         frame->kind = GXFP_MILAN_EVK_ACK;
+        frame->ack_cmd0 = (uint8_t)(ack_packed >> 4);
+        frame->ack_cmd1 = (uint8_t)((ack_packed & 0x0eu) >> 1);
         frame->ack_status = payload[1];
         return true;
     }

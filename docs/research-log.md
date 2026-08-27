@@ -251,3 +251,52 @@ restore helper link against libgpiod 2.3.1 but were not executed. No real SPI
 bind/open/transfer, GPIO request/write or reset occurred during this gate.
 
 **NEXT:** final command-path review, then at most one supervised hardware probe.
+
+
+## 2026-08-27: first supervised one-shot hardware probe
+
+**CONFIRMED on the target laptop:** the independent supervisor executed one
+bounded live probe after the offline fail-safe gate. The run used the proven
+GPIO264 reset, the then-current historical DriverState preamble, and exactly one
+`GetEvkVersion` logical attempt with A/4 Linux fixture `00 00`.
+
+Twelve physical SPI write transactions were submitted. GPIO48 remained LOW
+throughout all readiness windows, therefore the exact-length RX backend
+performed zero SPI reads. No ACK was observed; A/4 reached its effective ACK
+timeout, retransmitted exactly once, and reached the second ACK timeout.
+Internal cleanup restored GPIO264 LOW and the supervisor restored temporary
+spidev/module state. No firmware operation occurred.
+
+**INTERPRETATION LIMIT:** controller-successful SPI submission is not MCU
+acceptance, and this run did not isolate A/4. Its DriverState preamble still
+used the research approximation of two Install sends separated by fixed
+100 ms sleeps.
+
+## 2026-08-27: DriverState ACK/retry/reset model corrected offline
+
+**CONFIRMED by static analysis:** DriverState:Install is CHIP 9/3, packed
+command `0x96`. The B/0 message handler performs generic ACK bookkeeping from
+its first payload byte, so `payload[0] == 0x96` sets ACK(9,3). The DriverState
+wrapper requests a 100 ms ACK timeout, which `SpiSendDataToDevice` raises to an
+effective 1000 ms minimum. This command has no separate response-event phase.
+
+**CONFIRMED by static analysis:** each DriverState wrapper call may retransmit
+the exact Install packet once after the first ACK timeout. The higher helper
+makes at most two wrapper calls. Success in either call skips the DriverState
+reset; only two failed wrapper calls invoke `HardResetMcu`. A fully silent path
+therefore permits at most four physical Install packet sends before the
+conditional reset.
+
+**IMPLEMENTED/VERIFIED OFF-HARDWARE ON THE TARGET LAPTOP:** the RX parser/drain
+now match generic ACK targets, the probe harness implements the exact
+DriverState nested retry/reset behavior, A/4 remains the unchanged deterministic
+`00 00` fixture, and the independent supervisor requires
+`GXFP51A0_REVIEWED_PROBE_2` with a 12-second wall-clock timeout. GCC,
+Clang+ASan/UBSan, focused generic-ACK/DriverState tests, GCC `-fanalyzer`,
+source-safety/privacy checks, and real libgpiod 2.3.1 build/link all pass.
+No real binary, SPI bind/open/transfer, GPIO request/write or reset was executed
+during this correction gate.
+
+**NEXT:** final review of this exact corrected command path, then at most one
+supervised probe #2. No firmware operation or full common-init fallback is
+authorized.

@@ -25,6 +25,16 @@ grep -q 'gpiod_line_request_set_value' "$reset"
 # Experiment payload remains the explicitly labelled deterministic fixture.
 grep -q 'static const uint8_t a4_payload\[2\] = {0x00, 0x00}' "$runtime"
 grep -q 'A4_PAYLOAD_FIXTURE=00 00' "$runtime"
+grep -q 'DRIVERSTATE_ACK_TARGET=96' "$runtime"
+grep -q 'DRIVERSTATE_RESULT=' "$runtime"
+grep -q 'DRIVERSTATE_RESET_PERFORMED=' "$runtime"
+
+# DriverState uses ACK(9,3) at the effective 1000 ms minimum; old fixed 100 ms sleeps are forbidden.
+grep -q 'GXFP_DRIVERSTATE_ACK_TIMEOUT_MS 1000u' "$core"
+if grep -q 'GXFP_PREAMBLE_INSTALL_WAIT_MS' "$core"; then
+    echo 'safety violation: obsolete fixed DriverState wait remains' >&2
+    exit 1
+fi
 
 # Fixed DriverState vector only; no generic command encoder or firmware flow.
 grep -q '0x96, 0x03, 0x00, 0x01, 0x00, 0x10' "$packet"

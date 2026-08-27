@@ -183,27 +183,41 @@ Windows ACK flag, A/4 retransmission, or separate response-event phase.
 
 ## Separate DriverState fallback
 
-This is a different control path and must not be conflated with the
-`GetEvkVersionWithRetry` fallback. `send_driver_install_to_MCU` at
-`0x1800811ac` calls `0x180072dcc`, which sends NOP and then
-DriverState:Install (`CHIP 9/3`). On a timeout it retries Install once; after
-the second failure it calls `HardResetMcu`. Its caller at `0x1800180b4`
-continues into `init_MCU` at `0x180080a88` after that function returns.
 
-**CONFIRMED by the recorded live sequence:** the previous Linux test
-reproduced NOP and both Install writes with their 100 ms waits but
-intentionally did not reproduce this separate DriverState hard-reset branch.
-Whether the next experiment holds that preamble constant or includes the
-additional DriverState reset is an experiment-scope decision, not an
-unresolved fact about the A/4 fallback.
+This is distinct from `GetEvkVersionWithRetry`. `send_driver_install_to_MCU` at
+`0x1800811ac` calls `0x180072dcc`, which first sends NOP and then uses the
+generic send/wait wrapper for DriverState:Install (`CHIP 9/3`, packed `0x96`).
+
+The wrapper requests an ACK timeout of 100 ms. `SpiSendDataToDevice` raises that
+positive value to an effective minimum of 1000 ms and uses generic per-command
+ACK bookkeeping. A B/0 ACK with `payload[0] == 0x96` sets ACK(9,3). This
+DriverState call has no separate response phase: `response_timeout=0` and event
+index `-1`.
+
+Each wrapper call may send the exact same Install packet at most twice. After
+the first ACK timeout the lower transport retransmits once and waits again; a
+second ACK timeout fails that wrapper call. `0x180072dcc` makes at most two such
+wrapper calls. Success in either returns without a DriverState reset. Only after
+both fail does it invoke `HardResetMcu`; its caller then continues into
+`init_MCU`.
+
+A completely silent device can therefore receive at most four physical
+DriverState:Install packet sends before the conditional reset. The first
+supervised Linux probe still used the older research approximation of two
+Install writes separated by fixed 100 ms sleeps; that approximation is now
+superseded.
 
 ## Boundary for the next experiment
 
-This analysis resolves the previously open static gate. It does not by itself
-authorize an unreviewed hardware write. The transport timing ambiguity that blocked the previous probe is now resolved
-statically. The next active experiment must nevertheless stay smaller than the
-full fallback: simulate and review one `GetEvkVersion` attempt first, then run
-at most that single attempt on hardware. Its two-byte A/4 payload must be an
-explicitly labeled fixture because the Windows values remain unknown. It must
-use the controls in [safety.md](safety.md), a stated stop condition,
-exact-length reads, and final Windows reset restoration.
+
+The first supervised one-shot Linux probe has now been executed. Its A/4 path
+used the reviewed ACK/retransmission logic, but its preceding DriverState
+sequence still used the older two-write/fixed-100-ms research approximation.
+GPIO48 remained LOW and no RX read occurred, so that run cannot isolate A/4
+acceptance from the incomplete DriverState preamble.
+
+The corrected DriverState ACK/retry/reset model is validated off-hardware and
+probe #2 must change only that one hypothesis. It remains limited to one
+`GetEvkVersion` logical attempt with the explicitly labeled Linux A/4 `00 00`
+fixture, exact-length reads, the reviewed supervisor, unconditional final reset
+restoration and no full common-init or firmware flow.
