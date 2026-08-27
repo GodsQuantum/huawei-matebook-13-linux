@@ -303,8 +303,23 @@ static void test_cleanup_failure_is_distinct_and_preserves_primary_result(void)
     assert(report.cleanup_result == GXFP_IO_ERROR);
 }
 
+
+static void test_public_restore_sequence_is_high10_low100(void)
+{
+    struct fake f = {0};
+    struct gxfp_probe_reset_ops reset;
+    struct gxfp_probe_preamble_ops pre;
+    struct gxfp_attempt_backend attempt;
+
+    make_ops(&f, &reset, &pre, &attempt);
+    assert(gxfp_probe_restore_reset(&reset) == GXFP_IO_OK);
+    assert(f.count == 4);
+    assert_reset_at(&f, 0);
+}
+
 int main(void)
 {
+    test_public_restore_sequence_is_high10_low100();
     test_success_preserves_fixed_preamble_and_always_cleans_up();
     test_ack_timeout_retransmits_a4_once_then_cleanup();
     test_preamble_failure_never_enters_evk_but_cleanup_runs();

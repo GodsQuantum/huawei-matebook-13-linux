@@ -7,8 +7,8 @@
 #define GXFP_PREAMBLE_NOP_DELAY_MS 5u
 #define GXFP_PREAMBLE_INSTALL_WAIT_MS 100u
 
-static enum gxfp_io_result
-reset_sequence(const struct gxfp_probe_reset_ops *ops)
+enum gxfp_io_result
+gxfp_probe_restore_reset(const struct gxfp_probe_reset_ops *ops)
 {
     enum gxfp_io_result first = GXFP_IO_OK;
     enum gxfp_io_result r;
@@ -84,7 +84,7 @@ gxfp_probe_run(const struct gxfp_probe_reset_ops *reset,
         attempt == NULL || a4_payload == NULL || report == NULL)
         return GXFP_PROBE_INVALID;
 
-    io = reset_sequence(reset);
+    io = gxfp_probe_restore_reset(reset);
     if (io != GXFP_IO_OK) {
         primary = GXFP_PROBE_INITIAL_RESET_ERROR;
         goto cleanup;
@@ -130,7 +130,7 @@ gxfp_probe_run(const struct gxfp_probe_reset_ops *reset,
     primary = map_evk(evk);
 
 cleanup:
-    cleanup = reset_sequence(reset);
+    cleanup = gxfp_probe_restore_reset(reset);
     report->primary_result = primary;
     report->evk_result = evk;
     report->cleanup_result = cleanup;

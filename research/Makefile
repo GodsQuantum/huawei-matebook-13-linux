@@ -14,9 +14,10 @@ TEST_LINUX_ACTIVE_BACKEND := $(BUILD_DIR)/test_linux_active_backend
 TEST_PROBE_HARNESS := $(BUILD_DIR)/test_probe_harness
 ACTIVE_RUNTIME_OBJ := $(BUILD_DIR)/active_runtime.o
 PROBE_BIN := $(BUILD_DIR)/gxfp-live-probe
+RESET_RESTORE_BIN := $(BUILD_DIR)/gxfp-reset-restore
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile
+.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile reset-restore-compile
 
 all: test
 
@@ -65,13 +66,19 @@ test_active_runtime_source_safety:
 test_probe_runtime_source_safety:
 	./tests/test_probe_runtime_source_safety.sh
 
+test_live_probe_supervisor:
+	./tests/test_live_probe_supervisor.sh
+
+test_reset_restore_source_safety:
+	./tests/test_reset_restore_source_safety.sh
+
 test_passive_safety:
 	./tests/test_passive_safety.sh
 
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \
@@ -101,6 +108,17 @@ probe-runtime-compile: prepare-build
 		milan_rx_drain.c milan_attempt.c \
 		$$(pkg-config --libs libgpiod) -o "$(PROBE_BIN)"
 	@echo "$(PROBE_BIN)"
+
+reset-restore-compile: prepare-build
+	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \
+	if [ "$$major" != "2" ]; then \
+		echo "ERROR: reset-restore-compile requires libgpiod major version 2" >&2; \
+		exit 1; \
+	fi
+	$(CC) $(CFLAGS) -I. $$(pkg-config --cflags libgpiod) \
+		linux/reset_restore.c linux/gpiod_reset.c probe_harness.c milan_attempt.c \
+		$$(pkg-config --libs libgpiod) -o "$(RESET_RESTORE_BIN)"
+	@echo "$(RESET_RESTORE_BIN)"
 
 clean:
 	rm -rf -- "$(BUILD_DIR)"

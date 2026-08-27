@@ -231,3 +231,23 @@ change or reset occurred during this gate.
 
 **NEXT:** validate an external supervisor and separate GPIO264-only restore
 helper before authorizing a single live probe.
+
+## 2026-08-27: external live-probe fail-safe validated offline
+
+**IMPLEMENTED OFF-HARDWARE:** an independent shell supervisor now owns the
+temporary spidev lifecycle and runs the live-probe process group under an
+8-second hard timeout. Normal cleanup is accepted only when the probe emits
+both `CLEANUP_RESULT=0` and `GPIO264_AFTER=0`.
+
+**FAIL-SAFE:** if cleanup cannot be confirmed, the terminated probe is followed
+by a separate GPIO264-only restore helper. The helper contains no SPI/Milan
+logic and reuses the proven HIGH-10-ms / LOW-100-ms reset sequence, verifying
+the final LOW level.
+
+**VERIFIED ON TARGET WITHOUT HARDWARE I/O:** fake supervisor tests cover normal
+cleanup, crash, timeout, restore failure, supervisor interruption and spidev
+initially unloaded. GCC and Clang+ASan/UBSan suites pass. The real probe and
+restore helper link against libgpiod 2.3.1 but were not executed. No real SPI
+bind/open/transfer, GPIO request/write or reset occurred during this gate.
+
+**NEXT:** final command-path review, then at most one supervised hardware probe.

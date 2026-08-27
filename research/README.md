@@ -69,21 +69,16 @@ must include `SPI_TRANSFER_COUNT=0`, `GPIO264_REQUESTED=NO`, and
 
 ## Current gate and deliberately excluded work
 
-The passive target-hardware preflight, exact-length RX drain/state model,
-level-only active backend, and single-purpose live-probe harness are complete
-and validated off-hardware.
+The passive preflight, exact-length RX drain, level-only active backend,
+single-purpose live-probe harness, and external fail-safe supervisor are now
+validated off-hardware.
 
-The harness adds only the proven GPIO264 reset/cleanup and the fixed historical
-DriverState:Install preamble around exactly one `GetEvkVersion` attempt. GPIO264
-is requested `AS_IS` only after checking that firmware already exposes the line
-as a free active-high OUTPUT. The runtime contains no firmware-management API
-and no full common-init fallback.
+The supervisor contains no direct GPIO or Milan protocol primitive. It owns the
+temporary spidev binding, imposes a hard timeout, checks the probe's cleanup
+markers, and calls a separate GPIO264-only restore helper when cleanup cannot
+be confirmed. The restore helper contains no SPI logic.
 
-The real `gxfp-live-probe` binary links successfully against libgpiod 2.3.1 on
-the target laptop, but it has never been executed.
-
-The next gate is an independent external supervisor plus a GPIO264-only restore
-helper. The supervisor must own temporary spidev bind/unbind, enforce a hard
-timeout, call the external restore helper only when the probe cannot confirm
-cleanup/final LOW, and clear `driver_override` on every exit. Until that gate
-passes, a live probe remains unauthorized.
+The real probe and restore helper compile against libgpiod 2.3.1 on the target
+laptop but have never been executed. The next gate is a final execution-path
+review followed by at most one supervised hardware probe. Full common-init,
+firmware management, enrollment and libfprint integration remain excluded.

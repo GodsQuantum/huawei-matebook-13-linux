@@ -22,22 +22,23 @@ Record the hypothesis, minimum writes, expected IRQ/read result, stop condition,
 
 ## Live-probe harness execution gate
 
-The single-purpose live-probe harness may be committed and compiled while
-remaining **not authorized for execution**. Before the first live run, an
-independent parent supervisor must be validated off-hardware.
+The independent external supervisor/restore gate has passed
+off-hardware. A live probe, if run, must be launched only through that
+supervisor and never by invoking `gxfp-live-probe` directly.
 
-The supervisor must:
+Required execution invariants:
 
-- own the temporary spidev bind and clear it afterward;
-- impose a hard wall-clock timeout;
-- treat the probe's `CLEANUP_RESULT=0` plus `GPIO264_AFTER=0` markers as the
-  only normal-cleanup confirmation;
-- if those markers are missing, wait until the probe process is terminated,
-  then invoke a separate GPIO264-only restore helper;
-- restore GPIO264 using HIGH 10 ms -> LOW 100 ms -> final LOW;
-- unbind spidev and clear `driver_override` on every exit path;
-- contain no Milan packet, SPI transfer, firmware, enrollment or libfprint logic.
+- explicit reviewed-probe confirmation token;
+- target initially unbound with empty `driver_override`;
+- supervisor-owned temporary spidev bind/unbind;
+- 8-second hard timeout with process-group termination;
+- internal cleanup accepted only with both `CLEANUP_RESULT=0` and
+  `GPIO264_AFTER=0`;
+- otherwise separate GPIO264-only restore after probe termination;
+- unconditional unbind/override cleanup and restoration of spidev module
+  pre-state;
+- exactly one reviewed probe; no automatic retry of the overall experiment.
 
-This external layer protects against a crash/hang of the probe process. It
-cannot guarantee cleanup after system power loss or SIGKILL of the supervisor
-itself; userspace cannot make such a guarantee.
+This protects against ordinary probe crashes, hangs and handled terminal
+signals. Power loss or SIGKILL of the supervisor itself remain outside
+userspace guarantees.
