@@ -79,42 +79,62 @@ Windows suppresses fallback during D0Exit; otherwise it performs one `HardResetM
 and exactly one final attempt. DriverState has a separate retry/reset path and must not
 be conflated with this fallback.
 
+
+## Windows DriverState:Install ACK/retry/reset path
+
+**CONFIRMED by disassembly and the generic ACK dispatcher:** DriverState:Install
+is CHIP 9/3, packed command `0x96`. Its send path requests a 100 ms ACK timeout,
+which the generic transport raises to an effective minimum of 1000 ms. B/0 ACK
+messages carry the packed command being acknowledged in `payload[0]`, therefore
+`payload[0] == 0x96` sets ACK(9,3).
+
+The DriverState helper sends NOP and then makes up to two wrapper calls. Each
+wrapper call may physically send the exact same Install packet twice: first
+send, wait ACK; on timeout, one exact retransmission and a second ACK wait.
+DriverState has no separate response-event phase here (`response_timeout=0`,
+event index `-1`). Success in either wrapper call skips the DriverState reset.
+Only after both wrapper calls fail does Windows invoke `HardResetMcu`, after
+which its caller proceeds into `init_MCU`.
+
+A fully silent path can therefore send at most four physical
+DriverState:Install packets before the conditional reset. This supersedes the
+earlier Linux research approximation of two Install writes separated by fixed
+100 ms sleeps.
+
 ## RX classification closed by 1.1.141.36
+
 
 The independently obtained Goodix FP `1.1.141.36` package has SHA-256
 `74052a274239e17ac8fa95314e22d8db1770a3b9df28c90c9a9178231418f435`.
 Its `gfspi.dll` SHA-256 is
 `4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59`.
-The INF explicitly supports both `ACPI\GXFP51A0` and `ACPI\GXFP51A7`; internal paths
-identify `MilanSpi` / `GF3658`, and the binary carries firmware string
-`GF_ST411SEC_APP_14114`.
+The INF explicitly supports both `ACPI\GXFP51A0` and `ACPI\GXFP51A7`;
+internal paths identify `MilanSpi` / `GF3658`.
 
-For an outer A frame, the body starts with the packed command byte and a little-endian
-inner length. Windows derives:
+For an outer A frame, Windows derives:
 
 ```text
 cmd0 = packed >> 4
 cmd1 = (packed & 0x0e) >> 1
 ```
 
-For `GetEvkVersion`:
+B/0 is generic ACK bookkeeping: its first payload byte is the packed command
+being acknowledged. The currently evidenced targets include:
 
 ```text
-B/0 message + payload[0] == A8  -> ACK for A/4; set ACK(A,4)
-A/4 normal response             -> copy EVK payload; signal event 9
+B/0 + payload[0] == 96  -> ACK for DriverState:Install; set ACK(9,3)
+B/0 + payload[0] == A8  -> ACK for A/4; set ACK(A,4)
+A/4 normal response     -> copy EVK payload; signal event 9
 ```
 
-Therefore ACK and response are software-distinct frames and may be drained within one
-IRQ-high window; two physical IRQ edges are not required.
-
-The 1.1.141.36 `GetEvkVersion` call site also passes two A/4 payload bytes from stack
-storage not initialized in the visible function, matching 1.1.141.40. This makes a
-mandatory fixed vendor payload unlikely but still does not prove Windows sends zeroes.
-
-See [docs/protocol.md](docs/protocol.md) and
-[docs/windows-14136-crosscheck.md](docs/windows-14136-crosscheck.md).
+ACK and response are software-distinct frames and may be drained within one
+IRQ-high window; two physical IRQ edges are not required. The 1.1.141.36
+`GetEvkVersion` call site also passes two A/4 payload bytes from stack storage
+not initialized in the visible function, matching 1.1.141.40. This does not
+prove Windows sends zeroes.
 
 ## Linux transport implementation status
+
 
 `research/` now contains:
 
@@ -122,17 +142,19 @@ See [docs/protocol.md](docs/protocol.md) and
 - one-attempt `GetEvkVersion` state machine;
 - spidev discovery without hardcoded `/dev/spidevN.M`;
 - SPI mode 0 / 8-bit / 10-MHz configuration and explicit exact-length transfer primitives;
-- level-oriented IRQ wait logic;
-- passive libgpiod 2.x GPIO48 reader;
-- restricted RX parser for `FF FF FF FF`, B/0 ACK(A8), and A/4 EVK response;
-- off-hardware exact-length RX drain/state adapter that composes readiness,
-  exact header/body reads, ACK/response classification, response caching,
-  one-retransmission generation invalidation, cancellation, and terminal
-  fail-closed behavior.
+- level-oriented GPIO48 readiness logic;
+- generic B/0 ACK parsing/matching plus A/4 EVK response classification;
+- exact-length RX drain with terminal `FF FF FF FF`, cancellation and fail-closed behavior;
+- Windows-faithful DriverState:Install ACK/retry/reset control: ACK target
+  `0x96`, effective 1000 ms ACK waits, at most two sends per wrapper call, at
+  most two wrapper calls, and conditional reset only after both fail;
+- a single-purpose probe runtime plus independent supervisor and GPIO264-only
+  restore helper.
 
-All current unit tests pass with GCC and with Clang + ASan/UBSan. The RX drain
-also passes GCC `-fanalyzer`; a regression test covers build directories
-containing spaces.
+The corrected 13-file DriverState patch passes the complete GCC and
+Clang+ASan/UBSan suites, focused generic-ACK/DriverState tests, GCC
+`-fanalyzer`, source-safety/privacy checks, and real target binary build/link
+against libgpiod 2.3.1 without hardware execution.
 
 ## Passive hardware gate completed
 
@@ -144,12 +166,23 @@ No protocol read/write or reset occurred.
 
 ## Previous active experiment and why it is low-value
 
-The older Linux sequence used Windows reset, NOP, DriverState:Install retry, NOP, A/4
-fixture `00 00`, one ~500 ms IRQ observation, and one 4-byte read. All SPI submissions
-returned controller success, GPIO48 did not transition, and the only read was
-`FF FF FF FF`. Later Windows analysis proved that this probe omitted the true ACK flag
-processing, 1000 ms effective ACK window, one A/4 retransmission, and separate response
-phase. Treat its negative result as low diagnostic value.
+
+**CONFIRMED on the target laptop:** the first independently supervised one-shot
+probe completed without firmware activity. Its historical DriverState preamble
+still used two Install writes separated by fixed 100 ms sleeps. It then ran one
+`GetEvkVersion` logical attempt with the tested A/4 ACK state machine and its
+single allowed A/4 retransmission.
+
+The run submitted twelve physical SPI write transactions in total. GPIO48
+remained LOW throughout all readiness windows, so the exact-length RX backend
+performed zero SPI reads. No ACK was observed; the A/4 path ended in ACK timeout
+after its single retransmission. Internal cleanup restored GPIO264 to LOW and
+the external supervisor restored temporary spidev state.
+
+This negative result does **not** isolate A/4 acceptance. Follow-up disassembly
+showed that DriverState itself needed ACK(9,3), effective 1000 ms waits and the
+nested retry/reset structure described above. Probe #2 therefore changes only
+that preamble model; A/4 remains the deterministic Linux `00 00` fixture.
 
 ## Cross-machine evidence
 
@@ -161,37 +194,21 @@ See [docs/cross-machine-research.md](docs/cross-machine-research.md).
 
 ## Exact next engineering step
 
-The external live-probe fail-safe is now implemented and validated off-hardware
-on the target laptop.
 
-It adds no Milan protocol logic. The supervisor:
+The corrected DriverState model is validated off-hardware on the target laptop
+against libgpiod 2.3.1. The independent supervisor remains mandatory. For probe
+#2 it requires `GXFP51A0_REVIEWED_PROBE_2`, owns temporary spidev bind/unbind,
+runs the probe in a separate session under a 12-second wall-clock timeout, uses
+TERM then KILL-after-2-seconds, requires both `CLEANUP_RESULT=0` and
+`GPIO264_AFTER=0`, falls back to the separate GPIO264-only restore helper when
+cleanup cannot be confirmed, and always restores spidev/module state.
 
-1. refuses to run unless the explicit reviewed-probe confirmation token is set;
-2. refuses a target that already has a bound driver or non-empty
-   `driver_override`;
-3. loads spidev only when needed and remembers module ownership;
-4. owns temporary spidev bind/unbind;
-5. runs the probe in a separate session under an 8-second hard timeout,
-   TERM followed by KILL-after-2-seconds;
-6. accepts normal cleanup only when the probe log contains both
-   `CLEANUP_RESULT=0` and `GPIO264_AFTER=0`;
-7. otherwise waits for the probe process group to terminate and invokes a
-   separate GPIO264-only restore helper;
-8. always attempts spidev unbind, `driver_override` clear, and module pre-state
-   restoration on exit.
+**Probe #2 has not been executed.** Its final review must preserve exactly one
+changed hypothesis relative to probe #1: the DriverState preamble now follows
+ACK(9,3) with the generic transport retry/reset behavior. The rest stays fixed:
+proven initial and cleanup reset, one `GetEvkVersion` logical attempt, A/4 Linux
+fixture `00 00`, exact-length RX, at most one A/4 retransmission,
+unconditional internal cleanup and the external fail-safe.
 
-The restore helper contains no SPI or Milan packet logic. It requests GPIO264
-through the already-reviewed `AS_IS` adapter, performs HIGH 10 ms -> LOW 100 ms
--> final LOW, reads the final level, and fails unless it is LOW.
-
-**No live probe has been executed yet.**
-
-The next step is the final execution-path review and then, if unchanged, one
-hardware probe only. That run must use the supervisor rather than invoking
-`gxfp-live-probe` directly. Its scientific scope stays fixed: proven reset,
-historical DriverState preamble, one `GetEvkVersion` logical attempt, A/4 Linux
-fixture `00 00`, exact-length RX, at most one A/4 retransmission, unconditional
-internal cleanup plus external fail-safe.
-
-No firmware operation, DriverState hard-reset branch, three-attempt common-init
-fallback, enrollment or libfprint integration is authorized in that run.
+No firmware operation, three-attempt common-init fallback, enrollment or
+libfprint integration is authorized in probe #2.

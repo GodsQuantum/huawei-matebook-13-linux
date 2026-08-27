@@ -5,25 +5,21 @@ a fingerprint driver and exposes no firmware-management API.
 
 ## Protocol core
 
-- `milan_packet.*` builds only the confirmed NOP packet and OTHER A/4 packet.
-  There is deliberately no generic Milan command encoder or firmware command
-  API. The two A/4 payload bytes must be supplied explicitly by the caller.
-- `milan_attempt.*` models one `GetEvkVersion` transport attempt: NOP, 5 ms
-  delay, A/4, ACK wait, at most one A/4 retransmission on ACK timeout, then a
-  separate response wait on logical event 9.
-- `milan_rx.*` is the restricted receive parser for that path. It validates the
-  outer A header and exact body length, validates the inner checksum, explicitly
-  recognizes `FF FF FF FF` as the no-data stop sentinel, classifies B/0 messages
-  targeting packed command `A8` as A/4 ACKs, and classifies A/4 as the separate
-  EVK response. Fragmented frames are intentionally rejected for now.
-- `milan_rx_drain.*` is the off-hardware exact-length drain/state adapter used by
-  `milan_attempt.*`. It waits for readiness, reads exactly four header bytes,
-  stops terminally on `FF FF FF FF`, reads exactly the announced body, classifies
-  ACK/response frames, permits ACK and response in one IRQ-high window, and
-  invalidates a response cached before an ACK timeout before retransmission.
-- The model uses the effective 1000 ms minimum ACK and response timeouts
-  observed in Goodix FP `1.1.141.40`, not merely the 100 ms / 500 ms values
-  requested by `GetEvkVersion`.
+
+- `milan_packet.*` builds only the confirmed NOP and OTHER A/4 packets; there is
+  no generic firmware command API and A/4 payload bytes remain caller supplied.
+- `milan_attempt.*` models one `GetEvkVersion` transport attempt: NOP, 5 ms,
+  A/4, effective ACK wait, at most one A/4 retransmission, then response event 9.
+- `milan_rx.*` validates the restricted framing and recognizes B/0 as generic
+  ACK bookkeeping. Current evidenced targets are `0x96` for
+  DriverState:Install (9/3) and `0xA8` for A/4. A/4 itself remains the separate
+  EVK response. Fragmented frames are rejected.
+- `milan_rx_drain.*` waits for readiness, reads exactly four header bytes,
+  stops terminally on `FF FF FF FF`, reads exactly the announced body, and
+  matches ACKs to the requested command pair.
+- `probe_harness.*` models DriverState:Install with effective 1000 ms ACK waits,
+  one exact retransmission per wrapper call, two wrapper calls maximum, and the
+  proven hard reset only after both calls time out.
 
 ## Linux research transport
 
@@ -69,16 +65,21 @@ must include `SPI_TRANSFER_COUNT=0`, `GPIO264_REQUESTED=NO`, and
 
 ## Current gate and deliberately excluded work
 
-The passive preflight, exact-length RX drain, level-only active backend,
-single-purpose live-probe harness, and external fail-safe supervisor are now
-validated off-hardware.
 
-The supervisor contains no direct GPIO or Milan protocol primitive. It owns the
-temporary spidev binding, imposes a hard timeout, checks the probe's cleanup
-markers, and calls a separate GPIO264-only restore helper when cleanup cannot
-be confirmed. The restore helper contains no SPI logic.
+The first supervised hardware probe has been executed. GPIO48 remained LOW
+through its DriverState and A/4 readiness windows, so exact-length RX performed
+zero SPI reads; A/4 ended in ACK timeout after its one retransmission. Cleanup
+and the external fail-safe restored the proven final states. No firmware
+operation occurred.
 
-The real probe and restore helper compile against libgpiod 2.3.1 on the target
-laptop but have never been executed. The next gate is a final execution-path
-review followed by at most one supervised hardware probe. Full common-init,
-firmware management, enrollment and libfprint integration remain excluded.
+Static follow-up showed that the historical DriverState preamble used by that
+probe was incomplete. The corrected generic-ACK/DriverState retry/reset model is
+now validated off-hardware on the target laptop with GCC, Clang+ASan/UBSan,
+GCC `-fanalyzer`, source-safety/privacy checks and real libgpiod 2.3.1
+build/link without hardware execution.
+
+For probe #2 the supervisor requires `GXFP51A0_REVIEWED_PROBE_2` and uses a
+12-second wall-clock timeout while retaining process-group kill, cleanup marker
+checks, GPIO264-only restore fallback and unconditional spidev cleanup. Probe #2
+has not been executed. Full common-init, firmware management, enrollment and
+libfprint integration remain excluded.

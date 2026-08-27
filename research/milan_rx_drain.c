@@ -34,6 +34,8 @@ static void stop_terminal(struct gxfp_evk_rx_adapter *adapter,
 
 static enum gxfp_io_result wait_for_target(struct gxfp_evk_rx_adapter *adapter,
                                            bool want_ack,
+                                           uint8_t ack_cmd0,
+                                           uint8_t ack_cmd1,
                                            unsigned timeout_ms)
 {
     uint64_t start_ms;
@@ -111,7 +113,8 @@ static enum gxfp_io_result wait_for_target(struct gxfp_evk_rx_adapter *adapter,
             return GXFP_IO_ERROR;
         }
 
-        if (frame.kind == GXFP_MILAN_EVK_ACK) {
+        if (frame.kind == GXFP_MILAN_EVK_ACK &&
+            frame.ack_cmd0 == ack_cmd0 && frame.ack_cmd1 == ack_cmd1) {
             adapter->ack_seen = true;
             adapter->ack_status = frame.ack_status;
         } else if (frame.kind == GXFP_MILAN_EVK_RESPONSE) {
@@ -148,16 +151,16 @@ enum gxfp_io_result gxfp_evk_rx_wait_ack(void *ctx,
 {
     struct gxfp_evk_rx_adapter *adapter = ctx;
 
-    if (adapter == NULL || cmd0 != GXFP_EVK_CMD0 || cmd1 != GXFP_EVK_CMD1)
+    if (adapter == NULL || cmd0 > 0x0fu || cmd1 > 0x07u)
         return GXFP_IO_ERROR;
 
-    /* Each wait_ack call follows a fresh A/4 send (initial or retransmit). */
+    /* Each wait_ack call follows a fresh command send (initial or retransmit). */
     adapter->ack_seen = false;
     adapter->ack_status = 0;
     adapter->response_seen = false;
     adapter->response_len = 0;
 
-    return wait_for_target(adapter, true, timeout_ms);
+    return wait_for_target(adapter, true, cmd0, cmd1, timeout_ms);
 }
 
 enum gxfp_io_result gxfp_evk_rx_wait_response(void *ctx,
@@ -169,7 +172,7 @@ enum gxfp_io_result gxfp_evk_rx_wait_response(void *ctx,
     if (adapter == NULL || event_index != GXFP_EVK_EVENT_INDEX)
         return GXFP_IO_ERROR;
 
-    return wait_for_target(adapter, false, timeout_ms);
+    return wait_for_target(adapter, false, GXFP_EVK_CMD0, GXFP_EVK_CMD1, timeout_ms);
 }
 
 const uint8_t *gxfp_evk_rx_response(const struct gxfp_evk_rx_adapter *adapter,

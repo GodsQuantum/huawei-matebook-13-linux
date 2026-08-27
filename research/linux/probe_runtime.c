@@ -86,6 +86,15 @@ static enum gxfp_io_result preamble_sleep(void *ctx, unsigned ms)
     return pre->attempt->sleep_ms(pre->attempt->ctx, ms);
 }
 
+static enum gxfp_io_result preamble_wait_ack(void *ctx,
+                                               uint8_t cmd0,
+                                               uint8_t cmd1,
+                                               unsigned timeout_ms)
+{
+    struct preamble_ctx *pre = ctx;
+    return pre->attempt->wait_ack(pre->attempt->ctx, cmd0, cmd1, timeout_ms);
+}
+
 static void transfer_trace(void *ctx,
                            enum gxfp_linux_transfer_direction direction,
                            size_t len,
@@ -108,12 +117,25 @@ static const char *probe_result_name(enum gxfp_probe_result result)
     case GXFP_PROBE_OK: return "OK";
     case GXFP_PROBE_INITIAL_RESET_ERROR: return "INITIAL_RESET_ERROR";
     case GXFP_PROBE_PREAMBLE_ERROR: return "PREAMBLE_ERROR";
+    case GXFP_PROBE_DRIVERSTATE_RESET_ERROR: return "DRIVERSTATE_RESET_ERROR";
     case GXFP_PROBE_ACK_TIMEOUT: return "ACK_TIMEOUT";
     case GXFP_PROBE_RESPONSE_TIMEOUT: return "RESPONSE_TIMEOUT";
     case GXFP_PROBE_CANCELLED: return "CANCELLED";
     case GXFP_PROBE_IO_ERROR: return "IO_ERROR";
     case GXFP_PROBE_CLEANUP_ERROR: return "CLEANUP_ERROR";
     case GXFP_PROBE_INVALID: return "INVALID";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *driver_state_result_name(enum gxfp_driver_state_result result)
+{
+    switch (result) {
+    case GXFP_DRIVER_STATE_OK: return "OK";
+    case GXFP_DRIVER_STATE_ACK_TIMEOUT: return "ACK_TIMEOUT";
+    case GXFP_DRIVER_STATE_CANCELLED: return "CANCELLED";
+    case GXFP_DRIVER_STATE_IO_ERROR: return "IO_ERROR";
+    case GXFP_DRIVER_STATE_INVALID: return "INVALID";
     default: return "UNKNOWN";
     }
 }
@@ -206,6 +228,7 @@ int main(void)
         .send_nop = preamble_send_nop,
         .send_driver_install = preamble_send_install,
         .sleep_ms = preamble_sleep,
+        .wait_ack = preamble_wait_ack,
     };
     reset_ops = (struct gxfp_probe_reset_ops){
         .ctx = reset,
@@ -221,6 +244,8 @@ int main(void)
     printf("SPI_MAX_SPEED_HZ=%u\n", spi.max_speed_hz);
     printf("GPIO48_BEFORE=%d\n", irq_before);
     printf("GPIO264_MODE=AS_IS_ALREADY_OUTPUT\n");
+    printf("DRIVERSTATE_ACK_TARGET=96\n");
+    printf("DRIVERSTATE_ACK_TIMEOUT_MS=1000\n");
     printf("A4_PAYLOAD_FIXTURE=00 00\n");
     fflush(stdout);
 
@@ -233,6 +258,8 @@ int main(void)
 
     printf("PROBE_RESULT=%s\n", probe_result_name(result));
     printf("PRIMARY_RESULT=%s\n", probe_result_name(report.primary_result));
+    printf("DRIVERSTATE_RESULT=%s\n", driver_state_result_name(report.driver_state_result));
+    printf("DRIVERSTATE_RESET_PERFORMED=%s\n", report.driver_state_reset_performed ? "YES" : "NO");
     printf("EVK_ATTEMPT_RESULT=%d\n", report.evk_result);
     printf("CLEANUP_RESULT=%d\n", report.cleanup_result);
     printf("SPI_TRANSFER_COUNT=%u\n", spi.transfer_count);

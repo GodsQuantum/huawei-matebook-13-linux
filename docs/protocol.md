@@ -30,9 +30,17 @@ Wait for IRQ; make one read of exactly four bytes; validate header and little-en
 
 ## CONFIRMED latest controlled test
 
-Windows hard reset; NOP; DriverState:Install; wait 100 ms; retry DriverState:Install; wait 100 ms; NOP; OTHER A/4 with deterministic fixture payload `00 00`; monitor IRQ for 500 ms; read exactly four bytes.
 
-Every Linux SPI submission returned zero, GPIO48 did not transition, IRQ remained low, and the four-byte read was `FF FF FF FF`. No second read or firmware operation occurred. A zero Linux SPI return proves controller submission only, not MCU acceptance.
+The first supervised one-shot probe used the proven initial reset, the
+then-current historical DriverState preamble, and one reviewed
+`GetEvkVersion` logical attempt with deterministic A/4 fixture `00 00` and one
+allowed A/4 retransmission.
+
+Twelve physical SPI write transactions were submitted. GPIO48 remained LOW
+throughout the readiness windows, so the exact-length RX gate performed zero
+SPI reads. No ACK was observed and A/4 ended in ACK timeout after its
+retransmission. Internal cleanup restored GPIO264 LOW and the external
+supervisor restored temporary spidev state. No firmware operation occurred.
 
 ## CONFIRMED Windows `GetEvkVersion` transport behavior
 
@@ -61,49 +69,54 @@ when D0Exit has started; otherwise it performs the proven hard reset and one
 final attempt. The caller adds no delay beyond `HardResetMcu` and does not
 clear the output again. See [windows-fallback.md](windows-fallback.md).
 
+
+## CONFIRMED DriverState:Install ACK/retry/reset behavior
+
+DriverState:Install is logical CHIP 9/3, packed command `0x96`. Its wrapper
+requests a 100 ms ACK timeout, which the same generic lower transport raises to
+1000 ms minimum. B/0 ACK processing is generic: `payload[0]` is the packed
+command being acknowledged, therefore `0x96` sets ACK(9,3).
+
+Each DriverState wrapper call may send the exact Install packet twice: initial
+send, ACK wait, then one exact retransmission after timeout and one second ACK
+wait. The higher DriverState helper makes at most two such wrapper calls. There
+is no separate response-event wait for this command. Success at any ACK wait
+skips the DriverState reset; only two failed wrapper calls trigger the proven
+`HardResetMcu`. A fully silent path therefore permits at most four Install
+packet sends before that conditional reset.
+
+This corrects the historical Linux preamble used by the first supervised probe,
+which sent only two Install packets separated by fixed 100 ms sleeps.
+
 ## CONFIRMED receive classification from Goodix FP 1.1.141.36
 
-Static analysis of the independently obtained Goodix FP `1.1.141.36` package
-(`gfspi.dll` SHA-256
-`4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59`)
-corroborates the `1.1.141.40` state machine and closes the ACK-vs-response
-classification for the GetEvkVersion path. The package INF supports both
-`ACPI\GXFP51A0` and `ACPI\GXFP51A7`, and its internal build path identifies
-Milan/GF3658.
 
-For an outer A frame, Windows passes exactly the outer little-endian body length
-to its inner parser. The inner body begins with the packed command byte, followed
-by a little-endian inner length. Windows derives `cmd0 = packed >> 4` and
-`cmd1 = (packed & 0x0e) >> 1`. The inner length includes the trailing checksum,
-so payload length is `inner_len - 1`.
+Static analysis of Goodix FP `1.1.141.36` corroborates the transport state
+machine. For an outer A frame, the inner body starts with the packed command and
+Windows derives `cmd0 = packed >> 4` and `cmd1 = (packed & 0x0e) >> 1`.
 
-For this path:
+`cmd0=B, cmd1=0` enters the generic message/ACK handler. Its first payload byte
+is the packed command being acknowledged. `0x96` therefore sets ACK(9,3) for
+DriverState:Install, while `0xA8` sets ACK(A,4) for `GetEvkVersion`.
+`cmd0=A, cmd1=4` is the separate EVK response path: it clears/copies the
+64-byte EVK buffer and signals event 9.
 
-- `cmd0=B, cmd1=0` enters the message/ACK handler. Its first payload byte is the
-  packed command being acknowledged. An ACK for A/4 therefore targets `0xA8`;
-  Windows then sets the per-command ACK flag for `(A,4)`.
-- `cmd0=A, cmd1=4` enters the normal OTHER response dispatcher, which clears the
-  64-byte EVK response buffer, copies the response payload, and signals logical
-  event 9.
-
-ACK and A/4 response can consequently be processed from consecutive frames in
-the same IRQ-high drain window; no second physical edge is implied. The Linux
-research parser is deliberately restricted to this evidenced path and rejects
-fragmented frames rather than guessing their semantics.
-
-The `1.1.141.36` GetEvkVersion call site also passes a two-byte A/4 payload from
-uninitialized stack storage, just like `1.1.141.40`. This makes a mandatory fixed
-Windows payload value unlikely, but still does not prove Windows sends zeroes.
-The deterministic Linux fixture remains `00 00`; it is a reproducible choice, not
-a recovered vendor constant.
+ACK and A/4 response may be processed from consecutive frames in the same
+IRQ-high drain window; no second physical edge is implied. The 1.1.141.36
+`GetEvkVersion` call site also passes a two-byte A/4 payload from uninitialized
+visible stack storage, like 1.1.141.40. The deterministic Linux fixture remains
+`00 00`; it is not a recovered vendor constant.
 
 ## INFERRED / open questions
 
-The known framing and transport state machine now explain more of the Windows
-ordering, but still do not establish why the MCU did not accept the previous
-Linux traffic. The two physical A/4 payload bytes remain unknown because the
-visible Windows function does not initialize them. No new live command is
-authorized until a one-attempt experiment is simulated, written, and reviewed.
 
+The first supervised probe produced no IRQ-high readiness and therefore no RX
+frame. The corrected DriverState control path removes one known mismatch before
+the next experiment, but it still does not establish whether the remaining
+silence is caused by device state, another missing initialization step, or A/4
+acceptance. The two physical A/4 payload bytes remain unknown because the
+visible Windows function does not initialize them. Probe #2 remains a
+single-hypothesis experiment: correct DriverState only, with A/4 `00 00`
+unchanged.
 
 See also [Goodix FP 1.1.141.36 cross-check](windows-14136-crosscheck.md).

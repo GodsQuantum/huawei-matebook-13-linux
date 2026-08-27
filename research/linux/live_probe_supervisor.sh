@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_1'
+CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_2'
 DEVICE_NAME='spi-GXFP51A0:00'
 DEFAULT_SYSFS_DEVICE='/sys/bus/spi/devices/spi-GXFP51A0:00'
 DEFAULT_SPIDEV_DRIVER='/sys/bus/spi/drivers/spidev'
 DEFAULT_SPIDEV_MODULE_DIR='/sys/module/spidev'
-DEFAULT_TIMEOUT_S=8
+DEFAULT_TIMEOUT_S=12
 
 if [ "$#" -ne 3 ]; then
     echo "usage: $0 <probe-binary> <restore-binary> <probe-log>" >&2
