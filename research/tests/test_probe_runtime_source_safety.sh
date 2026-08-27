@@ -36,6 +36,6 @@ fi
 
 # Signal handler must only request cancellation; cleanup happens in normal flow.
 grep -q 'g_cancelled = 1' "$runtime"
-grep -q 'cleanup = reset_sequence(reset)' "$core"
+grep -q 'cleanup = gxfp_probe_restore_reset(reset)' "$core"
 
 echo 'test_probe_runtime_source_safety: OK'

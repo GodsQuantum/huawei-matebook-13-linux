@@ -30,6 +30,9 @@ struct gxfp_probe_preamble_ops {
     enum gxfp_io_result (*sleep_ms)(void *ctx, unsigned ms);
 };
 
+enum gxfp_io_result
+gxfp_probe_restore_reset(const struct gxfp_probe_reset_ops *reset);
+
 struct gxfp_probe_report {
     enum gxfp_probe_result primary_result;
     enum gxfp_attempt_result evk_result;

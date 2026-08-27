@@ -161,34 +161,37 @@ See [docs/cross-machine-research.md](docs/cross-machine-research.md).
 
 ## Exact next engineering step
 
-The single-purpose live-probe harness is now implemented and validated
-off-hardware on the target laptop. The real binary links against libgpiod 2.3.1
-but has not been executed.
+The external live-probe fail-safe is now implemented and validated off-hardware
+on the target laptop.
 
-Its scope is deliberately fixed:
+It adds no Milan protocol logic. The supervisor:
 
-1. GPIO264 must already be a free active-high OUTPUT; it is requested `AS_IS`,
-   never reconfigured;
-2. initial reset is HIGH 10 ms -> LOW 100 ms -> final LOW;
-3. the historical Linux DriverState preamble is kept constant:
-   NOP -> 5 ms -> Install -> 100 ms -> Install -> 100 ms;
-4. exactly one `GetEvkVersion` logical attempt is executed;
-5. A/4 uses the explicitly labelled deterministic Linux fixture `00 00`;
-6. exact-length RX, terminal `FF FF FF FF`, effective 1000 ms ACK/response
-   windows and at most one A/4 retransmission are preserved;
-7. the proven HIGH 10 ms -> LOW 100 ms reset runs unconditionally as cleanup.
+1. refuses to run unless the explicit reviewed-probe confirmation token is set;
+2. refuses a target that already has a bound driver or non-empty
+   `driver_override`;
+3. loads spidev only when needed and remembers module ownership;
+4. owns temporary spidev bind/unbind;
+5. runs the probe in a separate session under an 8-second hard timeout,
+   TERM followed by KILL-after-2-seconds;
+6. accepts normal cleanup only when the probe log contains both
+   `CLEANUP_RESULT=0` and `GPIO264_AFTER=0`;
+7. otherwise waits for the probe process group to terminate and invokes a
+   separate GPIO264-only restore helper;
+8. always attempts spidev unbind, `driver_override` clear, and module pre-state
+   restoration on exit.
 
-**Do not execute the live probe yet.** The next and final safety gate before one
-hardware attempt is an external supervisor independent of the probe process.
-It must own the temporary spidev bind, enforce a hard timeout, verify the probe's
-cleanup markers, invoke a separate GPIO264 restore helper if the probe
-crashes/hangs or cannot confirm final LOW, then unbind spidev and clear
-`driver_override` on every exit path. The external helper must contain no SPI or
-protocol logic.
+The restore helper contains no SPI or Milan packet logic. It requests GPIO264
+through the already-reviewed `AS_IS` adapter, performs HIGH 10 ms -> LOW 100 ms
+-> final LOW, reads the final level, and fails unless it is LOW.
 
-That supervisor can protect against probe-process crashes, hangs and ordinary
-terminal signals. No userspace design can guarantee cleanup after power loss or
-SIGKILL of the supervisor itself; this limitation must remain explicit.
+**No live probe has been executed yet.**
 
-Only after the supervisor and restore helper pass fake/off-hardware tests and
-compile against the target's real libgpiod may one live probe be authorized.
+The next step is the final execution-path review and then, if unchanged, one
+hardware probe only. That run must use the supervisor rather than invoking
+`gxfp-live-probe` directly. Its scientific scope stays fixed: proven reset,
+historical DriverState preamble, one `GetEvkVersion` logical attempt, A/4 Linux
+fixture `00 00`, exact-length RX, at most one A/4 retransmission, unconditional
+internal cleanup plus external fail-safe.
+
+No firmware operation, DriverState hard-reset branch, three-attempt common-init
+fallback, enrollment or libfprint integration is authorized in that run.

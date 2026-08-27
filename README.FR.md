@@ -26,7 +26,17 @@ Huawei MateBook 13 2021 : DMI `WRTB-WXX9`, version `M1020`, carte `WRTB-WXX9-PCB
 
 ## Limite actuelle
 
-**CONFIRMÉ :** le drain RX exact et le backend Linux actif par niveau uniquement sont validés hors matériel, et le harness de probe unique passe maintenant aussi GCC, Clang+ASan/UBSan et GCC `-fanalyzer` sur le portable cible. Le harness réel est lié contre libgpiod 2.3.1 mais n’a pas été exécuté. GPIO264 n’est accepté que si le firmware l’expose déjà comme OUTPUT libre active-high, puis demandé en `AS_IS` ; le harness applique le reset prouvé HIGH 10 ms -> LOW 100 ms, conserve le préambule historique DriverState:Install, exécute exactement une tentative logique `GetEvkVersion`, puis répète le reset prouvé inconditionnellement au cleanup. Un probe réel reste **non autorisé** tant que le superviseur/restore externe indépendant n’est pas validé.
+**CONFIRMÉ :** le harness de probe unique et son filet de sécurité externe
+indépendant sont maintenant validés hors matériel sur le portable cible. Le
+superviseur possède le bind/unbind spidev temporaire, impose un timeout global
+de 8 secondes avec TERM puis KILL après 2 secondes, exige les marqueurs de
+cleanup/LOW final du probe et appelle un helper séparé limité à GPIO264 si ces
+marqueurs manquent. Ce helper réutilise le reset prouvé HIGH 10 ms -> LOW 100 ms
+-> état final LOW et ne contient aucune logique SPI/Milan. Les binaires réels se
+compilent contre libgpiod 2.3.1 mais n'ont pas été exécutés. La prochaine étape
+est la revue finale du chemin de commande puis au maximum un probe hardware
+revu ; aucune opération firmware ni fallback common-init complet n'est
+autorisé.
 
 ## Carte du dépôt
 
