@@ -10,9 +10,11 @@ TEST_LINUX_SPI := $(BUILD_DIR)/test_linux_spi
 TEST_IRQ_LOGIC := $(BUILD_DIR)/test_irq_logic
 TEST_MILAN_RX := $(BUILD_DIR)/test_milan_rx
 TEST_MILAN_RX_DRAIN := $(BUILD_DIR)/test_milan_rx_drain
+TEST_LINUX_ACTIVE_BACKEND := $(BUILD_DIR)/test_linux_active_backend
+ACTIVE_RUNTIME_OBJ := $(BUILD_DIR)/active_runtime.o
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_passive_safety test_makefile_space_build_dir passive-preflight
+.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_active_runtime_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile
 
 all: test
 
@@ -47,13 +49,20 @@ test_milan_rx_drain: prepare-build
 	$(CC) $(CFLAGS) -I. tests/test_milan_rx_drain.c milan_rx.c milan_rx_drain.c milan_attempt.c -o "$(TEST_MILAN_RX_DRAIN)"
 	"$(TEST_MILAN_RX_DRAIN)"
 
+test_linux_active_backend: prepare-build
+	$(CC) $(CFLAGS) -I. tests/test_linux_active_backend.c linux/active_backend.c linux/linux_spi.c milan_packet.c milan_rx.c milan_rx_drain.c milan_attempt.c -o "$(TEST_LINUX_ACTIVE_BACKEND)"
+	"$(TEST_LINUX_ACTIVE_BACKEND)"
+
+test_active_runtime_source_safety:
+	./tests/test_active_runtime_source_safety.sh
+
 test_passive_safety:
 	./tests/test_passive_safety.sh
 
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_active_runtime_source_safety test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \
@@ -65,6 +74,10 @@ passive-preflight: prepare-build
 		linux/passive_preflight.c linux/spidev_discovery.c linux/linux_spi.c linux/gpiod_irq.c \
 		$$(pkg-config --libs libgpiod) -o "$(PASSIVE_BIN)"
 	@echo "$(PASSIVE_BIN)"
+
+active-runtime-compile: prepare-build
+	$(CC) $(CFLAGS) -I. -c linux/active_runtime.c -o "$(ACTIVE_RUNTIME_OBJ)"
+	@echo "$(ACTIVE_RUNTIME_OBJ)"
 
 clean:
 	rm -rf -- "$(BUILD_DIR)"

@@ -69,16 +69,25 @@ must include `SPI_TRANSFER_COUNT=0`, `GPIO264_REQUESTED=NO`, and
 
 ## Current gate and deliberately excluded work
 
-The passive target-hardware preflight has completed successfully with zero SPI
-transfers and no GPIO264 request. The exact-length RX drain/state model is also
-implemented and validated off-hardware on the target laptop with GCC,
-Clang+ASan/UBSan, GCC `-fanalyzer`, the passive-safety guard, and the
-build-directory-with-spaces regression.
+The passive target-hardware preflight and the exact-length RX drain/state model
+are complete. The narrow Linux active-research backend is also implemented and
+validated off-hardware. It composes:
 
-There is still no GPIO264/reset implementation, three-attempt fallback,
-DriverState fallback, enrollment, firmware operation, or libfprint integration.
-The next task is a reviewed Linux active-research backend that connects this
-tested state machine to the existing spidev exact-read primitive and a real
-GPIO48 readiness adapter. It must remain narrowly scoped to one
-`GetEvkVersion` attempt and must not itself implement the full common-init
-fallback. A live A/4 experiment remains gated on that backend, tests, and review.
+- the restricted NOP/A4 packet builders;
+- the one-attempt `GetEvkVersion` state machine;
+- exact spidev write/read primitives;
+- the restricted RX drain;
+- GPIO48 input-level readiness using bounded 5 ms polling.
+
+The backend deliberately does **not** request GPIO edge detection. The target
+GPIO48 pad is ACPI level-triggered ActiveHigh and firmware configuration-locked,
+so readiness is determined only from the current input level.
+
+The new runtime has no GPIO264/reset API, no firmware API, no DriverState
+fallback and no full common-init fallback. No active runtime was executed
+during its validation.
+
+The next gate is a separately reviewed one-purpose live-probe harness containing
+the proven GPIO264 reset/cleanup and fixed DriverState:Install preamble around
+exactly one `GetEvkVersion` attempt. That harness must pass fake/off-hardware
+tests before any real transfer is authorized.

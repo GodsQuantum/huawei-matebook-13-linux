@@ -161,22 +161,37 @@ See [docs/cross-machine-research.md](docs/cross-machine-research.md).
 
 ## Exact next engineering step
 
-Do **not** jump directly to a live A/4 write.
+The narrow Linux active-research backend is now implemented and validated
+off-hardware. It composes the proven Milan packet/state-machine/RX drain with
+the existing exact spidev primitives and a GPIO48 **level-only** readiness
+adapter.
 
-The off-hardware exact-length RX drain/state-machine gate is complete. Next,
-design and implement a **narrow Linux active-research backend** for one
-`GetEvkVersion` attempt only. It should:
+A key August 2026 design correction is deliberate: do not request rising-edge
+GPIO detection on the target. GPIO48 is ACPI level-triggered ActiveHigh and the
+Intel pad is firmware configuration-locked; the backend therefore polls the
+already-proven input level in bounded 5 ms sleeps and never changes IRQ trigger
+configuration.
 
-1. reuse dynamic spidev discovery and the existing mode-0/8-bit/10-MHz setup;
-2. expose the already-tested exact-length SPI read primitive to `milan_rx_drain`;
-3. add a real GPIO48 readiness adapter using level-oriented semantics, where an
-   edge/event is only a wakeup and the current HIGH level is authoritative;
-4. preserve the terminal stop after `FF FF FF FF` and after fatal read/parser errors;
-5. preserve the effective 1000 ms ACK and response windows and exactly one A/4
-   retransmission already modeled by `milan_attempt`;
-6. contain no GPIO264 output/reset API and no firmware-management API;
-7. compile and pass fake/off-hardware tests before any real SPI transfer is authorized.
+Do **not** run a live A/4 yet. The next engineering step is a single-purpose
+probe harness, tested off-hardware first, which must:
 
-Only after this backend is reviewed, tested and statically audited should a
-single live `GetEvkVersion` experiment be designed. The full three-attempt +
-hard-reset + final-attempt common-init fallback remains out of scope.
+1. perform the proven HardwareID-3 reset sequence on GPIO264:
+   HIGH 10 ms -> LOW 100 ms -> final LOW;
+2. keep the previously selected DriverState:Install preamble constant rather
+   than silently changing initialization conditions;
+3. execute exactly one Windows-faithful `GetEvkVersion` logical attempt through
+   the validated active backend;
+4. preserve separate outer/inner SPI transactions with the proven 2 ms gap;
+5. preserve exact-length RX, terminal `FF FF FF FF`, effective 1000 ms ACK and
+   response windows, and at most one A/4 retransmission;
+6. log every physical transfer length/result and relevant GPIO48 level without
+   over-reading;
+7. guarantee cleanup on success, timeout, parser failure, I/O error,
+   cancellation and signals;
+8. always restore GPIO264 with HIGH 10 ms -> LOW 100 ms -> final LOW during
+   cleanup;
+9. expose no firmware-management operation and no full three-attempt +
+   hard-reset common-init fallback.
+
+Only after that harness passes fake/off-hardware tests and a source safety
+audit should the first live probe be authorized.
