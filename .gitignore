@@ -1,0 +1,34 @@
+# kernel build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+.*.cmd
+*.symvers
+*.order
+modules.order
+Module.symvers
+.tmp_versions/
+# python
+__pycache__/
+*.pyc
+.venv/
+# raw ACPI dumps
+acpi-dumps/
+raw-acpi/
+artifacts/acpi/
+# proprietary/reference artifacts
+*.cab
+*.dll
+artifacts/**/*.bin
+artifacts/**/*.fw
+artifacts/firmware/
+reverse-engineering-output/
+# editors
+*.swp
+*~
+
+# Research build artifacts
+research/test_*
+research/.build/
