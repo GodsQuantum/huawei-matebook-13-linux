@@ -69,25 +69,21 @@ must include `SPI_TRANSFER_COUNT=0`, `GPIO264_REQUESTED=NO`, and
 
 ## Current gate and deliberately excluded work
 
-The passive target-hardware preflight and the exact-length RX drain/state model
-are complete. The narrow Linux active-research backend is also implemented and
-validated off-hardware. It composes:
+The passive target-hardware preflight, exact-length RX drain/state model,
+level-only active backend, and single-purpose live-probe harness are complete
+and validated off-hardware.
 
-- the restricted NOP/A4 packet builders;
-- the one-attempt `GetEvkVersion` state machine;
-- exact spidev write/read primitives;
-- the restricted RX drain;
-- GPIO48 input-level readiness using bounded 5 ms polling.
+The harness adds only the proven GPIO264 reset/cleanup and the fixed historical
+DriverState:Install preamble around exactly one `GetEvkVersion` attempt. GPIO264
+is requested `AS_IS` only after checking that firmware already exposes the line
+as a free active-high OUTPUT. The runtime contains no firmware-management API
+and no full common-init fallback.
 
-The backend deliberately does **not** request GPIO edge detection. The target
-GPIO48 pad is ACPI level-triggered ActiveHigh and firmware configuration-locked,
-so readiness is determined only from the current input level.
+The real `gxfp-live-probe` binary links successfully against libgpiod 2.3.1 on
+the target laptop, but it has never been executed.
 
-The new runtime has no GPIO264/reset API, no firmware API, no DriverState
-fallback and no full common-init fallback. No active runtime was executed
-during its validation.
-
-The next gate is a separately reviewed one-purpose live-probe harness containing
-the proven GPIO264 reset/cleanup and fixed DriverState:Install preamble around
-exactly one `GetEvkVersion` attempt. That harness must pass fake/off-hardware
-tests before any real transfer is authorized.
+The next gate is an independent external supervisor plus a GPIO264-only restore
+helper. The supervisor must own temporary spidev bind/unbind, enforce a hard
+timeout, call the external restore helper only when the probe cannot confirm
+cleanup/final LOW, and clear `driver_override` on every exit. Until that gate
+passes, a live probe remains unauthorized.

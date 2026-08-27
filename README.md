@@ -26,7 +26,7 @@ Huawei MateBook 13 2021: DMI `WRTB-WXX9`, version `M1020`, board `WRTB-WXX9-PCB`
 
 ## Current boundary
 
-**CONFIRMED:** 1.1.141.36 independently corroborates the 1.1.141.40 `GetEvkVersion` behavior and closes RX classification: B/0 with payload byte `A8` is the ACK for A/4, while A/4 is the EVK response that signals event 9. Both builds pass the two A/4 payload bytes from storage not initialized in the visible function. The target laptop has passed the passive hardware preflight and now also validates the exact-length RX drain model under GCC, Clang+ASan/UBSan and GCC `-fanalyzer`. The narrow Linux active-research backend is now validated off-hardware with exact spidev reads/writes and GPIO48 level-only readiness; the next gate is the separately reviewed reset/DriverState/live-probe harness; see [protocol](docs/protocol.md), [1.1.141.36 cross-check](docs/windows-14136-crosscheck.md), [cross-machine research](docs/cross-machine-research.md), and [handoff](PROJECT_HANDOFF.md).
+**CONFIRMED:** the exact RX drain and level-only Linux active backend are validated off-hardware, and the single-purpose live-probe harness now also passes GCC, Clang+ASan/UBSan and GCC `-fanalyzer` on the target laptop. The real harness links against libgpiod 2.3.1 but has not been executed. GPIO264 is accepted only when firmware already exposes it as a free active-high OUTPUT, then requested `AS_IS`; the harness performs the proven HIGH 10 ms -> LOW 100 ms reset, keeps the historical DriverState:Install preamble fixed, runs exactly one `GetEvkVersion` logical attempt, and repeats the proven reset unconditionally during cleanup. A live probe remains **not authorized** until the independent external supervisor/restore fail-safe is validated.
 
 ## Repository map
 

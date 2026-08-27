@@ -161,37 +161,34 @@ See [docs/cross-machine-research.md](docs/cross-machine-research.md).
 
 ## Exact next engineering step
 
-The narrow Linux active-research backend is now implemented and validated
-off-hardware. It composes the proven Milan packet/state-machine/RX drain with
-the existing exact spidev primitives and a GPIO48 **level-only** readiness
-adapter.
+The single-purpose live-probe harness is now implemented and validated
+off-hardware on the target laptop. The real binary links against libgpiod 2.3.1
+but has not been executed.
 
-A key August 2026 design correction is deliberate: do not request rising-edge
-GPIO detection on the target. GPIO48 is ACPI level-triggered ActiveHigh and the
-Intel pad is firmware configuration-locked; the backend therefore polls the
-already-proven input level in bounded 5 ms sleeps and never changes IRQ trigger
-configuration.
+Its scope is deliberately fixed:
 
-Do **not** run a live A/4 yet. The next engineering step is a single-purpose
-probe harness, tested off-hardware first, which must:
+1. GPIO264 must already be a free active-high OUTPUT; it is requested `AS_IS`,
+   never reconfigured;
+2. initial reset is HIGH 10 ms -> LOW 100 ms -> final LOW;
+3. the historical Linux DriverState preamble is kept constant:
+   NOP -> 5 ms -> Install -> 100 ms -> Install -> 100 ms;
+4. exactly one `GetEvkVersion` logical attempt is executed;
+5. A/4 uses the explicitly labelled deterministic Linux fixture `00 00`;
+6. exact-length RX, terminal `FF FF FF FF`, effective 1000 ms ACK/response
+   windows and at most one A/4 retransmission are preserved;
+7. the proven HIGH 10 ms -> LOW 100 ms reset runs unconditionally as cleanup.
 
-1. perform the proven HardwareID-3 reset sequence on GPIO264:
-   HIGH 10 ms -> LOW 100 ms -> final LOW;
-2. keep the previously selected DriverState:Install preamble constant rather
-   than silently changing initialization conditions;
-3. execute exactly one Windows-faithful `GetEvkVersion` logical attempt through
-   the validated active backend;
-4. preserve separate outer/inner SPI transactions with the proven 2 ms gap;
-5. preserve exact-length RX, terminal `FF FF FF FF`, effective 1000 ms ACK and
-   response windows, and at most one A/4 retransmission;
-6. log every physical transfer length/result and relevant GPIO48 level without
-   over-reading;
-7. guarantee cleanup on success, timeout, parser failure, I/O error,
-   cancellation and signals;
-8. always restore GPIO264 with HIGH 10 ms -> LOW 100 ms -> final LOW during
-   cleanup;
-9. expose no firmware-management operation and no full three-attempt +
-   hard-reset common-init fallback.
+**Do not execute the live probe yet.** The next and final safety gate before one
+hardware attempt is an external supervisor independent of the probe process.
+It must own the temporary spidev bind, enforce a hard timeout, verify the probe's
+cleanup markers, invoke a separate GPIO264 restore helper if the probe
+crashes/hangs or cannot confirm final LOW, then unbind spidev and clear
+`driver_override` on every exit path. The external helper must contain no SPI or
+protocol logic.
 
-Only after that harness passes fake/off-hardware tests and a source safety
-audit should the first live probe be authorized.
+That supervisor can protect against probe-process crashes, hangs and ordinary
+terminal signals. No userspace design can guarantee cleanup after power loss or
+SIGKILL of the supervisor itself; this limitation must remain explicit.
+
+Only after the supervisor and restore helper pass fake/off-hardware tests and
+compile against the target's real libgpiod may one live probe be authorized.

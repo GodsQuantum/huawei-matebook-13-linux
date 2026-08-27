@@ -39,6 +39,19 @@ static void test_nop_vector(void)
     assert_bytes(packet.inner, inner, sizeof(inner));
 }
 
+
+static void test_driver_state_install_vector(void)
+{
+    static const uint8_t outer[] = { 0xa0, 0x06, 0x00, 0xa6 };
+    static const uint8_t inner[] = { 0x96, 0x03, 0x00, 0x01, 0x00, 0x10 };
+    struct gxfp_wire_packet packet;
+
+    ASSERT_TRUE(gxfp_build_driver_state_install(&packet));
+    ASSERT_TRUE(packet.inner_len == sizeof(inner));
+    assert_bytes(packet.outer, outer, sizeof(outer));
+    assert_bytes(packet.inner, inner, sizeof(inner));
+}
+
 static void test_a4_zero_fixture_vector(void)
 {
     static const uint8_t payload[] = { 0x00, 0x00 };
@@ -73,6 +86,7 @@ static void test_a4_requires_explicit_payload(void)
 int main(void)
 {
     test_nop_vector();
+    test_driver_state_install_vector();
     test_a4_zero_fixture_vector();
     test_a4_payload_changes_only_payload_and_checksum();
     test_a4_requires_explicit_payload();

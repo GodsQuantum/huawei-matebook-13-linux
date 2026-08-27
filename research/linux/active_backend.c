@@ -14,6 +14,15 @@ static int cancelled(struct gxfp_linux_active_backend *backend)
     return backend->level_ops.is_cancelled(backend->level_ops.ctx);
 }
 
+static void trace_transfer(struct gxfp_linux_active_backend *backend,
+                           enum gxfp_linux_transfer_direction direction,
+                           size_t len,
+                           int rc)
+{
+    if (backend->trace_fn != NULL)
+        backend->trace_fn(backend->trace_ctx, direction, len, rc);
+}
+
 static enum gxfp_io_result send_packet(struct gxfp_linux_active_backend *backend,
                                        const struct gxfp_wire_packet *packet)
 {
@@ -24,9 +33,14 @@ static enum gxfp_io_result send_packet(struct gxfp_linux_active_backend *backend
     if (cancelled(backend))
         return GXFP_IO_CANCELLED;
 
-    if (gxfp_spi_write_exact(backend->spi, packet->outer,
-                             sizeof(packet->outer)) < 0)
-        return GXFP_IO_ERROR;
+    {
+        int rc = gxfp_spi_write_exact(backend->spi, packet->outer,
+                                      sizeof(packet->outer));
+        trace_transfer(backend, GXFP_LINUX_TRANSFER_WRITE,
+                       sizeof(packet->outer), rc);
+        if (rc < 0)
+            return GXFP_IO_ERROR;
+    }
 
     io = backend->sleep_ms_fn(backend->sleep_ctx, GXFP_PACKET_GAP_MS);
     if (io != GXFP_IO_OK)
@@ -35,9 +49,14 @@ static enum gxfp_io_result send_packet(struct gxfp_linux_active_backend *backend
     if (cancelled(backend))
         return GXFP_IO_CANCELLED;
 
-    if (gxfp_spi_write_exact(backend->spi, packet->inner,
-                             packet->inner_len) < 0)
-        return GXFP_IO_ERROR;
+    {
+        int rc = gxfp_spi_write_exact(backend->spi, packet->inner,
+                                      packet->inner_len);
+        trace_transfer(backend, GXFP_LINUX_TRANSFER_WRITE,
+                       packet->inner_len, rc);
+        if (rc < 0)
+            return GXFP_IO_ERROR;
+    }
 
     return GXFP_IO_OK;
 }
@@ -163,8 +182,12 @@ static enum gxfp_io_result rx_read_exact(void *ctx,
         return GXFP_IO_ERROR;
     if (cancelled(backend))
         return GXFP_IO_CANCELLED;
-    if (gxfp_spi_read_exact(backend->spi, buf, len) < 0)
-        return GXFP_IO_ERROR;
+    {
+        int rc = gxfp_spi_read_exact(backend->spi, buf, len);
+        trace_transfer(backend, GXFP_LINUX_TRANSFER_READ, len, rc);
+        if (rc < 0)
+            return GXFP_IO_ERROR;
+    }
     return GXFP_IO_OK;
 }
 
@@ -240,6 +263,17 @@ bool gxfp_linux_active_backend_init(struct gxfp_linux_active_backend *backend,
     return gxfp_evk_rx_adapter_init(&backend->rx, &rx_io);
 }
 
+void gxfp_linux_active_backend_set_trace(
+    struct gxfp_linux_active_backend *backend,
+    gxfp_linux_transfer_trace_fn trace_fn,
+    void *trace_ctx)
+{
+    if (backend == NULL)
+        return;
+    backend->trace_fn = trace_fn;
+    backend->trace_ctx = trace_ctx;
+}
+
 bool gxfp_linux_active_backend_attempt(struct gxfp_linux_active_backend *backend,
                                        struct gxfp_attempt_backend *attempt)
 {
@@ -254,6 +288,17 @@ bool gxfp_linux_active_backend_attempt(struct gxfp_linux_active_backend *backend
     attempt->wait_ack = active_wait_ack;
     attempt->wait_response = active_wait_response;
     return true;
+}
+
+enum gxfp_io_result
+gxfp_linux_active_backend_send_driver_install(
+    struct gxfp_linux_active_backend *backend)
+{
+    struct gxfp_wire_packet packet;
+
+    if (backend == NULL || !gxfp_build_driver_state_install(&packet))
+        return GXFP_IO_ERROR;
+    return send_packet(backend, &packet);
 }
 
 const uint8_t *gxfp_linux_active_backend_response(

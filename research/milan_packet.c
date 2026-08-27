@@ -26,6 +26,22 @@ bool gxfp_build_nop(struct gxfp_wire_packet *packet)
     return true;
 }
 
+bool gxfp_build_driver_state_install(struct gxfp_wire_packet *packet)
+{
+    static const uint8_t inner[] = {
+        0x96, 0x03, 0x00, 0x01, 0x00, 0x10,
+    };
+
+    if (!packet)
+        return false;
+
+    memset(packet, 0, sizeof(*packet));
+    packet->inner_len = sizeof(inner);
+    memcpy(packet->inner, inner, sizeof(inner));
+    build_outer((uint8_t)packet->inner_len, packet->outer);
+    return true;
+}
+
 bool gxfp_build_a4(const uint8_t payload[2], struct gxfp_wire_packet *packet)
 {
     uint8_t checksum;
