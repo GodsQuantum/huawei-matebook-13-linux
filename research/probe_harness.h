@@ -8,7 +8,6 @@
 
 enum gxfp_probe_result {
     GXFP_PROBE_OK = 0,
-    GXFP_PROBE_INITIAL_RESET_ERROR,
     GXFP_PROBE_PREAMBLE_ERROR,
     GXFP_PROBE_DRIVERSTATE_RESET_ERROR,
     GXFP_PROBE_ACK_TIMEOUT,
@@ -57,8 +56,14 @@ struct gxfp_probe_report {
 
 /*
  * Runs one deliberately narrow experiment:
- * proven reset -> Windows-faithful DriverState:Install ACK/retry/reset path ->
- * one GetEvkVersion attempt -> unconditional proven reset cleanup.
+ * no pre-DriverState reset -> Windows-faithful DriverState:Install
+ * ACK/retry/conditional-reset path -> one GetEvkVersion attempt ->
+ * unconditional proven reset cleanup.
+ *
+ * Static Windows startup reconstruction shows normal InitThread enters
+ * _DeviceInit before the visible hard-reset fallback callsites.  The omitted
+ * initial reset is therefore intentional for this experiment; the proven
+ * reset remains mandatory for DriverState fallback and final cleanup.
  *
  * DriverState uses generic B/0 ACK bookkeeping for logical CHIP 9/3, whose
  * packed command is 0x96.  Each of the two Windows wrapper calls may send the

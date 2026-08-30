@@ -115,7 +115,6 @@ static const char *probe_result_name(enum gxfp_probe_result result)
 {
     switch (result) {
     case GXFP_PROBE_OK: return "OK";
-    case GXFP_PROBE_INITIAL_RESET_ERROR: return "INITIAL_RESET_ERROR";
     case GXFP_PROBE_PREAMBLE_ERROR: return "PREAMBLE_ERROR";
     case GXFP_PROBE_DRIVERSTATE_RESET_ERROR: return "DRIVERSTATE_RESET_ERROR";
     case GXFP_PROBE_ACK_TIMEOUT: return "ACK_TIMEOUT";
@@ -244,6 +243,7 @@ int main(void)
     printf("SPI_MAX_SPEED_HZ=%u\n", spi.max_speed_hz);
     printf("GPIO48_BEFORE=%d\n", irq_before);
     printf("GPIO264_MODE=AS_IS_ALREADY_OUTPUT\n");
+    printf("INITIAL_RESET=NO\n");
     printf("DRIVERSTATE_ACK_TARGET=96\n");
     printf("DRIVERSTATE_ACK_TIMEOUT_MS=1000\n");
     printf("A4_PAYLOAD_FIXTURE=00 00\n");

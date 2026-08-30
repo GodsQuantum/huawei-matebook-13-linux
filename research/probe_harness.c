@@ -151,11 +151,6 @@ gxfp_probe_run(const struct gxfp_probe_reset_ops *reset,
         report == NULL)
         return GXFP_PROBE_INVALID;
 
-    if (gxfp_probe_restore_reset(reset) != GXFP_IO_OK) {
-        primary = GXFP_PROBE_INITIAL_RESET_ERROR;
-        goto cleanup;
-    }
-
     driver_state = run_driverstate(preamble);
     report->driver_state_result = driver_state;
 

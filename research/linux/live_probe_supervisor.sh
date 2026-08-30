@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_2'
+CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_3'
 DEVICE_NAME='spi-GXFP51A0:00'
 DEFAULT_SYSFS_DEVICE='/sys/bus/spi/devices/spi-GXFP51A0:00'
 DEFAULT_SPIDEV_DRIVER='/sys/bus/spi/drivers/spidev'

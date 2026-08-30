@@ -231,7 +231,7 @@ static enum gxfp_probe_result run(struct fake *f, struct gxfp_probe_report *repo
     return gxfp_probe_run(&reset, &pre, &attempt, payload, report);
 }
 
-static void test_driverstate_first_install_ack_skips_intermediate_reset(void)
+static void test_driverstate_first_install_ack_starts_without_initial_reset(void)
 {
     struct fake f = success_fake();
     struct gxfp_probe_report report;
@@ -243,8 +243,8 @@ static void test_driverstate_first_install_ack_skips_intermediate_reset(void)
     assert(report.cleanup_result == GXFP_IO_OK);
     assert(count_event(&f, EV_PRE_INSTALL) == 1);
     assert(count_event(&f, EV_PRE_WAIT_ACK) == 1);
-    assert(count_event(&f, EV_RESET_HIGH) == 2); /* initial + cleanup */
-    assert_reset_at(&f, 0);
+    assert(count_event(&f, EV_RESET_HIGH) == 1); /* cleanup only */
+    assert(f.events[0].kind == EV_PRE_NOP);
     assert_reset_at(&f, f.count - 4);
 }
 
@@ -292,7 +292,7 @@ static void test_four_driverstate_ack_timeouts_trigger_one_intermediate_reset_th
     assert(report.driver_state_reset_performed);
     assert(count_event(&f, EV_PRE_INSTALL) == 4);
     assert(count_event(&f, EV_PRE_WAIT_ACK) == 4);
-    assert(count_event(&f, EV_RESET_HIGH) == 3); /* initial + DS fallback + cleanup */
+    assert(count_event(&f, EV_RESET_HIGH) == 2); /* DS fallback + cleanup */
 
     for (i = 0; i < f.count; i++)
         if (f.events[i].kind == EV_EVK_NOP) {
@@ -311,8 +311,8 @@ static void test_driverstate_reset_failure_stops_before_evk_and_final_cleanup_st
 
     for (i = 0; i < 4; i++)
         f.driver_ack_results[i] = GXFP_IO_TIMEOUT;
-    /* Initial reset consumes set positions 0,1. DriverState fallback HIGH is #2. */
-    f.reset_set_results[2] = GXFP_IO_ERROR;
+    /* With no initial reset, DriverState fallback HIGH is the first set call. */
+    f.reset_set_results[0] = GXFP_IO_ERROR;
 
     assert(run(&f, &report) == GXFP_PROBE_DRIVERSTATE_RESET_ERROR);
     assert(report.driver_state_result == GXFP_DRIVER_STATE_ACK_TIMEOUT);
@@ -380,8 +380,8 @@ static void test_cleanup_failure_is_distinct_and_preserves_primary(void)
     struct fake f = success_fake();
     struct gxfp_probe_report report;
 
-    /* Initial reset set calls 0,1; cleanup HIGH is set call 2 when DS succeeds. */
-    f.reset_set_results[2] = GXFP_IO_ERROR;
+    /* With no initial reset and DriverState success, cleanup HIGH is set call 0. */
+    f.reset_set_results[0] = GXFP_IO_ERROR;
     assert(run(&f, &report) == GXFP_PROBE_CLEANUP_ERROR);
     assert(report.primary_result == GXFP_PROBE_OK);
     assert(report.driver_state_result == GXFP_DRIVER_STATE_OK);
@@ -404,7 +404,7 @@ static void test_public_restore_sequence_is_high10_low100(void)
 int main(void)
 {
     test_public_restore_sequence_is_high10_low100();
-    test_driverstate_first_install_ack_skips_intermediate_reset();
+    test_driverstate_first_install_ack_starts_without_initial_reset();
     test_driverstate_internal_retransmit_succeeds_on_second_send();
     test_driverstate_second_wrapper_can_succeed_without_reset();
     test_four_driverstate_ack_timeouts_trigger_one_intermediate_reset_then_evk();

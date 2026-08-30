@@ -25,6 +25,7 @@ grep -q 'gpiod_line_request_set_value' "$reset"
 # Experiment payload remains the explicitly labelled deterministic fixture.
 grep -q 'static const uint8_t a4_payload\[2\] = {0x00, 0x00}' "$runtime"
 grep -q 'A4_PAYLOAD_FIXTURE=00 00' "$runtime"
+grep -q 'INITIAL_RESET=NO' "$runtime"
 grep -q 'DRIVERSTATE_ACK_TARGET=96' "$runtime"
 grep -q 'DRIVERSTATE_RESULT=' "$runtime"
 grep -q 'DRIVERSTATE_RESET_PERFORMED=' "$runtime"
@@ -47,5 +48,9 @@ fi
 # Signal handler must only request cancellation; cleanup happens in normal flow.
 grep -q 'g_cancelled = 1' "$runtime"
 grep -q 'cleanup = gxfp_probe_restore_reset(reset)' "$core"
+if grep -q 'GXFP_PROBE_INITIAL_RESET_ERROR' "$core"; then
+    echo 'safety violation: initial reset path remains in probe core' >&2
+    exit 1
+fi
 
 echo 'test_probe_runtime_source_safety: OK'
