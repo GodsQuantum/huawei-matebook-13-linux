@@ -300,3 +300,17 @@ during this correction gate.
 **NEXT:** final review of this exact corrected command path, then at most one
 supervised probe #2. No firmware operation or full common-init fallback is
 authorized.
+
+## 2026-08-31: probe #3, ACPI DSM and Windows startup ordering
+
+**CONFIRMED ON HARDWARE:** probe #3 was executed once on a fresh boot with the unproven unconditional pre-DriverState reset removed. DriverState still reached ACK timeout, triggered its Windows-faithful conditional reset, and the following single GetEvkVersion attempt also timed out. GPIO48 remained LOW and exact-length RX therefore performed zero reads. Sixteen physical SPI transactions were submitted. Cleanup restored GPIO264 LOW and temporary spidev state. No firmware operation occurred.
+
+**INTERPRETATION:** the hypothesis that the earlier total silence was caused solely by an unnecessary initial reset is rejected. Controller completion still does not prove Goodix MCU acceptance.
+
+**CONFIRMED BY ACPI STATIC ANALYSIS:** the SPBA `_INI` `SHPO` calls manipulate Intel HOSTSW_OWN ownership bits rather than a Goodix power/wake function. No conventional target-local child power-resource transition was found.
+
+**CONFIRMED BY SAFE ACPI READ:** Goodix SPBA `_DSM` UUID `cc58b68a-4479-4893-a8bb-961209db59e5`, revision 0, function 1 returns exactly 2048 bytes under Linux. No SPI, GPIO, reset or firmware action was involved. Windows static analysis identifies this data path as a PSK source. The raw payload is machine-private and deliberately excluded from Git.
+
+**CONFIRMED BY WINDOWS STATIC ANALYSIS:** `MilanEvtDeviceD0Entry` calls `_StartInitThread`; `_StartInitThread` passes `InitThread` as the thread entry. `InitThread` calls `_DeviceInit`. On first initialization `_DeviceInit` calls `send_driver_install_to_MCU` / `SetDriverState(9,3)` before `init_MCU`. `init_MCU` then reaches `GetEvkVersionWithRetry`. Later InitThread stages contain SGX/TLS work. The PSK/TLS branch is therefore not the prerequisite for the very first DriverState send.
+
+**CURRENT BOUNDARY:** do not run probe #4 yet. First map PrepareHardware, Windows SPI target/controller setup, interrupt/readiness registration and the remaining intermediate `_DeviceInit` operation. Define another active probe only after one missing variable is justified.

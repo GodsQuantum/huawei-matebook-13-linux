@@ -32,3 +32,15 @@ reverse-engineering-output/
 # Research build artifacts
 research/test_*
 research/.build/
+# private / proprietary reverse-engineering artifacts
+*.sys
+*.exe
+*.pdb
+*.etl
+*.evtx
+*.dmp
+*fpdt*.bin
+*dsm*.bin
+*psk*.bin
+*private*.bin
+temp/

@@ -1,44 +1,72 @@
 # Safety policy
 
-This policy is mandatory. The static fallback gate is complete, but the current
-state authorizes only static work and preparation/review of a minimal fallback
-experiment. Hardware execution requires that review to be complete first.
+This policy is mandatory for GXFP51A0 / GF3658 Milan research.
 
 ## Absolute prohibitions
 
-Do not perform firmware flashing, UPFW, firmware erase, bootloader programming, or any firmware-management procedure. Do not run the current OpenGoodixSPI main, unmodified `goodix-fp-dump`, PopulusYang `full_test` or `ProgramStart`, or USB `27c6:5110`/`5117` firmware procedures. They are rejected procedures, not instructions to follow.
+Do not perform firmware flashing or UPFW, firmware erase, bootloader programming, vendor firmware-management flows, unmodified OpenGoodixSPI full-device procedures, unmodified `goodix-fp-dump` full-device procedures, or unrelated USB `27c6:5110` / `5117` firmware procedures.
 
-## Required controls
+Windows firmware-management paths may be documented statically but are not instructions to reproduce them.
 
-- Use IRQ-driven exact-length reads: four-byte header, validation, then one exactly-sized body read; never over-read or read again after `FF FF FF FF`.
-- Kernel code must use DMA-safe allocations: `kmalloc`, `kzalloc`, or `kmemdup`.
-- Work static-analysis-first and test one hypothesis with the minimum writes.
-- Do not interact with the power button unless explicitly required by an approved hypothesis.
-- After every active experiment restore Windows reset: GPIO264 HIGH 10 ms, GPIO264 LOW 100 ms, ending LOW.
+## RX invariants
 
-## Active-experiment checklist
+- Wait for readiness before reading.
+- Read exactly four outer-header bytes.
+- Validate the header and announced body length.
+- Read exactly the announced body.
+- Stop immediately on `FF FF FF FF`.
+- Never add a speculative second read.
+- Fail closed on malformed, oversized or ambiguous frames.
 
-Record the hypothesis, minimum writes, expected IRQ/read result, stop condition, logging, and final reset restoration (HIGH 10 ms, LOW 100 ms, final state LOW). Stop at the condition; do not add opportunistic commands, firmware operations, or a second read.
+## GPIO invariants
 
-## Live-probe harness execution gate
+GPIO48 is treated as a level-oriented ActiveHigh readiness input. Do not reconfigure its trigger mode or firmware-locked pinmux.
 
-The independent external supervisor/restore gate has passed
-off-hardware. A live probe, if run, must be launched only through that
-supervisor and never by invoking `gxfp-live-probe` directly.
+GPIO264 is reset/control. The proven restoration sequence is:
 
-Required execution invariants:
+```text
+HIGH 10 ms
+LOW 100 ms
+final LOW
+```
 
-- explicit reviewed-probe confirmation token;
-- target initially unbound with empty `driver_override`;
-- supervisor-owned temporary spidev bind/unbind;
-- 8-second hard timeout with process-group termination;
-- internal cleanup accepted only with both `CLEANUP_RESULT=0` and
-  `GPIO264_AFTER=0`;
-- otherwise separate GPIO264-only restore after probe termination;
-- unconditional unbind/override cleanup and restoration of spidev module
-  pre-state;
-- exactly one reviewed probe; no automatic retry of the overall experiment.
+## Active-experiment policy
 
-This protects against ordinary probe crashes, hangs and handled terminal
-signals. Power loss or SIGKILL of the supervisor itself remain outside
-userspace guarantees.
+Every hardware experiment must define one hypothesis, minimum required writes, expected readiness/RX behavior, a bounded timeout, an explicit stop condition, cleanup behavior and independent recovery behavior.
+
+Do not add opportunistic protocol commands after the experiment starts.
+
+## Supervisor requirements
+
+A live probe must run only through the independent supervisor, never by invoking the probe binary directly.
+
+Required invariants:
+
+- explicit reviewed-probe token;
+- device initially unbound;
+- empty `driver_override`;
+- supervisor-owned temporary spidev binding;
+- **12-second** wall-clock timeout;
+- terminate the probe process group;
+- TERM followed by KILL-after-2-seconds when required;
+- internal cleanup accepted only with `CLEANUP_RESULT=0` and `GPIO264_AFTER=0`;
+- GPIO264-only external restore if internal cleanup cannot be confirmed;
+- unconditional spidev unbind / override cleanup;
+- restoration of original spidev module state;
+- no automatic retry of the complete hardware experiment.
+
+## Current hardware gate
+
+Probe #3 has already been executed. Do not rerun probe #3.
+
+Probe #4 is **not authorized yet**. It must not be defined until static evidence identifies exactly one justified missing variable.
+
+## ACPI `_DSM` / PSK privacy
+
+The Goodix `_DSM` function 1 returns a 2048-byte machine-specific buffer used by the Windows stack as a PSK source.
+
+Never commit or publish the raw `_DSM` buffer, PSKs or derived authentication material, or dumps containing such data.
+
+## Repository privacy
+
+Never commit local usernames, personal filesystem paths, private machine nicknames, boot IDs, local IP addresses, unrelated hardware serials, proprietary Windows binaries, raw generated disassembly or unredacted local diagnostics.
