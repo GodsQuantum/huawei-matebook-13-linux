@@ -25,13 +25,14 @@ typedef void (*gxfp_linux_transfer_trace_fn)(
 
 /*
  * GPIO48 is ACPI level-triggered ActiveHigh and its Intel pad is firmware
- * configuration-locked on the target.  The research backend therefore reads
- * only the current logical level and polls it in bounded sleeps.  It does not
- * request edge detection or alter IRQ trigger configuration.
+ * configuration-locked on the target.  Legacy research paths may read the
+ * logical level, while reviewed active probes may provide a native kernel IRQ
+ * wait callback.  Neither path changes the firmware-provided trigger type.
  */
 struct gxfp_linux_level_ops {
     void *ctx;
     int (*get_value)(void *ctx);
+    enum gxfp_io_result (*wait_high)(void *ctx, unsigned timeout_ms);
     int64_t (*monotonic_now_ns)(void *ctx);
     int (*is_cancelled)(void *ctx);
 };

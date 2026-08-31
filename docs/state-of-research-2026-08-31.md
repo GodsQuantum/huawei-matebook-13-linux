@@ -246,3 +246,14 @@ Never perform as part of this research state:
 - unrelated USB `27c6:5110` / `5117` firmware procedures.
 
 Every future active test must use one hypothesis, minimum writes, exact-length RX, explicit stop conditions, independent supervision and final GPIO264 LOW restoration.
+
+
+## Probe #4 native-IRQ boundary
+
+Passive Linux validation now proves that the ACPI `GpioInt[0]` resolves to hardware IRQ 48 with `LEVEL_HIGH` trigger semantics through the Intel GPIO irqdomain. The Linux virtual IRQ is dynamic and is intentionally not recorded as a protocol constant.
+
+Static Windows work also closes the pre-DriverState startup path: `PrepareHardware` opens resources but does not issue a hidden SPI/GPIO/reset wake sequence, the intermediate `device_action(0xF)` is software state only, and the remaining pre-thread helper is SGX/WBDI enclave initialization without a sensor-I/O path.
+
+Probe #4 therefore changes exactly one experimental variable relative to Probe #3: readiness waits use the native kernel ACPI IRQ rather than userspace GPIO48 level polling. Protocol bytes, timing/retry model, conditional DriverState reset, GetEvkVersion fixture, supervisor timeout and final reset restoration remain unchanged.
+
+Probe #4 is prepared but not executed. A fresh boot and one-shot supervised run are required.

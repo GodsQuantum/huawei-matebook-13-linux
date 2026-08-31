@@ -22,6 +22,7 @@ struct gxfp_evk_rx_io {
     enum gxfp_io_result (*read_exact)(void *ctx, uint8_t *buf, size_t len);
     uint64_t (*monotonic_ms)(void *ctx);
     int (*is_cancelled)(void *ctx);
+    bool event_driven_wait;
 };
 
 struct gxfp_evk_rx_adapter {

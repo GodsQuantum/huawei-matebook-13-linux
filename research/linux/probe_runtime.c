@@ -1,8 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "active_backend.h"
-#include "active_runtime.h"
-#include "gpiod_irq.h"
+#include "kernel_irq_runtime.h"
 #include "gpiod_reset.h"
 #include "linux_spi.h"
 #include "spidev_discovery.h"
@@ -18,7 +17,9 @@
 #define GXFP_SPI_SYSFS "/sys/bus/spi/devices/spi-GXFP51A0:00"
 #define GXFP_DEV_ROOT "/dev"
 #define GXFP_GPIO_CHIP "/dev/gpiochip0"
-#define GXFP_IRQ_OFFSET 48u
+#define GXFP_IRQ_WAIT_DEV "/dev/gxfp_irq_wait"
+#define GXFP_EXPECTED_HWIRQ 48u
+#define GXFP_EXPECTED_TRIGGER 4u
 #define GXFP_RESET_OFFSET 264u
 
 static volatile sig_atomic_t g_cancelled;
@@ -145,9 +146,8 @@ int main(void)
     struct sigaction sa;
     char spi_path[256];
     struct gxfp_spi spi;
-    struct gxfp_gpiod_irq *irq = NULL;
     struct gxfp_gpiod_reset *reset = NULL;
-    struct gxfp_linux_active_runtime runtime;
+    struct gxfp_kernel_irq_runtime runtime;
     struct gxfp_linux_level_ops level_ops;
     struct gxfp_linux_active_backend active;
     struct gxfp_attempt_backend attempt;
@@ -160,8 +160,6 @@ int main(void)
     const uint8_t *response;
     size_t response_len = 0;
     unsigned transfer_seq = 0;
-    int irq_before;
-    int irq_after;
     int reset_after;
     int rc = 1;
     size_t i;
@@ -189,31 +187,31 @@ int main(void)
         return 1;
     }
 
-    if (gxfp_gpiod_irq_open(&irq, GXFP_GPIO_CHIP, GXFP_IRQ_OFFSET) != 0) {
-        fprintf(stderr, "GPIO48 input request failed\n");
-        goto out_spi;
-    }
-
     if (gxfp_gpiod_reset_open_as_is(&reset,
                                      GXFP_GPIO_CHIP,
                                      GXFP_RESET_OFFSET) != 0) {
         fprintf(stderr, "GPIO264 as-is output request failed\n");
-        goto out_irq;
+        goto out_spi;
     }
 
-    if (!gxfp_linux_active_runtime_init(&runtime, irq,
-                                        cancelled_cb, NULL)) {
-        fprintf(stderr, "active runtime init failed\n");
+    if (!gxfp_kernel_irq_runtime_open(&runtime, GXFP_IRQ_WAIT_DEV,
+                                      cancelled_cb, NULL)) {
+        fprintf(stderr, "kernel IRQ runtime open failed\n");
         goto out_reset;
     }
-    gxfp_linux_active_runtime_get_level_ops(&runtime, &level_ops);
+    if (runtime.info.hwirq != GXFP_EXPECTED_HWIRQ ||
+        runtime.info.trigger_type != GXFP_EXPECTED_TRIGGER) {
+        fprintf(stderr, "kernel IRQ contract mismatch\n");
+        goto out_runtime;
+    }
+    gxfp_kernel_irq_runtime_get_level_ops(&runtime, &level_ops);
 
     if (!gxfp_linux_active_backend_init(&active, &spi, &level_ops,
-                                        gxfp_linux_active_runtime_sleep_ms,
+                                        gxfp_kernel_irq_runtime_sleep_ms,
                                         &runtime) ||
         !gxfp_linux_active_backend_attempt(&active, &attempt)) {
         fprintf(stderr, "active backend init failed\n");
-        goto out_reset;
+        goto out_runtime;
     }
 
     gxfp_linux_active_backend_set_trace(&active,
@@ -235,13 +233,15 @@ int main(void)
         .sleep_ms = reset_sleep_ms,
     };
 
-    irq_before = gxfp_gpiod_irq_get_value(irq);
     printf("PROBE_BEGIN\n");
     printf("SPI_NODE=%s\n", spi_path);
     printf("SPI_MODE=%u\n", GXFP_SPI_MODE);
     printf("SPI_BITS=%u\n", GXFP_SPI_BITS_PER_WORD);
     printf("SPI_MAX_SPEED_HZ=%u\n", spi.max_speed_hz);
-    printf("GPIO48_BEFORE=%d\n", irq_before);
+    printf("IRQ_SOURCE=KERNEL_ACPI_GPIOINT\n");
+    printf("MAPPED_IRQ=%u\n", runtime.info.linux_irq);
+    printf("MAPPED_HWIRQ=%llu\n", (unsigned long long)runtime.info.hwirq);
+    printf("IRQ_TRIGGER=LEVEL_HIGH\n");
     printf("GPIO264_MODE=AS_IS_ALREADY_OUTPUT\n");
     printf("INITIAL_RESET=NO\n");
     printf("DRIVERSTATE_ACK_TARGET=96\n");
@@ -252,7 +252,6 @@ int main(void)
     result = gxfp_probe_run(&reset_ops, &preamble_ops, &attempt,
                             a4_payload, &report);
 
-    irq_after = gxfp_gpiod_irq_get_value(irq);
     reset_after = gxfp_gpiod_reset_get_level(reset);
     response = gxfp_linux_active_backend_response(&active, &response_len);
 
@@ -263,7 +262,8 @@ int main(void)
     printf("EVK_ATTEMPT_RESULT=%d\n", report.evk_result);
     printf("CLEANUP_RESULT=%d\n", report.cleanup_result);
     printf("SPI_TRANSFER_COUNT=%u\n", spi.transfer_count);
-    printf("GPIO48_AFTER=%d\n", irq_after);
+    printf("IRQ_WAIT_COUNT=%u\n", runtime.wait_count);
+    printf("IRQ_EVENT_COUNT=%u\n", runtime.event_count);
     printf("GPIO264_AFTER=%d\n", reset_after);
     printf("EVK_RESPONSE_LEN=%zu\n", response_len);
     printf("EVK_RESPONSE_HEX=");
@@ -283,10 +283,10 @@ int main(void)
         rc = 3;
     }
 
+out_runtime:
+    gxfp_kernel_irq_runtime_close(&runtime);
 out_reset:
     gxfp_gpiod_reset_close(reset);
-out_irq:
-    gxfp_gpiod_irq_close(irq);
 out_spi:
     gxfp_spi_close(&spi);
     return rc;

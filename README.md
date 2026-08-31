@@ -46,13 +46,9 @@ Function 1 returns a 2048-byte `HWFP/FPDT` buffer. Linux can evaluate it success
 
 The main unresolved problem is why correctly submitted Linux SPI traffic receives no readiness/ACK at all.
 
-Current priority:
+The Windows pre-DriverState path is now closed far enough to isolate one experimental variable. Linux also resolves the target ACPI `GpioInt[0]` to hardware IRQ 48 with `LEVEL_HIGH` semantics.
 
-1. map Windows `PrepareHardware`;
-2. map SPI target/controller setup;
-3. map interrupt/readiness registration;
-4. classify remaining platform state before `InitThread`;
-5. compare with Linux before authorizing another probe.
+**Next controlled step:** Probe #4 is prepared but not executed. It keeps the Probe #3 protocol and reset policy unchanged and replaces only userspace GPIO48 polling with a native kernel ACPI IRQ wait. A fresh boot, one-shot execution and the independent 12-second supervisor are mandatory.
 
 Do not add generic Goodix wake commands without same-device evidence.
 

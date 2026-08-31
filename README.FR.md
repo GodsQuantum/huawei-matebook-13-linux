@@ -46,13 +46,9 @@ La fonction 1 renvoie un buffer `HWFP/FPDT` de 2048 octets. Linux sait le lire c
 
 Le problème principal est désormais de comprendre pourquoi des transactions SPI Linux correctement soumises ne provoquent aucune readiness/ACK.
 
-Priorités :
+Le chemin Windows précédant DriverState est maintenant suffisamment fermé pour isoler une seule variable expérimentale. Linux résout également le `GpioInt[0]` ACPI de la cible vers l'IRQ matériel 48 avec la sémantique `LEVEL_HIGH`.
 
-1. reconstruire `MilanEvtDevicePrepareHardware` ;
-2. reconstruire la configuration de la cible/du contrôleur SPI Windows ;
-3. reconstruire l'enregistrement de l'interruption/readiness ;
-4. identifier l'état de plate-forme établi avant `InitThread` ;
-5. comparer avec Linux avant d'autoriser un probe #4.
+**Prochaine étape contrôlée :** le probe #4 est préparé mais n'a pas été exécuté. Il conserve le protocole et la politique de reset du probe #3 et remplace uniquement le polling userspace de GPIO48 par l'attente de l'IRQ ACPI native du noyau. Un boot frais, une exécution unique et le superviseur indépendant de 12 secondes sont obligatoires.
 
 Aucune commande wake Goodix générique ne doit être ajoutée sans preuve sur ce modèle.
 
