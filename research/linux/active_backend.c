@@ -96,6 +96,9 @@ static enum gxfp_io_result active_send_a4(void *ctx,
 static int rx_get_irq_level(void *ctx)
 {
     struct gxfp_linux_active_backend *backend = ctx;
+
+    if (backend == NULL || backend->level_ops.get_value == NULL)
+        return -1;
     return backend->level_ops.get_value(backend->level_ops.ctx);
 }
 
@@ -125,6 +128,10 @@ static enum gxfp_io_result rx_wait_irq_high(void *ctx, unsigned timeout_ms)
         return GXFP_IO_ERROR;
     if (timeout_ms == 0)
         return GXFP_IO_TIMEOUT;
+    if (backend->level_ops.wait_high != NULL)
+        return backend->level_ops.wait_high(backend->level_ops.ctx, timeout_ms);
+    if (backend->level_ops.get_value == NULL)
+        return GXFP_IO_ERROR;
 
     now = backend->level_ops.monotonic_now_ns(backend->level_ops.ctx);
     if (now < 0)
@@ -241,7 +248,8 @@ bool gxfp_linux_active_backend_init(struct gxfp_linux_active_backend *backend,
     if (backend == NULL || spi == NULL || spi->fd < 0 || spi->ops == NULL ||
         spi->ops->ioctl_fn == NULL ||
         spi->max_speed_hz != GXFP_SPI_MAX_SPEED_HZ ||
-        level_ops == NULL || level_ops->get_value == NULL ||
+        level_ops == NULL ||
+        (level_ops->get_value == NULL && level_ops->wait_high == NULL) ||
         level_ops->monotonic_now_ns == NULL ||
         level_ops->is_cancelled == NULL || sleep_ms_fn == NULL)
         return false;
@@ -259,6 +267,7 @@ bool gxfp_linux_active_backend_init(struct gxfp_linux_active_backend *backend,
     rx_io.read_exact = rx_read_exact;
     rx_io.monotonic_ms = rx_monotonic_ms;
     rx_io.is_cancelled = rx_is_cancelled;
+    rx_io.event_driven_wait = level_ops->wait_high != NULL;
 
     return gxfp_evk_rx_adapter_init(&backend->rx, &rx_io);
 }

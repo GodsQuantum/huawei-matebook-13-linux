@@ -59,7 +59,18 @@ Required invariants:
 
 Probe #3 has already been executed. Do not rerun probe #3.
 
-Probe #4 is **not authorized yet**. It must not be defined until static evidence identifies exactly one justified missing variable.
+Probe #4 is authorized only under the reviewed native-IRQ design:
+
+- fresh boot required;
+- one-shot execution only;
+- same Probe #3 protocol bytes, retry/reset policy and cleanup;
+- readiness changes from GPIO48 userspace polling to the kernel-resolved ACPI `GpioInt`;
+- the resolved hardware IRQ must be GPIO48 with `LEVEL_HIGH`;
+- the Linux virtual IRQ is dynamic and must never be hardcoded;
+- the helper requests no SPI, GPIO264, reset, ACPI `_DSM`, PM or firmware operation;
+- independent 12-second supervisor remains mandatory.
+
+Probe #4 has been prepared but has not been executed.
 
 ## ACPI `_DSM` / PSK privacy
 

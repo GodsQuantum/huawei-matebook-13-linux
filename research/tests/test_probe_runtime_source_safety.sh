@@ -29,6 +29,13 @@ grep -q 'INITIAL_RESET=NO' "$runtime"
 grep -q 'DRIVERSTATE_ACK_TARGET=96' "$runtime"
 grep -q 'DRIVERSTATE_RESULT=' "$runtime"
 grep -q 'DRIVERSTATE_RESET_PERFORMED=' "$runtime"
+grep -q 'IRQ_SOURCE=KERNEL_ACPI_GPIOINT' "$runtime"
+grep -q 'IRQ_WAIT_COUNT=' "$runtime"
+grep -q 'IRQ_EVENT_COUNT=' "$runtime"
+if grep -q 'gxfp_gpiod_irq' "$runtime"; then
+    echo 'safety violation: Probe4 runtime still requests GPIO48 directly' >&2
+    exit 1
+fi
 
 # DriverState uses ACK(9,3) at the effective 1000 ms minimum; old fixed 100 ms sleeps are forbidden.
 grep -q 'GXFP_DRIVERSTATE_ACK_TIMEOUT_MS 1000u' "$core"

@@ -66,11 +66,7 @@ static enum gxfp_io_result wait_for_target(struct gxfp_evk_rx_adapter *adapter,
         if (adapter->io.is_cancelled(adapter->io.ctx))
             return GXFP_IO_CANCELLED;
 
-        irq_level = adapter->io.get_irq_level(adapter->io.ctx);
-        if (irq_level < 0)
-            return GXFP_IO_ERROR;
-
-        if (irq_level == 0) {
+        if (adapter->io.event_driven_wait) {
             wait_ms = remaining_ms(adapter, deadline_ms);
             if (wait_ms == 0)
                 return GXFP_IO_TIMEOUT;
@@ -78,7 +74,21 @@ static enum gxfp_io_result wait_for_target(struct gxfp_evk_rx_adapter *adapter,
             io = adapter->io.wait_irq_high(adapter->io.ctx, wait_ms);
             if (io != GXFP_IO_OK)
                 return io;
-            continue;
+        } else {
+            irq_level = adapter->io.get_irq_level(adapter->io.ctx);
+            if (irq_level < 0)
+                return GXFP_IO_ERROR;
+
+            if (irq_level == 0) {
+                wait_ms = remaining_ms(adapter, deadline_ms);
+                if (wait_ms == 0)
+                    return GXFP_IO_TIMEOUT;
+
+                io = adapter->io.wait_irq_high(adapter->io.ctx, wait_ms);
+                if (io != GXFP_IO_OK)
+                    return io;
+                continue;
+            }
         }
 
         io = adapter->io.read_exact(adapter->io.ctx, header, sizeof(header));
@@ -134,9 +144,11 @@ static enum gxfp_io_result wait_for_target(struct gxfp_evk_rx_adapter *adapter,
 bool gxfp_evk_rx_adapter_init(struct gxfp_evk_rx_adapter *adapter,
                               const struct gxfp_evk_rx_io *io)
 {
-    if (adapter == NULL || io == NULL || io->get_irq_level == NULL ||
-        io->wait_irq_high == NULL || io->read_exact == NULL ||
-        io->monotonic_ms == NULL || io->is_cancelled == NULL)
+    if (adapter == NULL || io == NULL || io->wait_irq_high == NULL ||
+        io->read_exact == NULL || io->monotonic_ms == NULL ||
+        io->is_cancelled == NULL)
+        return false;
+    if (!io->event_driven_wait && io->get_irq_level == NULL)
         return false;
 
     memset(adapter, 0, sizeof(*adapter));

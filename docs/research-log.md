@@ -314,3 +314,12 @@ authorized.
 **CONFIRMED BY WINDOWS STATIC ANALYSIS:** `MilanEvtDeviceD0Entry` calls `_StartInitThread`; `_StartInitThread` passes `InitThread` as the thread entry. `InitThread` calls `_DeviceInit`. On first initialization `_DeviceInit` calls `send_driver_install_to_MCU` / `SetDriverState(9,3)` before `init_MCU`. `init_MCU` then reaches `GetEvkVersionWithRetry`. Later InitThread stages contain SGX/TLS work. The PSK/TLS branch is therefore not the prerequisite for the very first DriverState send.
 
 **CURRENT BOUNDARY:** do not run probe #4 yet. First map PrepareHardware, Windows SPI target/controller setup, interrupt/readiness registration and the remaining intermediate `_DeviceInit` operation. Define another active probe only after one missing variable is justified.
+
+
+### Probe #4 native-IRQ preparation
+
+A mapping-only Linux check resolved the target ACPI `GpioInt[0]` as hardware IRQ 48 with `LEVEL_HIGH` semantics, without binding the SPI device, requesting an IRQ handler, transferring SPI data, touching reset GPIO264, invoking `_DSM`, or performing firmware activity.
+
+Combined with the Windows `PrepareHardware` / D0Entry / InitThread audits, this isolates the next active variable: replace userspace GPIO48 polling with the native kernel ACPI IRQ wait while leaving the Probe #3 protocol sequence unchanged.
+
+Probe #4 is prepared only. It requires a fresh boot, the reviewed confirmation token, the independent 12-second supervisor and one-shot execution.

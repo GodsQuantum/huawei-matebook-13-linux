@@ -126,3 +126,12 @@ Only sanitized, generic research facts belong in the public repository.
 No firmware flashing, UPFW, erase, bootloader or firmware-management procedure is authorized.
 
 Any future active probe must use the independent supervisor, exact-length RX, one reviewed hypothesis, bounded writes and unconditional final GPIO264 LOW restoration.
+
+
+## Probe #4 prepared boundary
+
+The Linux ACPI GPIO IRQ resolver has been validated passively: GXFP51A0 `GpioInt[0]` maps to hardware IRQ 48 with `LEVEL_HIGH` semantics. Never hardcode the Linux virtual IRQ number.
+
+Windows startup analysis has found no hidden sensor I/O before the first DriverState that would justify an extra wake/reset command.
+
+Probe #4 is therefore prepared as a one-variable experiment: native kernel ACPI IRQ readiness replaces GPIO48 userspace level polling; DriverState/GetEvkVersion bytes, retries, conditional reset and cleanup remain unchanged. Do not run it except on a fresh boot through the 12-second supervisor.
