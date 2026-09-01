@@ -323,3 +323,37 @@ A mapping-only Linux check resolved the target ACPI `GpioInt[0]` as hardware IRQ
 Combined with the Windows `PrepareHardware` / D0Entry / InitThread audits, this isolates the next active variable: replace userspace GPIO48 polling with the native kernel ACPI IRQ wait while leaving the Probe #3 protocol sequence unchanged.
 
 Probe #4 is prepared only. It requires a fresh boot, the reviewed confirmation token, the independent 12-second supervisor and one-shot execution.
+
+## 2026-08-31: Probe #4 native-IRQ experiment executed
+
+**CONFIRMED on the target laptop:** Probe #4 executed exactly once on a fresh boot with the Probe #3 protocol/reset model unchanged and readiness moved from userspace GPIO48 polling to the kernel-resolved ACPI `GpioInt[0]`.
+
+The dynamic Linux IRQ resolved to hwirq 48 with `LEVEL_HIGH` semantics. The run submitted 16 SPI transactions, entered six native IRQ waits, observed zero Goodix IRQ events, performed zero SPI reads, timed out DriverState ACK, performed the existing conditional DriverState reset, and completed cleanup with GPIO264 LOW.
+
+**CONCLUSION:** the hypothesis that userspace GPIO polling missed a readiness transition is rejected. Do not rerun Probe #4.
+
+## 2026-08-31: passive controller postmortem
+
+**CONFIRMED passively:** GXFP51A0 sits below the Intel LPSS / PXA2xx SPI stack. Controller interrupt accounting increased in step with the 16 Probe #4 submissions. Runtime autosuspend after the run is normal.
+
+**LIMIT:** this is controller-side evidence only. It does not prove that CS/SCLK/MOSI reach the sensor electrically or that the MCU accepts the transfers.
+
+## 2026-09-01: Probe #5 tracing path deprioritized
+
+Probe #5 was intended to add ftrace/SPI observation without changing Probe #4 protocol traffic. Its attempts failed in trace/preflight configuration before any new sensor SPI transaction. One attempt loaded the native IRQ bridge and partially configured ftrace, then cleaned up without protocol I/O.
+
+**CONCLUSION:** these attempts provide no new sensor result. Ftrace is deprioritized because the unresolved boundary is increasingly physical/platform reachability rather than Linux userspace readiness logic.
+
+## 2026-09-01: GF3658 low-level transport independently cross-checked
+
+**CONFIRMED by static analysis of Goodix FP 1.1.141.36:** `SpiSendDataToDevice` delegates the complete frame to helper `0x180007e60`, which dispatches by a transport/hardware mode selector.
+
+For modes `2`, `3` and `5`, the binary performs a 4-byte transfer, waits 2 ms, then transfers `buffer + 4` for `length - 4`. Modes `0/1` use one full transfer and mode `6` has a separate path. The split transfers go through `0x180008b68 -> 0x180009c34`.
+
+This independently corroborates the existing 4-byte outer + 2 ms + inner Milan transport model.
+
+**OPEN:** the newest audit has not yet tied GXFP51A0 directly to its runtime mode value and has not yet followed `0x180009c34` to the final Windows/SPB I/O primitive.
+
+**CORRECTION:** a proposed missing 1 ms pre-submit delay is not supported by this GF3658 path; the visible 15 ms / 50 ms sleeps belong to ACK/response waiting.
+
+**CURRENT BOUNDARY:** do not add new Goodix commands. Close the runtime mode and final SPB leaf statically; if Linux transaction boundaries remain correct, move to direct physical SPI observability.

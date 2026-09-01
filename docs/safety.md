@@ -8,6 +8,8 @@ Do not perform firmware flashing or UPFW, firmware erase, bootloader programming
 
 Windows firmware-management paths may be documented statically but are not instructions to reproduce them.
 
+Do not make speculative pinmux writes or force platform/runtime-PM state without a reviewed same-device reason.
+
 ## RX invariants
 
 - Wait for readiness before reading.
@@ -46,10 +48,9 @@ Required invariants:
 - device initially unbound;
 - empty `driver_override`;
 - supervisor-owned temporary spidev binding;
-- **12-second** wall-clock timeout;
-- terminate the probe process group;
-- TERM followed by KILL-after-2-seconds when required;
-- internal cleanup accepted only with `CLEANUP_RESULT=0` and `GPIO264_AFTER=0`;
+- 12-second wall-clock timeout for the current reviewed research harness; any change requires a new reviewed probe design;
+- terminate the probe process group on failure/timeout;
+- internal cleanup accepted only when final GPIO264 LOW is confirmed;
 - GPIO264-only external restore if internal cleanup cannot be confirmed;
 - unconditional spidev unbind / override cleanup;
 - restoration of original spidev module state;
@@ -57,20 +58,26 @@ Required invariants:
 
 ## Current hardware gate
 
-Probe #3 has already been executed. Do not rerun probe #3.
+Probe #3 has already been executed. Do not rerun Probe #3.
 
-Probe #4 is authorized only under the reviewed native-IRQ design:
+Probe #4 has also been executed once under the reviewed native-IRQ design. It produced:
 
-- fresh boot required;
-- one-shot execution only;
-- same Probe #3 protocol bytes, retry/reset policy and cleanup;
-- readiness changes from GPIO48 userspace polling to the kernel-resolved ACPI `GpioInt`;
-- the resolved hardware IRQ must be GPIO48 with `LEVEL_HIGH`;
-- the Linux virtual IRQ is dynamic and must never be hardcoded;
-- the helper requests no SPI, GPIO264, reset, ACPI `_DSM`, PM or firmware operation;
-- independent 12-second supervisor remains mandatory.
+```text
+SPI_TRANSFER_COUNT=16
+IRQ_WAIT_COUNT=6
+IRQ_EVENT_COUNT=0
+SPI reads=0
+DRIVERSTATE_RESULT=ACK_TIMEOUT
+cleanup=successful
+```
 
-Probe #4 has been prepared but has not been executed.
+Do not rerun Probe #4.
+
+The native IRQ result rejects the userspace-polling hypothesis. No new Goodix protocol command is currently authorized.
+
+Probe #5 tracing attempts did not reach new sensor protocol traffic and are not hardware evidence. Ftrace is currently deprioritized.
+
+Before any new active probe, first close the static GF3658 transport-mode / final-SPB-helper questions or establish another single discriminating variable. If software transaction boundaries remain correct, prefer physical SPI observability over another speculative protocol sequence.
 
 ## ACPI `_DSM` / PSK privacy
 

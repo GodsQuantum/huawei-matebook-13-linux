@@ -4,6 +4,8 @@
 
 Read first:
 
+- [Session handoff — 2026-09-01](SESSION_HANDOFF_2026-09-01.md)
+- [Reassessment — 2026-09-01](docs/reassessment-2026-09-01.md)
 - [State of research — 2026-08-31](docs/state-of-research-2026-08-31.md)
 - [Hardware evidence](docs/hardware.md)
 - [Protocol evidence](docs/protocol.md)
@@ -15,7 +17,7 @@ There is no working Linux fingerprint driver yet.
 The intended end state remains:
 
 ```text
-validated Milan transport
+validated GXFP51A0 Milan transport
 -> libfprint
 -> fprintd
 -> desktop/PAM integration
@@ -27,111 +29,126 @@ validated Milan transport
 - ACPI `\_SB.PCI0.SPI1.SPBA`.
 - SPI1 CS0, mode 0, 8-bit, 10 MHz, four-wire.
 - GPIO48 is level-triggered ActiveHigh readiness/IRQ.
+- Linux resolves ACPI `GpioInt[0]` to hardware IRQ 48 with `LEVEL_HIGH`; the Linux virtual IRQ is dynamic and must never be hardcoded.
 - GPIO264 reset is HIGH 10 ms -> LOW 100 ms -> final LOW.
-- Milan writes use separate outer/inner SPI transactions with a 2 ms gap.
+- Milan framing is outer header + inner packet; the Windows GF3658 transport contains a split-write path that transfers 4 bytes, waits 2 ms, then transfers the remaining bytes.
 - DriverState:Install is logical `(9,3)`, packed `0x96`.
 - B/0 `payload[0]` identifies the command being acknowledged.
 - A silent DriverState path can submit at most four Install packets before its conditional hard reset.
 - `GetEvkVersion` is NOP -> 5 ms -> A/4, with one exact A/4 retransmission after first ACK timeout and a separate response-event phase after ACK.
-- Linux A/4 `00 00` is only a deterministic fixture.
+- Linux A/4 `00 00` remains only a deterministic research fixture.
 
-## Latest active result
+## Latest active result: Probe #4
 
-Probe #3 was executed on a fresh boot with no unconditional initial reset.
+Probe #4 was executed once on a fresh boot. Relative to Probe #3 it changed only readiness handling: userspace GPIO48 polling was replaced by the native kernel ACPI IRQ wait.
 
 Result:
 
 ```text
-DriverState: ACK timeout
-conditional DriverState reset: performed
-GPIO48: remained LOW
-SPI reads: zero
-GetEvkVersion: ACK timeout
-total physical SPI transactions: 16
-cleanup: successful
-temporary spidev state: restored
+DRIVERSTATE_RESULT=ACK_TIMEOUT
+DRIVERSTATE_RESET_PERFORMED=YES
+SPI_TRANSFER_COUNT=16
+IRQ_WAIT_COUNT=6
+IRQ_EVENT_COUNT=0
+SPI reads=0
+EVK_RESPONSE_LEN=0
+cleanup=successful
 ```
 
-This rejects the hypothesis that the previous silence was caused solely by the pre-DriverState reset.
+The native IRQ path remained completely silent. Therefore the hypothesis that userspace GPIO polling was missing a readiness transition is rejected.
 
-Do not rerun probe #3.
+Do not rerun Probe #3 or Probe #4.
 
-## ACPI / DSM
+## Linux controller boundary
 
-SPBA `_INI` uses Intel `HOSTSW_OWN` setup through `SHPO`; it is not a Goodix wake command.
+Passive postmortem correlates the 16 submitted transactions with activity in the Intel LPSS / PXA2xx SPI controller stack. Runtime autosuspend after the probe is normal and is not evidence that the controller stayed asleep during submissions.
 
-The Goodix-specific `_DSM` UUID is:
+This proves progressively more of the Linux software/controller path, but it still does not prove that correct CS/SCLK/MOSI waveforms reach the Goodix MCU or that MISO/IRQ physically respond.
+
+Do not force runtime PM or modify pinmux without stronger evidence.
+
+## Probe #5 / ftrace status
+
+Probe #5 was designed as Probe #4 plus tracing only.
+
+Its attempts failed in trace/preflight setup before any new sensor SPI transaction. One attempt loaded the native IRQ bridge and partially configured ftrace, then cleaned up without protocol traffic.
+
+These attempts provide no new sensor-side result.
+
+Ftrace is currently deprioritized because it would mostly add controller-side software evidence while the unresolved boundary is increasingly physical/platform reachability.
+
+## Windows GF3658 transport reassessment
+
+Static analysis of Goodix FP `1.1.141.36` `gfspi.dll` SHA-256:
 
 ```text
-cc58b68a-4479-4893-a8bb-961209db59e5
+4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59
 ```
 
-Function 1 returns a 2048-byte `HWFP/FPDT` buffer. A minimal read-only Linux evaluator successfully retrieved it.
+shows that `SpiSendDataToDevice` passes the complete frame to helper `0x180007e60`, which dispatches on a hardware/transport mode.
 
-Windows static analysis identifies this DSM data as a PSK source. The raw buffer is private per-machine material and must never be committed.
-
-## Windows startup order
-
-The current static model is:
+Visible behavior:
 
 ```text
-MilanEvtDeviceD0Entry
-  -> _StartInitThread
-      -> create thread(entry = InitThread)
-          -> _DeviceInit
-              -> send_driver_install_to_MCU
-                  -> SetDriverState(9,3 / 0x96)
-              -> intermediate operation
-              -> init_MCU
-                  -> GetEvkVersionWithRetry
-          -> later SGX/TLS/PSK/FDT work
+mode 0 or 1:
+    transfer(buffer, full_length)
+
+mode 2, 3 or 5:
+    transfer(buffer, 4)
+    Sleep(2 ms)
+    transfer(buffer + 4, full_length - 4)
+
+mode 6:
+    separate special path
 ```
 
-Consequences:
+Both split-path calls go through `0x180008b68`, which delegates to common SPB helper `0x180009c34`.
 
-1. DriverState genuinely precedes `GetEvkVersion`.
-2. The ACPI PSK/TLS branch is not the prerequisite for the first DriverState send.
-3. A named Windows `WakeupMCU` exists but is not currently placed on this first startup path.
-4. Do not prepend unrelated generic Goodix wake commands.
+This independently corroborates the existing `outer 4 bytes -> 2 ms -> inner` Milan model.
+
+Two static points remain deliberately unresolved:
+
+1. tie GXFP51A0's runtime hardware-mode selector directly to its matching mode value;
+2. follow `0x180009c34` to the final Windows/SPB I/O primitive and close the transaction/CS boundary there.
+
+The same audit rejects the proposed “missing 1 ms pre-submit delay” hypothesis for this GF3658 path. The visible 15 ms / 50 ms sleeps belong to ACK/response waiting, not to a proven initial SPI delay.
+
+## Public-source reassessment
+
+A separate 2026 Goodix SPI/libfprint effort independently corroborates the same broad Milan-style framing and logical command family:
+
+<https://github.com/berkekbgz/libfprint-goodix-spi>
+
+Use it only as corroboration. Do not copy unrelated startup, firmware or wake sequences onto GXFP51A0.
+
+Generic OpenGoodixSPI-style wake/chip-ID commands remain unsupported for the first GXFP51A0 startup path and must not be prepended without same-device proof.
 
 ## Exact next boundary
 
-Do not define probe #4 from guesswork.
+No new protocol command and no repeat of Probe #3/#4 is authorized.
 
-Continue statically with:
+Continue with the shortest discriminating path:
 
-1. `MilanEvtDevicePrepareHardware`;
-2. Windows SPI target/controller creation and configuration;
-3. Windows interrupt/readiness registration;
-4. the intermediate `_DeviceInit` operation between DriverState and `init_MCU`;
-5. any platform/controller state established before `_StartInitThread`.
-
-Only after one missing variable is proven should probe #4 be designed.
+1. statically map the GF3658 transport-mode selector to GXFP51A0;
+2. statically follow `0x180008b68 -> 0x180009c34` to the final SPB write/read primitive;
+3. if the GXFP51A0 split-write path is fully closed, stop spending live probes on timing;
+4. prefer read-only controller/pinctrl inspection or an external logic analyzer/oscilloscope to prove physical CS/SCLK/MOSI/MISO behavior;
+5. only after a credible ACK/response exists, migrate the validated state machine to libfprint SPI helpers and then fprintd.
 
 ## Privacy rules
 
 Never commit:
 
-- local usernames or filesystem paths;
-- private machine nicknames or boot IDs;
-- IP addresses or unrelated inventory;
-- raw `_DSM` payloads or PSKs;
-- proprietary Windows binaries or firmware;
-- raw generated disassembly.
+- local usernames or personal filesystem paths;
+- machine nicknames or boot IDs;
+- local IP addresses or unrelated hardware inventory;
+- raw `_DSM` payloads, PSKs or derived keys;
+- proprietary Windows binaries, firmware, raw generated disassembly or private diagnostics.
 
 Only sanitized, generic research facts belong in the public repository.
 
 ## Safety
 
-No firmware flashing, UPFW, erase, bootloader or firmware-management procedure is authorized.
+No firmware flashing, UPFW, erase, bootloader, firmware-management flow, speculative pinmux write or unrelated USB Goodix firmware procedure is authorized.
 
-Any future active probe must use the independent supervisor, exact-length RX, one reviewed hypothesis, bounded writes and unconditional final GPIO264 LOW restoration.
-
-
-## Probe #4 prepared boundary
-
-The Linux ACPI GPIO IRQ resolver has been validated passively: GXFP51A0 `GpioInt[0]` maps to hardware IRQ 48 with `LEVEL_HIGH` semantics. Never hardcode the Linux virtual IRQ number.
-
-Windows startup analysis has found no hidden sensor I/O before the first DriverState that would justify an extra wake/reset command.
-
-Probe #4 is therefore prepared as a one-variable experiment: native kernel ACPI IRQ readiness replaces GPIO48 userspace level polling; DriverState/GetEvkVersion bytes, retries, conditional reset and cleanup remain unchanged. Do not run it except on a fresh boot through the 12-second supervisor.
+Any future active experiment requires one reviewed hypothesis, minimum bounded writes, exact-length RX, independent supervision, explicit stop conditions and final GPIO264 LOW restoration.
