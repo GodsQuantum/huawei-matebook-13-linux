@@ -221,18 +221,17 @@ The main unresolved classes are:
 
 ## Next engineering work
 
-Do not run probe #4 yet.
+Probe #4 is complete and must not be repeated.
 
-Static work should first:
+The next boundary is static/passive:
 
-1. map `MilanEvtDevicePrepareHardware`;
-2. identify SPI I/O-target/controller initialization before `_StartInitThread`;
-3. reconstruct Windows interrupt/readiness registration;
-4. classify the intermediate `_DeviceInit` call between DriverState and `init_MCU`;
-5. compare those platform steps with Linux;
-6. authorize probe #4 only when exactly one missing variable is justified.
+1. tie the GF3658 Windows transport-mode selector to GXFP51A0's exact runtime hardware mode;
+2. follow `0x180008b68 -> 0x180009c34` to the final Windows/SPB I/O primitive;
+3. reconcile that final transaction boundary with the existing Linux 4-byte outer + 2 ms + inner implementation;
+4. if those boundaries match, move to direct physical SPI observability rather than adding protocol commands;
+5. after the first credible ACK/response, move the validated state machine toward libfprint/fprintd.
 
-If no missing vendor command is found, the next active experiment should focus on SPI reachability/observability rather than adding protocol writes.
+Do not force runtime PM, remux firmware-locked pads or prepend generic Goodix wake commands without same-device evidence.
 
 ## Safety boundary
 
@@ -248,12 +247,43 @@ Never perform as part of this research state:
 Every future active test must use one hypothesis, minimum writes, exact-length RX, explicit stop conditions, independent supervision and final GPIO264 LOW restoration.
 
 
-## Probe #4 native-IRQ boundary
+## Probe #4 native-IRQ result
 
-Passive Linux validation now proves that the ACPI `GpioInt[0]` resolves to hardware IRQ 48 with `LEVEL_HIGH` trigger semantics through the Intel GPIO irqdomain. The Linux virtual IRQ is dynamic and is intentionally not recorded as a protocol constant.
+Passive Linux validation proved that ACPI `GpioInt[0]` resolves to hardware IRQ 48 with `LEVEL_HIGH` semantics through the Intel GPIO irqdomain. The Linux virtual IRQ is dynamic and must never be treated as a protocol constant.
 
-Static Windows work also closes the pre-DriverState startup path: `PrepareHardware` opens resources but does not issue a hidden SPI/GPIO/reset wake sequence, the intermediate `device_action(0xF)` is software state only, and the remaining pre-thread helper is SGX/WBDI enclave initialization without a sensor-I/O path.
+Probe #4 then executed once on a fresh boot, changing only readiness from userspace GPIO48 polling to the native kernel ACPI IRQ wait.
 
-Probe #4 therefore changes exactly one experimental variable relative to Probe #3: readiness waits use the native kernel ACPI IRQ rather than userspace GPIO48 level polling. Protocol bytes, timing/retry model, conditional DriverState reset, GetEvkVersion fixture, supervisor timeout and final reset restoration remain unchanged.
+Result:
 
-Probe #4 is prepared but not executed. A fresh boot and one-shot supervised run are required.
+```text
+DRIVERSTATE_RESULT=ACK_TIMEOUT
+DRIVERSTATE_RESET_PERFORMED=YES
+SPI_TRANSFER_COUNT=16
+IRQ_WAIT_COUNT=6
+IRQ_EVENT_COUNT=0
+SPI reads=0
+EVK_RESPONSE_LEN=0
+cleanup=successful
+```
+
+The native IRQ path saw no readiness event. This rejects the userspace-polling hypothesis. Do not rerun Probe #4.
+
+Passive controller postmortem correlated the submitted work with the Intel LPSS / PXA2xx controller stack, but this remains controller-side evidence rather than proof of physical CS/SCLK/MOSI/MISO signaling.
+
+## 2026-09-01 transport reassessment
+
+Goodix FP `1.1.141.36` independently exposes a GF3658 split-write path:
+
+```text
+transfer first 4 bytes
+wait 2 ms
+transfer remaining bytes
+```
+
+for transport modes `2`, `3` and `5`. The calls flow through `0x180008b68 -> 0x180009c34`.
+
+This corroborates the existing Milan outer/inner transport model. The exact GXFP51A0 runtime mode and the final SPB I/O leaf below `0x180009c34` remain open.
+
+A proposed missing 1 ms pre-submit delay is not supported by this GF3658 path.
+
+See [Reassessment — 2026-09-01](reassessment-2026-09-01.md).

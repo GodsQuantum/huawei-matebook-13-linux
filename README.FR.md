@@ -6,13 +6,14 @@
 
 ## État actuel
 
-Le projet a maintenant établi les ressources ACPI/SPI/GPIO, le framing Milan, le reset Windows réellement utilisé, le RX à longueur exacte, le modèle DriverState ACK/retry/reset, le modèle ACK + réponse de `GetEvkVersion`, les probes Linux jusqu'au probe #3 corrigé, le `_DSM` Goodix et le chemin de démarrage Windows jusqu'à DriverState et `init_MCU`.
+Le projet a établi les ressources ACPI/SPI/GPIO, le framing Milan, le reset Windows réellement utilisé, le RX à longueur exacte, le modèle DriverState ACK/retry/reset, le modèle ACK + réponse de `GetEvkVersion`, le mapping IRQ ACPI natif, les probes Linux jusqu'au Probe #4, le `_DSM` Goodix, le démarrage Windows et un cross-check bas niveau du transport GF3658.
 
-**Dernier résultat matériel :** le probe #3 reste totalement silencieux côté capteur. GPIO48 reste LOW et aucune lecture RX n'est déclenchée. La suppression du reset initial non prouvé n'a pas restauré la communication.
+**Dernier résultat matériel :** le Probe #4 a remplacé le polling userspace de GPIO48 par l'IRQ ACPI native du noyau et reste totalement silencieux : 16 transactions SPI, 6 attentes IRQ, 0 événement IRQ Goodix, 0 lecture et aucun ACK. L'hypothèse du polling GPIO raté est donc rejetée.
 
-État canonique détaillé :
+Voir :
 
-**[État de la recherche — 2026-08-31](docs/state-of-research-2026-08-31.md)**
+- **[État de la recherche — 2026-08-31](docs/state-of-research-2026-08-31.md)**
+- **[Réévaluation — 2026-09-01](docs/reassessment-2026-09-01.md)**
 
 ## Ordre Windows établi
 
@@ -30,6 +31,20 @@ MilanEvtDeviceD0Entry
 
 DriverState est donc bien envoyé avant la requête EVK visible et avant les étapes TLS/PSK ultérieures.
 
+## Cross-check transport GF3658
+
+Goodix FP `1.1.141.36` contient un chemin de transport qui effectue :
+
+```text
+transfert des 4 premiers octets
+attente 2 ms
+transfert du reste
+```
+
+pour les modes de transport `2`, `3` et `5`. Cela corrobore indépendamment le modèle Milan outer/inner existant.
+
+Il reste à rattacher GXFP51A0 à son mode runtime exact et à suivre le helper SPB commun jusqu'à la primitive I/O Windows finale.
+
 ## `_DSM` ACPI Goodix
 
 UUID :
@@ -44,18 +59,24 @@ La fonction 1 renvoie un buffer `HWFP/FPDT` de 2048 octets. Linux sait le lire c
 
 ## Question actuelle
 
-Le problème principal est désormais de comprendre pourquoi des transactions SPI Linux correctement soumises ne provoquent aucune readiness/ACK.
+Le problème principal est maintenant situé sous la couche readiness/ordonnancement protocolaire : pourquoi des transactions SPI soumises au contrôleur Linux ne provoquent aucun IRQ/RX Goodix observable.
 
-Le chemin Windows précédant DriverState est maintenant suffisamment fermé pour isoler une seule variable expérimentale. Linux résout également le `GpioInt[0]` ACPI de la cible vers l'IRQ matériel 48 avec la sémantique `LEVEL_HIGH`.
+Les Probes #3 et #4 sont terminés et ne doivent pas être rejoués.
 
-**Prochaine étape contrôlée :** le probe #4 est préparé mais n'a pas été exécuté. Il conserve le protocole et la politique de reset du probe #3 et remplace uniquement le polling userspace de GPIO48 par l'attente de l'IRQ ACPI native du noyau. Un boot frais, une exécution unique et le superviseur indépendant de 12 secondes sont obligatoires.
+Priorité actuelle :
+
+1. fermer le mapping du mode de transport Windows pour GXFP51A0 ;
+2. fermer la primitive SPB Windows finale sous le helper split-write ;
+3. si les frontières de transaction Linux restent correctes, passer à l'observabilité SPI physique plutôt que d'ajouter des commandes spéculatives.
 
 Aucune commande wake Goodix générique ne doit être ajoutée sans preuve sur ce modèle.
 
 ## Carte du dépôt
 
 - [État actuel](docs/state-of-research-2026-08-31.md)
-- [Handoff](PROJECT_HANDOFF.md)
+- [Réévaluation 2026-09-01](docs/reassessment-2026-09-01.md)
+- [Handoff projet](PROJECT_HANDOFF.md)
+- [Handoff session](SESSION_HANDOFF_2026-09-01.md)
 - [Matériel](docs/hardware.md)
 - [Protocole](docs/protocol.md)
 - [Journal](docs/research-log.md)
