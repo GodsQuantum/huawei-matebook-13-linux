@@ -169,3 +169,20 @@ If that remains completely silent, continue software-only with:
 4. software trace from a working Windows GXFP51A0 if obtainable.
 
 Hardware teardown is not required to continue the investigation.
+
+
+<!-- common-init-supervisor-2026-09-02 -->
+## Reviewed supervisor bound
+
+The corrected Windows-faithful common-init experiment uses confirmation token
+`GXFP51A0_REVIEWED_COMMON_INIT_20260902` and a 20-second independent wall-clock watchdog.
+
+The previous 12-second watchdog belonged to the older
+single-GetEvkVersion probe and is too short for the corrected silent path.
+
+The deterministic ACK/reset/Milan-gap budget is approximately 12389 ms
+before scheduler and controller overhead. The 20-second watchdog
+therefore remains bounded while leaving enough margin for the single final
+GetEvkVersion attempt.
+
+No automatic same-boot retry is permitted.

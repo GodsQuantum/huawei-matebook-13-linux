@@ -16,7 +16,7 @@ grep -q 'wait_event_interruptible_timeout' "$kmod"
 grep -q 'GXFP_MAX_WAIT_MS 2000U' "$kmod"
 grep -q '"/dev/gxfp_irq_wait"' "$probe"
 grep -q 'IRQ_SOURCE=KERNEL_ACPI_GPIOINT' "$probe"
-grep -q "CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_4'" "$supervisor"
+grep -q "CONFIRM_TOKEN='GXFP51A0_REVIEWED_COMMON_INIT_20260902'" "$supervisor"
 
 if grep -Eq 'IRQF_TRIGGER_(RISING|FALLING|HIGH|LOW)|irq_set_irq_type' "$kmod"; then
     echo 'safety violation: module overrides firmware IRQ trigger configuration' >&2

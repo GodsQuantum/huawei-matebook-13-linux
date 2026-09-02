@@ -3,8 +3,8 @@ set -euo pipefail
 
 research_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 supervisor="$research_dir/linux/live_probe_supervisor.sh"
-grep -q "CONFIRM_TOKEN='GXFP51A0_REVIEWED_PROBE_4'" "$supervisor"
-grep -q 'DEFAULT_TIMEOUT_S=12' "$supervisor"
+grep -q "CONFIRM_TOKEN='GXFP51A0_REVIEWED_COMMON_INIT_20260902'" "$supervisor"
+grep -q 'DEFAULT_TIMEOUT_S=20' "$supervisor"
 base_tmp=${TMPDIR:-/tmp}
 case_dir="$base_tmp/gxfp-supervisor-test-$$"
 trap 'rm -rf -- "$case_dir"' EXIT HUP INT TERM
@@ -69,7 +69,7 @@ RESTORE
     GXFP_TEST_SPIDEV_DRIVER="$driver" \
     GXFP_TEST_SPIDEV_MODULE_DIR="$module" \
     GXFP_TEST_PROBE_TIMEOUT_S=1 \
-    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_PROBE_4' \
+    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_COMMON_INIT_20260902' \
     "$supervisor" "$bin/probe" "$bin/restore" "$probe_log" >"$out" 2>&1
     rc=$?
     set -e
@@ -135,7 +135,7 @@ RESTORE
     GXFP_TEST_SPIDEV_DRIVER="$driver" \
     GXFP_TEST_SPIDEV_MODULE_DIR="$module" \
     GXFP_TEST_PROBE_TIMEOUT_S=10 \
-    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_PROBE_4' \
+    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_COMMON_INIT_20260902' \
     "$supervisor" "$bin/probe" "$bin/restore" "$probe_log" >"$out" 2>&1 &
     supervisor_pid=$!
     set -e
@@ -215,7 +215,7 @@ MODPROBE
     GXFP_TEST_SPIDEV_MODULE_DIR="$module" \
     GXFP_TEST_MODPROBE="$bin/modprobe" \
     GXFP_TEST_PROBE_TIMEOUT_S=1 \
-    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_PROBE_4' \
+    GXFP_LIVE_PROBE_CONFIRM='GXFP51A0_REVIEWED_COMMON_INIT_20260902' \
     "$supervisor" "$bin/probe" "$bin/restore" "$probe_log" >"$out" 2>&1
     rc=$?
     set -e

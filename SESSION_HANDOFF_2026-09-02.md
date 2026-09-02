@@ -91,3 +91,14 @@ GetEvkVersionWithRetry boundary.
 
 If still silent, continue software-only with DMA-vs-PIO and deeper LPSS /
 runtime-PM instrumentation.
+
+
+<!-- common-init-supervisor-2026-09-02 -->
+## Next-run supervisor
+
+- confirmation token: `GXFP51A0_REVIEWED_COMMON_INIT_20260902`
+- wall-clock watchdog: 20 seconds
+- deterministic silent-path budget: approximately 12389 ms
+- one active execution maximum per fresh boot
+- no automatic retry
+- process-group termination and final GPIO264 LOW cleanup remain mandatory
