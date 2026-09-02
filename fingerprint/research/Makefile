@@ -18,7 +18,7 @@ PROBE_BIN := $(BUILD_DIR)/gxfp-live-probe
 RESET_RESTORE_BIN := $(BUILD_DIR)/gxfp-reset-restore
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile reset-restore-compile
+.PHONY: all prepare-build test clean test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile reset-restore-compile
 
 all: test
 
@@ -74,6 +74,15 @@ test_probe_runtime_source_safety:
 test_live_probe_supervisor:
 	./tests/test_live_probe_supervisor.sh
 
+test_pio_preflight:
+	./tests/test_pio_preflight.sh
+
+test_pio_live_probe_supervisor:
+	./tests/test_pio_live_probe_supervisor.sh
+
+test_pio_source_safety:
+	./tests/test_pio_source_safety.sh
+
 test_irq_wait_source_safety:
 	./tests/test_irq_wait_source_safety.sh
 
@@ -86,7 +95,7 @@ test_passive_safety:
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \

@@ -65,3 +65,32 @@ controller-state comparison, not speculative Goodix protocol commands.
 No firmware-management operation, speculative pinmux/MMIO write, raw DSM/PSK,
 serial number, UUID, hostname, private address or local filesystem path belongs
 in this result.
+
+<!-- pio-proof-gate-2026-09-02 -->
+## PIO proof gate
+
+The upstream PXA2xx control flow provides a deterministic native PIO fallback:
+
+1. DMA setup requests both TX and RX DMA channels;
+2. failure to obtain the channels makes DMA setup fail;
+3. the controller logs `no DMA channels available, using PIO`;
+4. `enable_dma` is then cleared;
+5. the Goodix protocol itself does not need to change.
+
+The target kernel exposes IDMA64 as a loadable driver, so the first PIO
+experiment does not require a speculative controller patch.
+
+A dedicated fail-closed preflight now requires all of these facts before any
+sensor traffic is authorized:
+
+- IDMA64 was explicitly blocked from loading at boot;
+- the `idma64` module is absent;
+- enumerated `idma64.*` platform devices are unbound;
+- the fingerprint SPI master is bound to `pxa2xx-spi`;
+- that exact controller logged its native PIO fallback;
+- the fingerprint target has zero previous SPI activity on the boot.
+
+Failure of any gate aborts before active fingerprint traffic.
+
+The PIO comparison keeps mode, speed, framing, waits, reset behavior and the
+34-transfer Windows-faithful common-init control flow unchanged.
