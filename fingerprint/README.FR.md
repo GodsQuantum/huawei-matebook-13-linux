@@ -8,7 +8,7 @@
 
 Le projet a établi les ressources ACPI/SPI/GPIO, le framing Milan, le reset Windows réellement utilisé, le RX à longueur exacte, le modèle DriverState ACK/retry/reset, le modèle ACK + réponse de `GetEvkVersion`, le mapping IRQ ACPI natif, les probes Linux jusqu'au Probe #4, le `_DSM` Goodix, le démarrage Windows et un cross-check bas niveau du transport GF3658.
 
-**Dernier résultat matériel :** le Probe #4 a remplacé le polling userspace de GPIO48 par l'IRQ ACPI native du noyau et reste totalement silencieux : 16 transactions SPI, 6 attentes IRQ, 0 événement IRQ Goodix, 0 lecture et aucun ACK. L'hypothèse du polling GPIO raté est donc rejetée.
+**Dernier résultat matériel :** le chemin common-init Windows corrigé a maintenant été exécuté intégralement une fois sur un boot frais : 34 transferts SPI, 12 attentes IRQ, 0 événement IRQ Goodix, 0 lecture et 0 octet de réponse EVK. Les deux resets de fallback ont réussi, le contrôleur n'a signalé aucune erreur ni timeout SPI, et le nettoyage final a confirmé GPIO264 à LOW.
 
 Voir :
 
@@ -43,7 +43,7 @@ transfert du reste
 
 pour les modes de transport `2`, `3` et `5`. Cela corrobore indépendamment le modèle Milan outer/inner existant.
 
-Il reste à rattacher GXFP51A0 à son mode runtime exact et à suivre le helper SPB commun jusqu'à la primitive I/O Windows finale.
+Ces tâches statiques de transport sont maintenant fermées pour cette cible : GXFP51A0 sélectionne le mode 5 et le chemin Windows final utilise deux écritures SPB synchrones séparées pour les 4 octets externes puis le reste du paquet, avec 2 ms d'intervalle.
 
 ## `_DSM` ACPI Goodix
 
@@ -65,9 +65,10 @@ Les Probes #3 et #4 sont terminés et ne doivent pas être rejoués.
 
 Priorité actuelle :
 
-1. fermer le mapping du mode de transport Windows pour GXFP51A0 ;
-2. fermer la primitive SPB Windows finale sous le helper split-write ;
-3. si les frontières de transaction Linux restent correctes, passer à l'observabilité SPI physique plutôt que d'ajouter des commandes spéculatives.
+1. conserver le résultat common-init Windows complet de 34 transferts comme frontière protocolaire ;
+2. prouver un état PXA2xx **uniquement PIO** avant tout nouveau trafic capteur ;
+3. rejouer une seule fois exactement la même séquence common-init bornée en PIO et la comparer au résultat silencieux établi en DMA ;
+4. si le PIO reste lui aussi silencieux, descendre vers la comparaison LPSS/runtime-PM/état contrôleur sans ajouter de commandes Goodix spéculatives.
 
 Aucune commande wake Goodix générique ne doit être ajoutée sans preuve sur ce modèle.
 
@@ -75,8 +76,9 @@ Aucune commande wake Goodix générique ne doit être ajoutée sans preuve sur c
 
 - [État actuel](docs/state-of-research-2026-08-31.md)
 - [Réévaluation 2026-09-01](docs/reassessment-2026-09-01.md)
+- [Réévaluation DMA / PIO — 2026-09-02](docs/dma-pio-reassessment-2026-09-02.md)
 - [Handoff projet](PROJECT_HANDOFF.md)
-- [Handoff session](SESSION_HANDOFF_2026-09-01.md)
+- [Handoff session](SESSION_HANDOFF_2026-09-02.md)
 - [Matériel](docs/hardware.md)
 - [Protocole](docs/protocol.md)
 - [Journal](docs/research-log.md)

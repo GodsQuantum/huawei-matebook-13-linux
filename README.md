@@ -16,7 +16,7 @@ This repository is organized around those two gaps.
 | Area | Status | What this repository provides |
 | --- | --- | --- |
 | **GPU & power — NVIDIA MX250** | **Working on the validated setup** | Full-Integrated idle state, hot dGPU activation per app, PRIME Render Offload, automatic unload/PCI removal, Plasma/KWin isolation, Desktop and Steam helpers |
-| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / not yet usable for login** | Protocol, ACPI/SPI/GPIO mapping, Windows behavior reconstruction, Linux probes, safety boundaries and current research state |
+| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / not yet usable for login** | Full Windows-faithful common-init replay completes all 34 SPI transfers but still produces 0 Goodix IRQ/RX; current discriminator is controller DMA vs PIO |
 
 ### Validated GPU configuration
 
@@ -85,7 +85,7 @@ See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported dis
 
 The entire original fingerprint research project is preserved under this directory. It includes the protocol notes, ACPI/SPI/GPIO mapping, supervised probes, Windows driver cross-checks and safety documentation.
 
-Current reality: **there is still no working Linux fingerprint driver for this sensor.** The project is documenting and narrowing the missing transport/runtime behavior rather than presenting an unsafe or incomplete “driver”.
+Current reality: **there is still no working Linux fingerprint driver for this sensor.** The complete reconstructed Windows common-init sequence now runs to completion on Linux but remains silent (34 SPI transfers, 0 Goodix IRQ/RX). The next controlled discriminator is the PXA2xx controller datapath: DMA versus PIO.
 
 Target architecture remains:
 

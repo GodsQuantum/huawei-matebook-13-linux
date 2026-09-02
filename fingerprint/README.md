@@ -8,7 +8,7 @@
 
 Confirmed work includes ACPI/SPI/GPIO mapping, Milan framing, proven reset behavior, exact-length readiness-driven RX, DriverState ACK/retry/reset reconstruction, `GetEvkVersion` ACK/response reconstruction, native ACPI IRQ mapping, supervised Linux probes through Probe #4, the Goodix-specific ACPI `_DSM`, Windows startup reconstruction and a lower-level GF3658 Windows transport cross-check.
 
-**Latest live result:** Probe #4 replaced userspace GPIO48 polling with the native kernel ACPI IRQ path and remained completely silent: 16 SPI transactions, 6 IRQ waits, 0 Goodix IRQ events, 0 reads and no ACK. This rejects the GPIO-polling hypothesis.
+**Latest live result:** the complete corrected Windows-faithful common-init path has now run once on a fresh boot: 34 SPI transfers, 12 IRQ waits, 0 Goodix IRQ events, 0 reads and 0 EVK response bytes. Both fallback resets completed successfully, controller statistics reported no SPI error/timeout, and final GPIO264 cleanup was confirmed LOW.
 
 See:
 
@@ -43,7 +43,7 @@ transfer remaining bytes
 
 for transport modes `2`, `3` and `5`. This independently corroborates the existing outer/inner Milan model.
 
-The remaining static tasks are to tie GXFP51A0 to its exact runtime transport mode and follow the common SPB helper to the final Windows I/O primitive.
+Those static transport tasks are now closed for this target: GXFP51A0 selects mode 5 and the final Windows path uses separate synchronous SPB writes for the outer 4 bytes and remaining packet bytes, separated by 2 ms.
 
 ## ACPI `_DSM`
 
@@ -65,9 +65,10 @@ Probe #3 and Probe #4 are complete and must not be rerun.
 
 Current priority:
 
-1. close the GXFP51A0 Windows transport-mode mapping;
-2. close the final Windows SPB leaf below the split-write helper;
-3. if Linux transaction boundaries remain correct, move to direct physical SPI observability rather than adding speculative commands.
+1. keep the completed 34-transfer Windows-faithful common-init result as the protocol boundary;
+2. prove a deterministic PXA2xx **PIO-only** state before any new sensor traffic;
+3. replay the exact same bounded common-init sequence once in PIO and compare it with the established DMA-silent result;
+4. if PIO is also silent, move deeper into LPSS/runtime-PM/controller-state comparison without adding speculative Goodix commands.
 
 Do not add generic Goodix wake commands without same-device evidence.
 
@@ -75,8 +76,9 @@ Do not add generic Goodix wake commands without same-device evidence.
 
 - [Current state](docs/state-of-research-2026-08-31.md)
 - [2026-09-01 reassessment](docs/reassessment-2026-09-01.md)
+- [DMA / PIO reassessment — 2026-09-02](docs/dma-pio-reassessment-2026-09-02.md)
 - [Project handoff](PROJECT_HANDOFF.md)
-- [Session handoff](SESSION_HANDOFF_2026-09-01.md)
+- [Session handoff](SESSION_HANDOFF_2026-09-02.md)
 - [Hardware](docs/hardware.md)
 - [Protocol](docs/protocol.md)
 - [Windows fallback](docs/windows-fallback.md)

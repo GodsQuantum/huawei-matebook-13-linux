@@ -171,3 +171,29 @@ The Linux research harness now models this exact control flow. Maximum fully
 silent default path: 34 SPI transfers.
 
 Canonical current state: `docs/software-boundary-2026-09-02.md`.
+
+<!-- common-init-live-closure-2026-09-02 -->
+## 2026-09-02 live common-init closure
+
+The corrected Windows-faithful common-init sequence has now executed to
+completion on Linux.
+
+Observed complete-silence result:
+
+- 34 SPI transfers;
+- 12 IRQ waits;
+- 0 Goodix IRQ events;
+- 0 reads / 0 EVK response bytes;
+- DriverState fallback reset succeeded;
+- common-init fallback reset succeeded;
+- no SPI-controller error or timeout;
+- final GPIO264 LOW cleanup succeeded.
+
+The remaining problem is below the reconstructed common-init protocol flow.
+
+Current discriminator: PXA2xx/LPSS DMA versus PIO.
+
+A simple IDMA64 blacklist must not be assumed sufficient. The next experiment must first establish and prove a deterministic PXA2xx PIO-only state, using boot-time binding control or a minimal instrumented controller variant if necessary, and abort before sensor traffic unless PIO is proven.
+
+Canonical next-boundary document:
+`docs/dma-pio-reassessment-2026-09-02.md`.
