@@ -1,0 +1,54 @@
+name: Fingerprint research finding
+description: Report a reproducible GXFP51A0 / GF3658 Linux or Windows-research finding
+labels: ["fingerprint", "research"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach proprietary binaries, firmware, raw disassembly, serial numbers, raw `_DSM`/FPDT payloads or machine-unique PSKs.
+  - type: dropdown
+    id: claim
+    attributes:
+      label: Evidence level
+      options:
+        - CONFIRMED
+        - INFERRED
+        - HYPOTHESIS
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: MateBook 13 revision / generic hardware identity
+      description: No serial number or machine UUID.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS / kernel / relevant driver version
+    validations:
+      required: true
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: State exactly what was observed or established.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction or analysis provenance
+      description: Minimal reproducible commands, trace boundary, symbol/call-site provenance, or other evidence.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety / privacy check
+      options:
+        - label: I reviewed the report for personal, machine-unique and secret material.
+          required: true
+        - label: This report does not require firmware flashing/erase/programming or speculative hardware writes.
+          required: true

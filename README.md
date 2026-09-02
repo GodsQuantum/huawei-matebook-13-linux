@@ -1,94 +1,93 @@
-# Goodix GXFP51A0 / GF3658 Milan on Linux
+# Huawei MateBook 13 on Linux
 
-> Experimental reverse-engineering research. There is no working Linux fingerprint driver yet. Do not flash firmware or run unreviewed vendor flows.
+> Practical Linux-readiness notes, fixes and reverse-engineering for the Huawei MateBook 13 family.
+>
+> **Français : [README.FR.md](README.FR.md)**
 
-> Version française: [README.FR.md](README.FR.md)
+The MateBook 13 is already a very usable Linux laptop, but on the tested Intel + NVIDIA MX250 models two issues remain disproportionately important when moving from Windows:
 
-## Current status
+1. **GPU & power management** — using the NVIDIA MX250 only when an application actually needs it, without leaving the dGPU consuming power all day and without logging out to switch modes.
+2. **Fingerprint reader support** — the Goodix GXFP51A0 / GF3658 Milan sensor is not yet supported by a production Linux driver and still requires reverse-engineering.
 
-Confirmed work includes ACPI/SPI/GPIO mapping, Milan framing, proven reset behavior, exact-length readiness-driven RX, DriverState ACK/retry/reset reconstruction, `GetEvkVersion` ACK/response reconstruction, native ACPI IRQ mapping, supervised Linux probes through Probe #4, the Goodix-specific ACPI `_DSM`, Windows startup reconstruction and a lower-level GF3658 Windows transport cross-check.
+This repository is organized around those two gaps.
 
-**Latest live result:** Probe #4 replaced userspace GPIO48 polling with the native kernel ACPI IRQ path and remained completely silent: 16 SPI transactions, 6 IRQ waits, 0 Goodix IRQ events, 0 reads and no ACK. This rejects the GPIO-polling hypothesis.
+## Status at a glance
 
-See:
+| Area | Status | What this repository provides |
+| --- | --- | --- |
+| **GPU & power — NVIDIA MX250** | **Working on the validated setup** | Full-Integrated idle state, hot dGPU activation per app, PRIME Render Offload, automatic unload/PCI removal, Plasma/KWin isolation, Desktop and Steam helpers |
+| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / not yet usable for login** | Protocol, ACPI/SPI/GPIO mapping, Windows behavior reconstruction, Linux probes, safety boundaries and current research state |
 
-- **[State of research — 2026-08-31](docs/state-of-research-2026-08-31.md)**
-- **[Reassessment — 2026-09-01](docs/reassessment-2026-09-01.md)**
+### Validated GPU configuration
 
-## Important Windows startup result
+The on-demand GPU design has been validated on a Huawei MateBook 13 with:
 
-```text
-MilanEvtDeviceD0Entry
-  -> _StartInitThread
-      -> InitThread
-          -> _DeviceInit
-              -> send_driver_install_to_MCU
-                  -> SetDriverState(9,3 / 0x96)
-              -> init_MCU
-                  -> GetEvkVersionWithRetry
-          -> later SGX/TLS/PSK work
-```
+- Intel integrated graphics;
+- NVIDIA GeForce MX250 / GP108M (`10de:1d13`);
+- KDE Plasma Wayland;
+- proprietary NVIDIA **R580** driver branch.
 
-DriverState therefore occurs before the visible EVK query and before the later TLS/PSK stage.
+The management script detects hardware dynamically and contains package-manager paths for Arch/CachyOS, Fedora and Debian/Ubuntu families. **Plasma Wayland is the validated desktop path; other compositors are intentionally fail-closed until tested.**
 
-## GF3658 transport cross-check
+NVIDIA 590+ no longer supports Pascal GPUs such as the MX250, so this project deliberately targets the maintained legacy R580 branch.
 
-Goodix FP `1.1.141.36` contains a transport path that performs:
+## 1. GPU & Power — on-demand MX250
 
-```text
-transfer first 4 bytes
-wait 2 ms
-transfer remaining bytes
-```
+**Start here:** [`gpu-power/`](gpu-power/)
 
-for transport modes `2`, `3` and `5`. This independently corroborates the existing outer/inner Milan model.
-
-The remaining static tasks are to tie GXFP51A0 to its exact runtime transport mode and follow the common SPB helper to the final Windows I/O primitive.
-
-## ACPI `_DSM`
-
-UUID:
+The goal is not to emulate a permanently enabled Hybrid mode. At idle, the MX250 is removed from PCI and the machine stays on Intel graphics. When a managed application starts, the helper:
 
 ```text
-cc58b68a-4479-4893-a8bb-961209db59e5
+full Integrated idle
+        ↓
+PCI rescan
+        ↓
+load NVIDIA R580
+        ↓
+PRIME Render Offload for the selected app
+        ↓
+app exits
+        ↓
+unload NVIDIA
+        ↓
+PCI remove
+        ↓
+full Integrated idle again
 ```
 
-Function 1 returns a 2048-byte `HWFP/FPDT` buffer. Linux can evaluate it successfully and Windows identifies this path as a PSK source.
+KWin is pinned to the Intel GPU so it does not grab the hot-added NVIDIA render node and keep the MX250 awake.
 
-**The raw DSM payload and any PSK are private per-machine material and are not part of this repository.**
+### Quick start
 
-## Current research question
+```bash
+cd gpu-power
+chmod +x huawei-matebook-13-gpu-manager.sh
+./huawei-matebook-13-gpu-manager.sh install
+```
 
-The main unresolved problem is now below readiness/protocol scheduling: why controller-submitted Linux SPI traffic produces no observable Goodix IRQ/RX.
+After the requested reboot:
 
-Probe #3 and Probe #4 are complete and must not be rerun.
+```bash
+# interactive menu
+./huawei-matebook-13-gpu-manager.sh
 
-Current priority:
+# or CLI
+./huawei-matebook-13-gpu-manager.sh add
+./huawei-matebook-13-gpu-manager.sh status
+./huawei-matebook-13-gpu-manager.sh test
+```
 
-1. close the GXFP51A0 Windows transport-mode mapping;
-2. close the final Windows SPB leaf below the split-write helper;
-3. if Linux transaction boundaries remain correct, move to direct physical SPI observability rather than adding speculative commands.
+See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported distributions, Steam handling, rollback and troubleshooting.
 
-Do not add generic Goodix wake commands without same-device evidence.
+## 2. Fingerprint reader — Goodix GXFP51A0 / GF3658 Milan
 
-## Repository map
+**Start here:** [`fingerprint/`](fingerprint/)
 
-- [Current state](docs/state-of-research-2026-08-31.md)
-- [2026-09-01 reassessment](docs/reassessment-2026-09-01.md)
-- [Project handoff](PROJECT_HANDOFF.md)
-- [Session handoff](SESSION_HANDOFF_2026-09-01.md)
-- [Hardware](docs/hardware.md)
-- [Protocol](docs/protocol.md)
-- [Windows fallback](docs/windows-fallback.md)
-- [Windows 1.1.141.36 cross-check](docs/windows-14136-crosscheck.md)
-- [Cross-machine research](docs/cross-machine-research.md)
-- [Research log](docs/research-log.md)
-- [Safety](docs/safety.md)
-- [Architecture](docs/architecture.md)
-- [Research transport](research/README.md)
-- [Contributing](CONTRIBUTING.md)
+The entire original fingerprint research project is preserved under this directory. It includes the protocol notes, ACPI/SPI/GPIO mapping, supervised probes, Windows driver cross-checks and safety documentation.
 
-## Target architecture
+Current reality: **there is still no working Linux fingerprint driver for this sensor.** The project is documenting and narrowing the missing transport/runtime behavior rather than presenting an unsafe or incomplete “driver”.
+
+Target architecture remains:
 
 ```text
 validated Linux Milan transport
@@ -97,25 +96,33 @@ validated Linux Milan transport
 -> KDE/GNOME/PAM login and sudo
 ```
 
-## Safety
+## Supported hardware vs. project scope
 
-Firmware flashing, UPFW, erase, bootloader programming and unrelated USB Goodix firmware procedures are outside the research boundary.
+Huawei sold multiple machines under the MateBook 13 name. Do not assume every revision uses the same NVIDIA GPU, ACPI layout or fingerprint controller.
 
-See [docs/safety.md](docs/safety.md).
+The GPU tooling requires an NVIDIA MX250 with PCI ID `10de:1d13` and refuses unsupported hardware by default. The fingerprint research specifically targets `ACPI\GXFP51A0` / GF3658 Milan.
+
+If your revision differs, open an issue with **generic hardware identifiers only**. Do not post serial numbers or machine-unique security material.
+
+## Privacy and safety
+
+This is a public hardware repository. Please do **not** publish:
+
+- user names, home-directory paths or hostnames;
+- device serial numbers or machine UUIDs;
+- LAN/public IP addresses that are not required for reproduction;
+- passwords, API tokens, private keys or credentials;
+- raw Goodix `_DSM` payloads, PSKs or other machine-unique fingerprint security material;
+- proprietary Windows binaries, firmware images or raw disassembly.
+
+Use hashes, PCI/ACPI hardware IDs and minimal reproducible excerpts instead. Fingerprint hardware experiments must also follow [`fingerprint/docs/safety.md`](fingerprint/docs/safety.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). When reporting a result, distinguish **CONFIRMED**, **INFERRED** and **HYPOTHESIS** claims and include enough generic system context to reproduce it.
+
+Security-sensitive reports should follow [SECURITY.md](SECURITY.md).
 
 ## License
 
 GPL-2.0-only. See [LICENSE](LICENSE).
-
-<!-- current-boundary-2026-09-02 -->
-## Current research boundary — 2026-09-02
-
-The Windows startup reconstruction has been corrected: `DriverState:Install`
-is not the fatal `_DeviceInit` gate. The first meaningful sensor-response gate
-is `GetEvkVersionWithRetry`, whose exact 1.1.141.36 default outer retry count
-is 3, followed by a separate hard-reset fallback and one final attempt.
-
-A live Linux trace also confirmed the tested transfers reach the LPSS
-`lpss_ssp_cs_control` path.
-
-See [`docs/software-boundary-2026-09-02.md`](docs/software-boundary-2026-09-02.md).
