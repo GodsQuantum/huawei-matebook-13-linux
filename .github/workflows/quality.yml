@@ -16,6 +16,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Bash syntax
         run: bash -n gpu-power/huawei-matebook-13-gpu-manager.sh
+      - name: GPU manager regression tests
+        run: python3 tests/test-gpu-manager.py
       - name: ShellCheck
         run: shellcheck -S error -x gpu-power/huawei-matebook-13-gpu-manager.sh
       - name: Reject obvious private material
