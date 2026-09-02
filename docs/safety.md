@@ -48,7 +48,7 @@ Required invariants:
 - device initially unbound;
 - empty `driver_override`;
 - supervisor-owned temporary spidev binding;
-- 12-second wall-clock timeout for the current reviewed research harness; any change requires a new reviewed probe design;
+- 20-second wall-clock timeout for the corrected common-init research harness; any change requires a new reviewed probe design;
 - terminate the probe process group on failure/timeout;
 - internal cleanup accepted only when final GPIO264 LOW is confirmed;
 - GPIO264-only external restore if internal cleanup cannot be confirmed;
