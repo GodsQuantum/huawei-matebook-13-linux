@@ -89,6 +89,12 @@ chmod +x huawei-matebook-13-gpu-manager.sh
 
 Un redémarrage est attendu après la première installation.
 
+### Mise à niveau / réparation
+
+Relancer `install` est idempotent et effectue également les mises à niveau. La v3 sait importer l’état v1/v2 pris en charge depuis les launchers existants, sauvegardes, Launch Options Steam et manifestes portables voisins. La migration utilise un snapshot avec rollback ; les anciens helpers ne sont supprimés qu’après validation du nouveau smoke-test GPU et retour en full Integrated.
+
+Sur CachyOS/Arch utilisant réellement Limine, le gestionnaire appelle directement `limine-mkinitcpio` afin de reconstruire ensemble les initramfs et les entrées Limine. Les autres systèmes utilisent selon le cas `mkinitcpio`, `dracut` ou `update-initramfs`.
+
 ## Ajouter ou retirer des applications
 
 Menu :
@@ -108,7 +114,7 @@ CLI :
 
 Le script crée un override `.desktop` utilisateur et préserve un éventuel launcher local préexistant. Il impose `DBusActivatable=false` sur les applications gérées afin que l'environnement de bureau exécute bien la ligne `Exec=` modifiée.
 
-La liste des applications gérées est enregistrée **dans le script lui-même** entre `HUAWEI_GPU_CONFIG_BEGIN/END`. Conserver le script mis à jour suffit donc à retrouver la sélection après réinstallation.
+Depuis la v3, l’état utilisateur canonique est versionné dans le répertoire de configuration XDG (`~/.config/huawei-matebook-gpu-manager/state.json` par défaut), tandis que le script conserve un manifeste portable pour récupérer la sélection après réinstallation. `install` sert aussi de commande de mise à niveau/réparation : il détecte et importe les générations précédentes prises en charge, réconcilie l’installation de façon transactionnelle, valide le cycle MX250, puis seulement supprime l’ancienne infrastructure. Un schéma d’installation plus récent n’est jamais écrasé par une ancienne version du gestionnaire.
 
 ## Commande ponctuelle
 
@@ -134,6 +140,7 @@ L'édition directe du VDF étant plus fragile que les `.desktop`, le support Ste
 
 ```bash
 ./huawei-matebook-13-gpu-manager.sh --lang fr status
+./huawei-matebook-13-gpu-manager.sh --lang fr doctor
 ./huawei-matebook-13-gpu-manager.sh --lang fr test
 ```
 

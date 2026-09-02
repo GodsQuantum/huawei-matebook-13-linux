@@ -95,6 +95,12 @@ French UI:
 
 A reboot is expected after the initial installation so the boot policy and KWin environment are applied cleanly.
 
+### Upgrade / repair behavior
+
+Re-running `install` is idempotent and also performs upgrades. Version 3 can import supported v1/v2 state from existing launchers, backups, Steam Launch Options and adjacent portable manifests. Migration uses a snapshot/rollback boundary; legacy helpers are removed only after the new infrastructure passes its GPU smoke test and returns to full Integrated idle.
+
+On CachyOS/Arch systems actively using Limine, the manager calls `limine-mkinitcpio` directly so initramfs images and Limine entries are rebuilt together. Other systems fall back to their appropriate `mkinitcpio`, `dracut` or `update-initramfs` path.
+
 ## Add or remove applications
 
 Interactive:
@@ -114,7 +120,7 @@ CLI:
 
 The manager creates a user-local `.desktop` override and preserves the original local launcher when one already exists. It sets `DBusActivatable=false` for managed launchers so the desktop actually follows the modified `Exec=` line.
 
-The managed application list is stored **inside the script itself** between the `HUAWEI_GPU_CONFIG_BEGIN/END` markers. Keeping the updated script therefore preserves the selection across a reinstall.
+Since v3, canonical per-user state is versioned under the XDG configuration directory (`~/.config/huawei-matebook-gpu-manager/state.json` by default), while the script keeps a portable embedded manifest for reinstall recovery. `install` is also the upgrade/repair command: it can detect and import supported older manager generations, reconcile the current installation transactionally, validate the MX250 cycle, and only then remove obsolete legacy infrastructure. A newer on-disk install schema is never overwritten by an older manager.
 
 ## One-off command
 
@@ -140,6 +146,7 @@ Direct `localconfig.vdf` editing is inherently less stable than the freedesktop 
 
 ```bash
 ./huawei-matebook-13-gpu-manager.sh status
+./huawei-matebook-13-gpu-manager.sh doctor
 ./huawei-matebook-13-gpu-manager.sh test
 ```
 
