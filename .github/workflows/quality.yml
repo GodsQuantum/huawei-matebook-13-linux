@@ -1,0 +1,27 @@
+name: Quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-and-public-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Bash syntax
+        run: bash -n gpu-power/huawei-matebook-13-gpu-manager.sh
+      - name: ShellCheck
+        run: shellcheck -S error -x gpu-power/huawei-matebook-13-gpu-manager.sh
+      - name: Reject obvious private material
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE --exclude-dir=.git --exclude='*.md' '-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----' .
+          ! grep -RInE --exclude-dir=.git '(/home/[A-Za-z0-9._-]+|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})' .
+          ! grep -RInE --exclude-dir=.git '(gh[pousr]_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,})' .

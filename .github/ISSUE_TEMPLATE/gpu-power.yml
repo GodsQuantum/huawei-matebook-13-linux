@@ -1,0 +1,60 @@
+name: GPU & power report
+description: Report an on-demand MX250 GPU/power-management issue or successful hardware test
+labels: ["gpu", "power-management"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The validated reference path is Intel + NVIDIA MX250 (`10de:1d13`) on KDE Plasma Wayland with NVIDIA R580. Do not paste full system dumps; remove personal data first.
+  - type: input
+    id: model
+    attributes:
+      label: MateBook 13 revision
+      description: Generic model/revision only; no serial number.
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and kernel
+      placeholder: "CachyOS, Linux 7.x"
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop / session
+      placeholder: "KDE Plasma 6.x, Wayland"
+    validations:
+      required: true
+  - type: textarea
+    id: pci
+    attributes:
+      label: Relevant PCI identities
+      description: Paste only `lspci -nn` lines for Intel display + NVIDIA GPU.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Manager status
+      description: Paste the manager's `status` output after reviewing it for private data.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected vs actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: idle
+    attributes:
+      label: Idle-state result
+      options:
+        - label: After the last managed workload closes, the MX250 becomes absent from PCI again.
+        - label: NVIDIA modules/users are gone after cleanup.
+        - label: I reviewed all pasted output for personal data and credentials.
+          required: true
