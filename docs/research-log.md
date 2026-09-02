@@ -357,3 +357,21 @@ This independently corroborates the existing 4-byte outer + 2 ms + inner Milan t
 **CORRECTION:** a proposed missing 1 ms pre-submit delay is not supported by this GF3658 path; the visible 15 ms / 50 ms sleeps belong to ACK/response waiting.
 
 **CURRENT BOUNDARY:** do not add new Goodix commands. Close the runtime mode and final SPB leaf statically; if Linux transaction boundaries remain correct, move to direct physical SPI observability.
+
+<!-- current-boundary-2026-09-02 -->
+## 2026-09-02
+
+Fresh-boot Linux ftrace confirmed each tested SPI transfer traverses
+`spi_set_cs -> pxa2xx_spi_set_cs -> lpss_ssp_cs_control`, with clean controller
+completion but no sensor IRQ.
+
+Exact Goodix FP 1.1.141.36 reconstruction then corrected the startup model:
+`send_driver_install_to_MCU()` does not propagate the SetDriverState result.
+Windows continues to `init_MCU()` and `GetEvkVersionWithRetry`.
+
+The compiled `retry_count_for_common_init` default is 3. After three failed
+GetEvkVersion calls, Windows performs HardResetMcu when D0Exit has not begun,
+ignores that reset BOOL, and performs one final GetEvkVersion.
+
+The Linux research harness was updated TDD-first and passed the complete test
+suite, runtime compilation, ASAN/UBSAN, GCC fanalyzer and source-safety checks.

@@ -50,6 +50,9 @@ struct gxfp_probe_report {
     enum gxfp_probe_result primary_result;
     enum gxfp_driver_state_result driver_state_result;
     bool driver_state_reset_performed;
+    enum gxfp_io_result driver_state_reset_result;
+    bool common_init_reset_performed;
+    enum gxfp_io_result common_init_reset_result;
     enum gxfp_attempt_result evk_result;
     enum gxfp_io_result cleanup_result;
 };
@@ -57,8 +60,9 @@ struct gxfp_probe_report {
 /*
  * Runs one deliberately narrow experiment:
  * no pre-DriverState reset -> Windows-faithful DriverState:Install
- * ACK/retry/conditional-reset path -> one GetEvkVersion attempt ->
- * unconditional proven reset cleanup.
+ * ACK/retry/conditional-reset path -> Windows-style common-init
+ * GetEvkVersionWithRetry (three initial attempts, then the proven hard reset
+ * and one final attempt on protocol timeout) -> unconditional reset cleanup.
  *
  * Static Windows startup reconstruction shows normal InitThread enters
  * _DeviceInit before the visible hard-reset fallback callsites.  The omitted
@@ -68,7 +72,15 @@ struct gxfp_probe_report {
  * DriverState uses generic B/0 ACK bookkeeping for logical CHIP 9/3, whose
  * packed command is 0x96.  Each of the two Windows wrapper calls may send the
  * exact Install packet twice under the effective 1000 ms ACK timeout.  Only
- * after both wrapper calls time out is the proven hard reset performed.
+ * after both wrapper calls time out is the proven DriverState hard reset.
+ * send_driver_install_to_MCU ignores SetDriverState's return value, including
+ * a failed HardResetMcu result, and Windows continues into init_MCU.  The
+ * research report preserves that reset result diagnostically.
+ *
+ * init_MCU's first sensor-response gate is GetEvkVersionWithRetry.  On the
+ * default path it performs three initial GetEvkVersion attempts.  Exhausted
+ * protocol timeouts cause a second, distinct HardResetMcu fallback followed
+ * immediately by exactly one final GetEvkVersion attempt.
  */
 enum gxfp_probe_result
 gxfp_probe_run(const struct gxfp_probe_reset_ops *reset,

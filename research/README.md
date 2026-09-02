@@ -83,3 +83,21 @@ For probe #2 the supervisor requires `GXFP51A0_REVIEWED_PROBE_2` and uses a
 checks, GPIO264-only restore fallback and unconditional spidev cleanup. Probe #2
 has not been executed. Full common-init, firmware management, enrollment and
 libfprint integration remain excluded.
+
+<!-- current-boundary-2026-09-02 -->
+## Active probe model update — 2026-09-02
+
+The previous assumption that DriverState ACK timeout terminates startup is
+obsolete.
+
+The harness now models the Windows common-init wrapper:
+
+- DriverState retries and fallback reset;
+- continuation into init_MCU;
+- three default GetEvkVersion outer attempts;
+- separate common-init HardResetMcu fallback;
+- one final GetEvkVersion;
+- reset failures preserved diagnostically;
+- final cleanup still fail-closed.
+
+Maximum fully silent path: 34 physical SPI transfers.
