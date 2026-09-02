@@ -124,3 +124,26 @@ This rejects early termination at DriverState or an incomplete
 `GetEvkVersionWithRetry` implementation as the explanation for the silence.
 
 See `docs/dma-pio-reassessment-2026-09-02.md`.
+
+<!-- pio-preflight-ready-2026-09-02 -->
+## PIO experiment gate prepared
+
+The repository contains a dedicated fail-closed PIO experiment gate:
+
+- `research/linux/pio_preflight.sh`;
+- `research/linux/pio_live_probe_supervisor.sh`.
+
+The preflight changes no controller or fingerprint state. It only accepts a
+fresh boot that already proves the PXA2xx controller selected its native PIO
+fallback before any Goodix traffic.
+
+The dedicated active confirmation token is:
+
+`GXFP51A0_REVIEWED_PIO_20260902`
+
+After this gate passes, the existing supervised Windows-faithful common-init
+probe may run exactly once on that boot.
+
+The next live experiment must also collect controller function tracing,
+SPI statistics, IRQ counts and runtime-PM state so that a silent PIO result
+still closes several hypotheses in one run.

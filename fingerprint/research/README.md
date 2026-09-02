@@ -114,3 +114,16 @@ The next one-variable test is to prove that the PXA2xx controller is using PIO
 before sensor traffic, then replay the exact same bounded sequence once.
 
 See `../docs/dma-pio-reassessment-2026-09-02.md`.
+
+<!-- pio-gate-tooling-2026-09-02 -->
+## PIO experiment tooling
+
+`linux/pio_preflight.sh` proves the PXA2xx controller entered its native PIO
+fallback before any fingerprint traffic.
+
+`linux/pio_live_probe_supervisor.sh` requires the PIO-specific review token,
+runs that preflight first, and only then delegates to the existing supervised
+Windows-faithful common-init probe.
+
+The PIO gate itself performs no module load/unload, driver bind/unbind, PM
+change, GPIO operation or SPI transfer.

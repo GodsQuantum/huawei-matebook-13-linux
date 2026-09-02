@@ -88,3 +88,18 @@ Never commit or publish the raw `_DSM` buffer, PSKs or derived authentication ma
 ## Repository privacy
 
 Never commit local usernames, personal filesystem paths, private machine nicknames, boot IDs, local IP addresses, unrelated hardware serials, proprietary Windows binaries, raw generated disassembly or unredacted local diagnostics.
+
+<!-- pio-gate-safety-2026-09-02 -->
+## PIO experiment safety
+
+A PIO comparison is authorized only when the dedicated preflight proves the
+controller entered the kernel's native PIO fallback before any sensor traffic.
+
+Do not dynamically remove IDMA64 or rebind the PXA2xx controller immediately
+before a fingerprint probe merely to force the desired state.
+
+Use a fresh boot with IDMA64 blocked from loading, prove native PIO, then run
+the unchanged bounded fingerprint probe once.
+
+A failed PIO preflight consumes no active fingerprint probe. Once the active
+PIO supervisor starts sensor traffic, that boot is consumed.
