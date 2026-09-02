@@ -16,7 +16,7 @@ Le dépôt est désormais organisé autour de ces deux écueils.
 | Domaine | État | Ce que fournit le dépôt |
 | --- | --- | --- |
 | **GPU & alimentation — NVIDIA MX250** | **Fonctionnel sur la configuration validée** | Vrai état Integrated au repos, activation à la volée par application, PRIME Render Offload, déchargement/retrait PCI automatique, isolation Plasma/KWin, gestion Desktop et Steam |
-| **Empreinte — Goodix GXFP51A0 / GF3658** | **Recherche / pas encore utilisable pour la connexion** | Protocole, mapping ACPI/SPI/GPIO, reconstruction du comportement Windows, probes Linux, limites de sécurité et état actuel de la recherche |
+| **Empreinte — Goodix GXFP51A0 / GF3658** | **Recherche / pas encore utilisable pour la connexion** | Le replay complet du common-init Windows atteint les 34 transferts SPI mais toujours 0 IRQ/RX Goodix ; le discriminateur actuel est DMA vs PIO côté contrôleur |
 
 ### Configuration GPU validée
 
@@ -85,7 +85,7 @@ Voir [`gpu-power/README.FR.md`](gpu-power/README.FR.md) pour l'architecture, les
 
 Tout le projet de recherche initial sur le capteur d'empreinte est conservé dans ce dossier : protocole, ressources ACPI/SPI/GPIO, probes supervisées, cross-checks du pilote Windows et documentation de sécurité.
 
-État actuel : **il n'existe toujours pas de pilote Linux fonctionnel pour ce capteur.** Le projet documente et réduit l'inconnue transport/runtime plutôt que de présenter un « pilote » incomplet ou dangereux.
+État actuel : **il n'existe toujours pas de pilote Linux fonctionnel pour ce capteur.** La séquence common-init Windows reconstruite s'exécute désormais intégralement sous Linux mais reste silencieuse (34 transferts SPI, 0 IRQ/RX Goodix). Le prochain discriminateur contrôlé est le datapath du contrôleur PXA2xx : DMA contre PIO.
 
 Architecture cible :
 

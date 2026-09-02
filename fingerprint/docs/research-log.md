@@ -375,3 +375,27 @@ ignores that reset BOOL, and performs one final GetEvkVersion.
 
 The Linux research harness was updated TDD-first and passed the complete test
 suite, runtime compilation, ASAN/UBSAN, GCC fanalyzer and source-safety checks.
+
+<!-- full-common-init-live-result-2026-09-02 -->
+## 2026-09-02 — full Windows-faithful common-init live run
+
+The corrected common-init harness completed the full expected silent path:
+
+- 34 SPI transfers / 180 transmitted bytes;
+- 12 IRQ waits;
+- 0 Goodix IRQ events;
+- 0 reads;
+- DriverState reset fallback succeeded;
+- common-init reset fallback succeeded;
+- no SPI-controller errors or timeouts;
+- safe final cleanup succeeded.
+
+This closes the question of whether previous probes simply stopped before
+Windows' real startup response gate.
+
+A subsequent consumed-boot passive audit examined PXA2xx/LPSS DMA/PIO
+topology without performing any sensor action.
+
+Sanitized next-experiment candidate: **deterministic PXA2xx PIO-only setup**.
+
+See `dma-pio-reassessment-2026-09-02.md`.

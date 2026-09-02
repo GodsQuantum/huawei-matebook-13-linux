@@ -101,3 +101,16 @@ The harness now models the Windows common-init wrapper:
 - final cleanup still fail-closed.
 
 Maximum fully silent path: 34 physical SPI transfers.
+
+<!-- dma-pio-boundary-2026-09-02 -->
+## DMA / PIO boundary — 2026-09-02
+
+The corrected Windows-faithful common-init path has now executed through all
+34 expected SPI transfers and remains silent with 0 Goodix IRQ/RX.
+
+Do not change the Goodix protocol for the next experiment.
+
+The next one-variable test is to prove that the PXA2xx controller is using PIO
+before sensor traffic, then replay the exact same bounded sequence once.
+
+See `../docs/dma-pio-reassessment-2026-09-02.md`.

@@ -84,14 +84,15 @@ Passed:
 
 ## Next
 
-Fresh boot only.
+The corrected Windows-faithful common-init run is complete and remained fully
+silent through all 34 expected SPI transfers.
 
-Run the corrected Windows-faithful bootstrap once, through the complete
-GetEvkVersionWithRetry boundary.
+The next software discriminator is DMA versus PIO on the PXA2xx/LPSS
+controller.
 
-If still silent, continue software-only with DMA-vs-PIO and deeper LPSS /
-runtime-PM instrumentation.
+A simple IDMA64 blacklist must not be assumed sufficient. The next experiment must first establish and prove a deterministic PXA2xx PIO-only state, using boot-time binding control or a minimal instrumented controller variant if necessary, and abort before sensor traffic unless PIO is proven.
 
+No active experiment may be repeated on a consumed boot.
 
 <!-- common-init-supervisor-2026-09-02 -->
 ## Next-run supervisor
@@ -102,3 +103,24 @@ runtime-PM instrumentation.
 - one active execution maximum per fresh boot
 - no automatic retry
 - process-group termination and final GPIO264 LOW cleanup remain mandatory
+
+<!-- common-init-live-closure-2026-09-02 -->
+## Completed live common-init result
+
+The reviewed one-shot run reached the complete expected silent bound:
+
+- `PROBE_RESULT=ACK_TIMEOUT`;
+- DriverState fallback reset: success;
+- common-init fallback reset: success;
+- 34 SPI transfers;
+- 12 IRQ waits;
+- 0 Goodix IRQ events;
+- 0 reads;
+- 0 EVK response bytes;
+- 0 controller errors/timeouts;
+- final GPIO264 LOW cleanup confirmed.
+
+This rejects early termination at DriverState or an incomplete
+`GetEvkVersionWithRetry` implementation as the explanation for the silence.
+
+See `docs/dma-pio-reassessment-2026-09-02.md`.

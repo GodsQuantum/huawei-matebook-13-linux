@@ -186,3 +186,25 @@ therefore remains bounded while leaving enough margin for the single final
 GetEvkVersion attempt.
 
 No automatic same-boot retry is permitted.
+
+<!-- full-common-init-live-result-2026-09-02 -->
+## Full common-init live result
+
+The corrected Windows-faithful sequence was executed once on a fresh boot and
+reached its complete silent bound exactly:
+
+- 34 physical SPI transfers;
+- 12 readiness/ACK waits;
+- 0 Goodix IRQ events;
+- 0 RX reads;
+- 0 EVK response bytes;
+- both fallback resets succeeded;
+- no controller error/timeout explained the result;
+- final GPIO264 LOW cleanup succeeded.
+
+The common-init control-flow correction therefore does not restore
+communication.
+
+The next software-only discriminator is controller DMA versus PIO.
+
+See `dma-pio-reassessment-2026-09-02.md`.
