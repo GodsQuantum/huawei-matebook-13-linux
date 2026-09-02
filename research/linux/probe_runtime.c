@@ -247,6 +247,9 @@ int main(void)
     printf("DRIVERSTATE_ACK_TARGET=96\n");
     printf("DRIVERSTATE_ACK_TIMEOUT_MS=1000\n");
     printf("A4_PAYLOAD_FIXTURE=00 00\n");
+    printf("COMMON_INIT_RETRY_COUNT=3\n");
+    printf("COMMON_INIT_RETRY_COUNT_PROVENANCE=PROVEN_COMPILED_DEFAULT_14136\n");
+    printf("COMMON_INIT_FALLBACK=HARD_RESET_THEN_ONE_FINAL_ATTEMPT\n");
     fflush(stdout);
 
     result = gxfp_probe_run(&reset_ops, &preamble_ops, &attempt,
@@ -259,6 +262,12 @@ int main(void)
     printf("PRIMARY_RESULT=%s\n", probe_result_name(report.primary_result));
     printf("DRIVERSTATE_RESULT=%s\n", driver_state_result_name(report.driver_state_result));
     printf("DRIVERSTATE_RESET_PERFORMED=%s\n", report.driver_state_reset_performed ? "YES" : "NO");
+    printf("DRIVERSTATE_RESET_RESULT=%d\n",
+           report.driver_state_reset_result);
+    printf("COMMON_INIT_RESET_PERFORMED=%s\n",
+           report.common_init_reset_performed ? "YES" : "NO");
+    printf("COMMON_INIT_RESET_RESULT=%d\n",
+           report.common_init_reset_result);
     printf("EVK_ATTEMPT_RESULT=%d\n", report.evk_result);
     printf("CLEANUP_RESULT=%d\n", report.cleanup_result);
     printf("SPI_TRANSFER_COUNT=%u\n", spi.transfer_count);

@@ -152,3 +152,22 @@ Only sanitized, generic research facts belong in the public repository.
 No firmware flashing, UPFW, erase, bootloader, firmware-management flow, speculative pinmux write or unrelated USB Goodix firmware procedure is authorized.
 
 Any future active experiment requires one reviewed hypothesis, minimum bounded writes, exact-length RX, independent supervision, explicit stop conditions and final GPIO264 LOW restoration.
+
+<!-- current-boundary-2026-09-02 -->
+## 2026-09-02 correction
+
+`send_driver_install_to_MCU()` does not propagate the `SetDriverState()` result
+as the startup gate. Windows continues to `init_MCU()`, whose first meaningful
+sensor-response gate is `GetEvkVersionWithRetry`.
+
+Exact Goodix FP 1.1.141.36 common-init default:
+
+- 3 GetEvkVersion attempts;
+- HardResetMcu after all three fail when D0Exit has not started;
+- reset BOOL ignored by the wrapper;
+- one final GetEvkVersion.
+
+The Linux research harness now models this exact control flow. Maximum fully
+silent default path: 34 SPI transfers.
+
+Canonical current state: `docs/software-boundary-2026-09-02.md`.

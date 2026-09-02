@@ -102,3 +102,18 @@ Voir [docs/safety.md](docs/safety.md).
 ## Licence
 
 GPL-2.0-only. Voir [LICENSE](LICENSE).
+
+<!-- current-boundary-2026-09-02 -->
+## Frontière de recherche actuelle — 2 septembre 2026
+
+La reconstruction du démarrage Windows a été corrigée :
+`DriverState:Install` n'est pas le gate fatal de `_DeviceInit`.
+Le premier véritable gate de réponse du capteur est
+`GetEvkVersionWithRetry`, avec un défaut compilé de 3 tentatives externes dans
+Goodix FP 1.1.141.36, puis un reset de fallback distinct et une dernière
+tentative.
+
+Un traçage Linux réel confirme également que les transferts testés atteignent
+le chemin LPSS `lpss_ssp_cs_control`.
+
+Voir [`docs/software-boundary-2026-09-02.md`](docs/software-boundary-2026-09-02.md).

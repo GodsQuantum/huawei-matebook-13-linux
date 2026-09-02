@@ -38,7 +38,7 @@ struct fake {
     size_t pre_install_pos;
     enum gxfp_io_result driver_ack_results[4];
     size_t driver_ack_pos;
-    enum gxfp_io_result evk_ack_results[2];
+    enum gxfp_io_result evk_ack_results[16];
     size_t evk_ack_pos;
     enum gxfp_io_result evk_response_result;
 };
@@ -147,7 +147,8 @@ static enum gxfp_io_result evk_wait_ack(void *ctx,
 
     assert(cmd0 == 0x0a && cmd1 == 0x04 && timeout_ms == 1000);
     record(f, EV_EVK_WAIT_ACK, timeout_ms);
-    if (f->evk_ack_pos < 2)
+    if (f->evk_ack_pos <
+        sizeof(f->evk_ack_results) / sizeof(f->evk_ack_results[0]))
         r = f->evk_ack_results[f->evk_ack_pos];
     f->evk_ack_pos++;
     return r;
@@ -303,7 +304,8 @@ static void test_four_driverstate_ack_timeouts_trigger_one_intermediate_reset_th
     assert_reset_at(&f, evk_nop_pos - 4);
 }
 
-static void test_driverstate_reset_failure_stops_before_evk_and_final_cleanup_still_runs(void)
+static void
+test_driverstate_reset_failure_is_reported_but_bootstrap_continues(void)
 {
     struct fake f = success_fake();
     struct gxfp_probe_report report;
@@ -311,13 +313,24 @@ static void test_driverstate_reset_failure_stops_before_evk_and_final_cleanup_st
 
     for (i = 0; i < 4; i++)
         f.driver_ack_results[i] = GXFP_IO_TIMEOUT;
-    /* With no initial reset, DriverState fallback HIGH is the first set call. */
+
+    /*
+     * SetDriverState fallback reset fails. Windows'
+     * send_driver_install_to_MCU ignores SetDriverState's return value and
+     * continues into init_MCU, so EVK must still run.
+     */
     f.reset_set_results[0] = GXFP_IO_ERROR;
 
-    assert(run(&f, &report) == GXFP_PROBE_DRIVERSTATE_RESET_ERROR);
+    assert(run(&f, &report) == GXFP_PROBE_OK);
     assert(report.driver_state_result == GXFP_DRIVER_STATE_ACK_TIMEOUT);
     assert(report.driver_state_reset_performed);
-    assert(count_event(&f, EV_EVK_A4) == 0);
+    assert(report.driver_state_reset_result == GXFP_IO_ERROR);
+
+    assert(count_event(&f, EV_EVK_NOP) == 1);
+    assert(count_event(&f, EV_EVK_A4) == 1);
+
+    /* DriverState fallback reset + final cleanup. */
+    assert(count_event(&f, EV_RESET_HIGH) == 2);
     assert_reset_at(&f, f.count - 4);
 }
 
@@ -361,18 +374,122 @@ static void test_driverstate_io_error_stops_more_install_and_cleans_up(void)
     assert_reset_at(&f, f.count - 4);
 }
 
-static void test_evk_ack_timeout_still_retransmits_a4_once_and_cleans_up(void)
+static void
+test_evk_ack_timeout_retries_outer_getevk_and_second_attempt_can_succeed(void)
 {
     struct fake f = success_fake();
     struct gxfp_probe_report report;
 
+    /*
+     * First GetEvkVersion: both A/4 ACK waits timeout.
+     * Second outer GetEvkVersion sees the default GXFP_IO_OK fixture.
+     */
     f.evk_ack_results[0] = GXFP_IO_TIMEOUT;
     f.evk_ack_results[1] = GXFP_IO_TIMEOUT;
+
+    assert(run(&f, &report) == GXFP_PROBE_OK);
+    assert(report.driver_state_result == GXFP_DRIVER_STATE_OK);
+    assert(report.evk_result == GXFP_ATTEMPT_OK);
+
+    assert(count_event(&f, EV_EVK_NOP) == 2);
+    assert(count_event(&f, EV_EVK_A4) == 3);
+    assert(count_event(&f, EV_EVK_WAIT_ACK) == 3);
+    assert(count_event(&f, EV_EVK_WAIT_RESPONSE) == 1);
+
+    /* only unconditional cleanup */
+    assert(count_event(&f, EV_RESET_HIGH) == 1);
+    assert_reset_at(&f, f.count - 4);
+}
+
+static void
+test_windows_common_init_retries_three_then_resets_and_tries_once_more(void)
+{
+    struct fake f = success_fake();
+    struct gxfp_probe_report report;
+    size_t i;
+
+    /*
+     * DriverState succeeds immediately.  Every GetEvkVersion A/4 ACK wait
+     * times out.  Windows common-init therefore performs:
+     *
+     *   3 initial GetEvkVersion attempts
+     *   hard reset
+     *   1 final GetEvkVersion attempt
+     *
+     * Each GetEvkVersion attempt sends A/4 at most twice.
+     */
+    for (i = 0; i < 8; i++)
+        f.evk_ack_results[i] = GXFP_IO_TIMEOUT;
+
     assert(run(&f, &report) == GXFP_PROBE_ACK_TIMEOUT);
     assert(report.driver_state_result == GXFP_DRIVER_STATE_OK);
-    assert(report.evk_result == GXFP_ATTEMPT_ACK_TIMEOUT);
-    assert(count_event(&f, EV_EVK_A4) == 2);
+
+    assert(count_event(&f, EV_EVK_NOP) == 4);
+    assert(count_event(&f, EV_EVK_SLEEP) == 4);
+    assert(count_event(&f, EV_EVK_A4) == 8);
+    assert(count_event(&f, EV_EVK_WAIT_ACK) == 8);
+    assert(count_event(&f, EV_EVK_WAIT_RESPONSE) == 0);
+
+    /* common-init fallback reset + unconditional final cleanup */
+    assert(count_event(&f, EV_RESET_HIGH) == 2);
+    assert(count_event(&f, EV_RESET_LOW) == 2);
     assert_reset_at(&f, f.count - 4);
+}
+
+static void
+test_windows_common_init_reset_failure_is_reported_but_final_attempt_runs(void)
+{
+    struct fake f = success_fake();
+    struct gxfp_probe_report report;
+    size_t i;
+
+    /*
+     * Three initial GetEvkVersion attempts fail their two A/4 ACK waits.
+     * The first reset operation is the common-init HardResetMcu fallback.
+     */
+    for (i = 0; i < 6; i++)
+        f.evk_ack_results[i] = GXFP_IO_TIMEOUT;
+
+    f.reset_set_results[0] = GXFP_IO_ERROR;
+
+    /*
+     * HardResetMcu's BOOL return is ignored by Windows. The final query still
+     * executes and succeeds on the default GXFP_IO_OK fixture.
+     */
+    assert(run(&f, &report) == GXFP_PROBE_OK);
+
+    assert(report.common_init_reset_performed);
+    assert(report.common_init_reset_result == GXFP_IO_ERROR);
+
+    assert(count_event(&f, EV_EVK_NOP) == 4);
+    assert(count_event(&f, EV_EVK_A4) == 7);
+    assert(count_event(&f, EV_EVK_WAIT_ACK) == 7);
+    assert(count_event(&f, EV_EVK_WAIT_RESPONSE) == 1);
+
+    /* common-init reset + unconditional final cleanup */
+    assert(count_event(&f, EV_RESET_HIGH) == 2);
+    assert_reset_at(&f, f.count - 4);
+}
+
+static void
+test_windows_common_init_io_error_retries_outer_getevk(void)
+{
+    struct fake f = success_fake();
+    struct gxfp_probe_report report;
+
+    /*
+     * GetEvkVersionWithRetry sees only BOOL success/failure. Therefore an
+     * underlying A/4 I/O error is a failed outer query and consumes one retry.
+     */
+    f.evk_ack_results[0] = GXFP_IO_ERROR;
+
+    assert(run(&f, &report) == GXFP_PROBE_OK);
+    assert(report.evk_result == GXFP_ATTEMPT_OK);
+
+    assert(count_event(&f, EV_EVK_NOP) == 2);
+    assert(count_event(&f, EV_EVK_A4) == 2);
+    assert(count_event(&f, EV_EVK_WAIT_ACK) == 2);
+    assert(count_event(&f, EV_EVK_WAIT_RESPONSE) == 1);
 }
 
 static void test_cleanup_failure_is_distinct_and_preserves_primary(void)
@@ -408,11 +525,14 @@ int main(void)
     test_driverstate_internal_retransmit_succeeds_on_second_send();
     test_driverstate_second_wrapper_can_succeed_without_reset();
     test_four_driverstate_ack_timeouts_trigger_one_intermediate_reset_then_evk();
-    test_driverstate_reset_failure_stops_before_evk_and_final_cleanup_still_runs();
+    test_driverstate_reset_failure_is_reported_but_bootstrap_continues();
     test_driverstate_cancel_stops_more_install_and_cleans_up();
     test_driverstate_install_write_error_stops_before_ack_and_cleans_up();
     test_driverstate_io_error_stops_more_install_and_cleans_up();
-    test_evk_ack_timeout_still_retransmits_a4_once_and_cleans_up();
+    test_evk_ack_timeout_retries_outer_getevk_and_second_attempt_can_succeed();
+    test_windows_common_init_retries_three_then_resets_and_tries_once_more();
+    test_windows_common_init_reset_failure_is_reported_but_final_attempt_runs();
+    test_windows_common_init_io_error_retries_outer_getevk();
     test_cleanup_failure_is_distinct_and_preserves_primary();
     puts("test_probe_harness: OK");
     return 0;

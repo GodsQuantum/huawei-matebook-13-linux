@@ -106,3 +106,16 @@ See [docs/safety.md](docs/safety.md).
 ## License
 
 GPL-2.0-only. See [LICENSE](LICENSE).
+
+<!-- current-boundary-2026-09-02 -->
+## Current research boundary — 2026-09-02
+
+The Windows startup reconstruction has been corrected: `DriverState:Install`
+is not the fatal `_DeviceInit` gate. The first meaningful sensor-response gate
+is `GetEvkVersionWithRetry`, whose exact 1.1.141.36 default outer retry count
+is 3, followed by a separate hard-reset fallback and one final attempt.
+
+A live Linux trace also confirmed the tested transfers reach the LPSS
+`lpss_ssp_cs_control` path.
+
+See [`docs/software-boundary-2026-09-02.md`](docs/software-boundary-2026-09-02.md).
