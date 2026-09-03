@@ -2,6 +2,20 @@
 
 ## Canonical current state
 
+<!-- canonical-2026-09-03 -->
+Current canonical boundary:
+
+- [Session handoff — 2026-09-03](SESSION_HANDOFF_2026-09-03.md)
+- [Controller boundary — 2026-09-03](docs/controller-boundary-2026-09-03.md)
+- [DMA / PIO reassessment — 2026-09-02](docs/dma-pio-reassessment-2026-09-02.md)
+
+The deterministic PIO discriminator is complete and must not be rerun merely
+to reconfirm the same silent result. DMA versus PIO is closed as the primary
+explanation. The next gate is passive, root-privileged tracefs enumeration,
+followed by one bounded unchanged common-init run with controller/runtime-PM
+instrumentation only.
+
+
 Read first:
 
 - [Session handoff — 2026-09-01](SESSION_HANDOFF_2026-09-01.md)

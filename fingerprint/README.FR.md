@@ -6,6 +6,34 @@
 
 ## État actuel
 
+<!-- controller-status-2026-09-03 -->
+### Résultat contrôleur — 3 septembre 2026
+
+Le discriminant PXA2xx DMA contre PIO est terminé.
+
+Un boot frais a prouvé le fallback PIO natif avant tout trafic fingerprint :
+IDMA64 était absent, le contrôleur correspondant a journalisé
+`no DMA channels available, using PIO` et les statistiques SPI de la cible
+étaient à zéro. Le common-init Windows inchangé a ensuite de nouveau effectué
+34 transferts SPI physiques et 12 attentes avec 0 événement IRQ Goodix,
+0 lecture RX et 0 octet EVK. Les deux resets de fallback ont réussi, aucune
+erreur/timeout SPI n'a été signalée et le nettoyage final a laissé GPIO264 à
+LOW.
+
+Un baseline passif séparé sur boot normal confirme IDMA64 chargé et lié, deux
+canaux DMAengine associés au même parent PCI LPSS, aucun fallback PIO et aucun
+trafic SPI GXFP51A0 antérieur.
+
+DMA contre PIO est donc fermé comme explication principale du silence actuel.
+La prochaine frontière logicielle est l'instrumentation runtime-PM / LPSS /
+PXA2xx et des transferts.
+
+Voir
+[`docs/controller-boundary-2026-09-03.md`](docs/controller-boundary-2026-09-03.md)
+et
+[`SESSION_HANDOFF_2026-09-03.md`](SESSION_HANDOFF_2026-09-03.md).
+
+
 Le projet a établi les ressources ACPI/SPI/GPIO, le framing Milan, le reset Windows réellement utilisé, le RX à longueur exacte, le modèle DriverState ACK/retry/reset, le modèle ACK + réponse de `GetEvkVersion`, le mapping IRQ ACPI natif, les probes Linux jusqu'au Probe #4, le `_DSM` Goodix, le démarrage Windows et un cross-check bas niveau du transport GF3658.
 
 **Dernier résultat matériel :** le chemin common-init Windows corrigé a maintenant été exécuté intégralement une fois sur un boot frais : 34 transferts SPI, 12 attentes IRQ, 0 événement IRQ Goodix, 0 lecture et 0 octet de réponse EVK. Les deux resets de fallback ont réussi, le contrôleur n'a signalé aucune erreur ni timeout SPI, et le nettoyage final a confirmé GPIO264 à LOW.

@@ -6,6 +6,33 @@
 
 ## Current status
 
+<!-- controller-status-2026-09-03 -->
+### Controller result — 2026-09-03
+
+The deterministic PXA2xx DMA-versus-PIO discriminator is complete.
+
+A fresh boot proved the controller's native PIO fallback before any fingerprint
+traffic: IDMA64 was absent, the matching controller logged
+`no DMA channels available, using PIO`, and target SPI statistics were zero.
+The unchanged Windows-faithful common-init then again completed 34 physical SPI
+transfers and 12 waits with 0 Goodix IRQ events, 0 RX reads and 0 EVK response
+bytes. Both fallback resets succeeded, the controller reported no SPI
+error/timeout, and final GPIO264 cleanup was LOW.
+
+A separate normal-boot passive baseline confirmed IDMA64 loaded and bound, two
+DMAengine channels associated with the matching LPSS PCI parent, no PIO
+fallback, and zero prior GXFP51A0 SPI activity.
+
+DMA versus PIO is therefore closed as the primary explanation for the current
+silence. The next software boundary is runtime-PM / LPSS / PXA2xx transfer
+instrumentation.
+
+See
+[`docs/controller-boundary-2026-09-03.md`](docs/controller-boundary-2026-09-03.md)
+and
+[`SESSION_HANDOFF_2026-09-03.md`](SESSION_HANDOFF_2026-09-03.md).
+
+
 Confirmed work includes ACPI/SPI/GPIO mapping, Milan framing, proven reset behavior, exact-length readiness-driven RX, DriverState ACK/retry/reset reconstruction, `GetEvkVersion` ACK/response reconstruction, native ACPI IRQ mapping, supervised Linux probes through Probe #4, the Goodix-specific ACPI `_DSM`, Windows startup reconstruction and a lower-level GF3658 Windows transport cross-check.
 
 **Latest live result:** the complete corrected Windows-faithful common-init path has now run once on a fresh boot: 34 SPI transfers, 12 IRQ waits, 0 Goodix IRQ events, 0 reads and 0 EVK response bytes. Both fallback resets completed successfully, controller statistics reported no SPI error/timeout, and final GPIO264 cleanup was confirmed LOW.

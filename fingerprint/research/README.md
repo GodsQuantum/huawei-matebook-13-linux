@@ -127,3 +127,22 @@ Windows-faithful common-init probe.
 
 The PIO gate itself performs no module load/unload, driver bind/unbind, PM
 change, GPIO operation or SPI transfer.
+
+<!-- controller-instrumentation-next-2026-09-03 -->
+## Controller instrumentation boundary — 2026-09-03
+
+The deterministic PXA2xx PIO discriminator is complete.
+
+PIO was proven before active traffic and the unchanged common-init remained
+fully silent through the same 34-transfer / 12-wait boundary as the normal
+DMA path.
+
+Do not rerun the PIO experiment.
+
+The next gate is passive, root-privileged tracefs enumeration on a fresh
+zero-activity normal boot. Only after selecting a bounded observation
+mechanism should another active common-init execution be authorized.
+
+The future active variable is instrumentation only. Protocol bytes, mode,
+speed, Milan split, waits, reset behavior and stop conditions must remain
+unchanged.

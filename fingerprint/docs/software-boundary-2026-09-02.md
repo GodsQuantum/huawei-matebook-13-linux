@@ -208,3 +208,17 @@ communication.
 The next software-only discriminator is controller DMA versus PIO.
 
 See `dma-pio-reassessment-2026-09-02.md`.
+
+<!-- successor-controller-boundary-2026-09-03 -->
+## Successor boundary — 2026-09-03
+
+The DMA-versus-PIO discriminator proposed by this document has completed.
+
+A deterministic native PXA2xx PIO boot reproduced the full silent common-init
+result: 34 transfers, 12 waits, no Goodix IRQ, no RX and no EVK bytes.
+
+The next boundary is runtime-PM / LPSS / PXA2xx controller-state and transfer
+instrumentation.
+
+Canonical successor:
+[`controller-boundary-2026-09-03.md`](controller-boundary-2026-09-03.md).

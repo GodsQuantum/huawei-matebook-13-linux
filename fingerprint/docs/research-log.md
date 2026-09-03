@@ -399,3 +399,56 @@ topology without performing any sensor action.
 Sanitized next-experiment candidate: **deterministic PXA2xx PIO-only setup**.
 
 See `dma-pio-reassessment-2026-09-02.md`.
+
+<!-- 2026-09-03-pio-controller-closure -->
+## 2026-09-03: deterministic PXA2xx PIO experiment completed
+
+**CONFIRMED on the target laptop:** a dedicated fresh boot explicitly blocked
+IDMA64 and proved the matching PXA2xx SPI controller selected its native PIO
+fallback before any GXFP51A0 traffic. The kernel emitted
+`no DMA channels available, using PIO`; the target had zero prior messages,
+transfers, TX bytes and RX bytes.
+
+**CONFIRMED on the target laptop:** the unchanged Windows-faithful common-init
+then completed all 34 physical SPI transfers and 12 readiness/ACK waits. It
+produced 0 Goodix IRQ events, 0 RX reads and 0 EVK bytes. DriverState and
+common-init fallback resets both succeeded, there were no SPI errors/timeouts,
+and final GPIO264 cleanup was LOW.
+
+**INTERPRETATION:** the PIO result is materially identical to the established
+normal DMA result. DMA versus PIO is therefore closed as the primary
+explanation for the present silence.
+
+No firmware-management action occurred.
+
+## 2026-09-03: normal DMA / LPSS passive baseline
+
+**CONFIRMED without sensor I/O:** a later normal boot loaded and bound the
+matching IDMA64 device, kept the PXA2xx SPI controller on its normal path,
+reported no native PIO fallback and preserved zero GXFP51A0 target activity
+throughout the audit.
+
+**DIAGNOSTIC CORRECTION:** the first sysfs DMA-channel counter incorrectly
+reported zero because it only accepted descendants of the LPSS PCI parent.
+The relevant DMAengine channel devices resolve to the parent itself. Corrected
+matching identifies two channels.
+
+**CONFIRMED by Linux v7.2 source:** the LPSS PXA2xx platform path enables DMA,
+uses a one-byte burst size, filters DMA channels by the LPSS parent device and
+requests separate TX and RX channels. The short transfers used in common-init
+are DMA-eligible.
+
+## 2026-09-03: passive tracing capability audit
+
+**CONFIRMED without sensor I/O:** tracefs and debugfs are mounted; the running
+kernel enables tracing, dynamic ftrace, function graph tracing, kprobes,
+kprobe events, fprobe, BPF and BTF. Relevant PXA2xx/LPSS/IDMA symbols are
+visible in kallsyms.
+
+The audit's non-root readability check did not obtain tracefs event/function
+lists. Root-privileged passive enumeration is the next step before another
+active run is authorized.
+
+**NEXT:** instrument runtime-PM, PXA2xx transfer, DMA and chip-select state
+around one future unchanged common-init execution. Do not introduce new Goodix
+protocol commands.
