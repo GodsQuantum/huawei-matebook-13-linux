@@ -15,7 +15,7 @@
 set -Eeuo pipefail
 shopt -s nullglob
 
-VERSION="3.0.1"
+VERSION="3.0.2"
 STATE_SCHEMA=3
 INSTALL_SCHEMA=3
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -1941,7 +1941,11 @@ doctor() {
     else kwin="NOT_VALIDATED"
     fi
 
-    [[ -x "$POWER_HELPER" && -x "$RUNNER" && -r "$SYSTEM_CONFIG" && -r "$SUDOERS_FILE" && -r "$UDEV_RULE" ]] || drift=1
+    # Validate the privileged path functionally. A correctly secured sudoers file
+    # is normally root:root 0440 and therefore intentionally unreadable by the
+    # invoking user; testing `-r "$SUDOERS_FILE"` would report false drift.
+    [[ -x "$POWER_HELPER" && -x "$RUNNER" && -r "$SYSTEM_CONFIG" && -r "$UDEV_RULE" ]] || drift=1
+    sudo -n "$POWER_HELPER" status >/dev/null 2>&1 || drift=1
     [[ "$detected_install" == "$INSTALL_SCHEMA" ]] || drift=1
     (( LEGACY_COMPONENTS == 0 )) || drift=1
 

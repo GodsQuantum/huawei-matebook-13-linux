@@ -58,7 +58,7 @@ class ManagerV3Tests(unittest.TestCase):
             env = test_env(Path(d))
             p = bash(self.source_cmd('printf "%s|%s|%s\\n" "$VERSION" "$STATE_SCHEMA" "$INSTALL_SCHEMA"'), env)
             self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertEqual(p.stdout.strip(), "3.0.1|3|3")
+            self.assertEqual(p.stdout.strip(), "3.0.2|3|3")
 
     def test_01_state_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
@@ -528,6 +528,39 @@ class ManagerV3Tests(unittest.TestCase):
             self.assertEqual(p.returncode, 0, p.stderr)
             calls = log.read_text().splitlines()
             self.assertEqual(calls, ["mkinitcpio -P"])
+
+
+    def test_29_doctor_uses_functional_sudo_path_not_sudoers_readability(self):
+        with tempfile.TemporaryDirectory() as d:
+            td = Path(d); env = test_env(td)
+            helper = td / "helper"
+            runner = td / "runner"
+            cfg = td / "system.conf"
+            udev = td / "61-gpu.rules"
+            missing_sudoers = td / "sudoers-not-readable-by-design"
+            helper.write_text('#!/bin/sh\n[ "$1" = status ] && { echo GPU_PRESENT=NO; echo LEASES=0; exit 0; }\nexit 0\n')
+            runner.write_text('#!/bin/sh\nexit 0\n')
+            cfg.write_text('INSTALL_SCHEMA=3\n')
+            udev.write_text('SUBSYSTEM=="drm"\n')
+            helper.chmod(0o755); runner.chmod(0o755)
+            env["HUAWEI_GPU_POWER_HELPER"] = str(helper)
+            env["HUAWEI_GPU_RUNNER"] = str(runner)
+            env["HUAWEI_GPU_SYSTEM_CONFIG"] = str(cfg)
+            env["HUAWEI_GPU_UDEV_RULE"] = str(udev)
+            env["HUAWEI_GPU_SUDOERS_FILE"] = str(missing_sudoers)
+            code = self.source_cmd(r'''
+                discover_legacy_generations(){ LEGACY_COMPONENTS=0; LEGACY_GENERATIONS=""; }
+                plasma_wayland_detected(){ return 1; }
+                find_dgpu_bdf(){ return 1; }
+                modinfo(){ return 1; }
+                lsmod(){ :; }
+                sudo(){ [[ "${1:-}" == -n ]] && shift; "$@"; }
+                doctor
+            ''')
+            p = bash(code, env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("CONFIG_DRIFT=NO", p.stdout)
+
 
 
 if __name__ == "__main__":
