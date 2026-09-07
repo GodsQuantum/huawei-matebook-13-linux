@@ -2,6 +2,17 @@
 
 ## Canonical current state
 
+<!-- canonical-2026-09-07 -->
+Current canonical boundary:
+
+- [Session handoff — 2026-09-07](SESSION_HANDOFF_2026-09-07.md)
+- [Current boundary — 2026-09-07](docs/current-boundary-2026-09-07.md)
+
+The complete common-init, DMA/PIO, normal-DMA trace, runtime-PM-held and
+same-wire MISO discriminators are complete. Latest result: 180/180 retained RX
+bytes `0xFF`, exactly 34 concrete target iDMA IRQ completions, 0 Goodix IRQs,
+no trace loss. No new active probe without same-device evidence.
+
 <!-- canonical-2026-09-03 -->
 Current canonical boundary:
 
@@ -211,3 +222,8 @@ A simple IDMA64 blacklist must not be assumed sufficient. The next experiment mu
 
 Canonical next-boundary document:
 `docs/dma-pio-reassessment-2026-09-02.md`.
+
+<!-- operational-boundary-2026-09-07 -->
+## Operational boundary — 2026-09-07
+
+Earlier DMA/PIO/runtime-PM "next step" sections are historical. Current rule: no new active GXFP51A0 traffic without same-device evidence; static/pre-first-command analysis first. See `docs/current-boundary-2026-09-07.md`.

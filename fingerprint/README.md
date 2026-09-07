@@ -6,6 +6,24 @@
 
 ## Current status
 
+<!-- current-status-2026-09-07 -->
+### Current boundary — 2026-09-07
+
+The complete common-init, DMA/PIO comparison, normal-DMA controller trace,
+runtime-PM-held test and same-wire MISO observation are complete. The target
+controller executed the expected 34 transfers and 34 concrete `idma64.4` IRQ
+completions, but Goodix produced 0 IRQ events and the 180 already-clocked RX
+bytes were all `0xFF`.
+
+Do not repeat active Linux probes just to vary DMA/runtime-PM/timing or borrow a
+neighbouring Goodix command. Current work is static/pre-first-command analysis.
+
+A working GXFP3200 Milan driver appeared in September 2026, but its F0/F1
+protocol and LOW->HIGH/final-HIGH reset differ from GXFP51A0; it is a reference,
+not a driver to force-bind.
+
+See [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
+
 <!-- controller-status-2026-09-03 -->
 ### Controller result — 2026-09-03
 
@@ -86,18 +104,11 @@ Function 1 returns a 2048-byte `HWFP/FPDT` buffer. Linux can evaluate it success
 
 ## Current research question
 
-The main unresolved problem is now below readiness/protocol scheduling: why controller-submitted Linux SPI traffic produces no observable Goodix IRQ/RX.
+Why does a controller-validated Windows-faithful GXFP51A0 sequence produce no informative MISO data and no readiness IRQ?
 
-Probe #3 and Probe #4 are complete and must not be rerun.
+Current priority: static/pre-first-command Goodix FP 1.1.141.36 analysis and evidence-backed comparison with working sibling drivers. No forced sibling binding and no new active probe without one precise same-device hypothesis.
 
-Current priority:
-
-1. keep the completed 34-transfer Windows-faithful common-init result as the protocol boundary;
-2. prove a deterministic PXA2xx **PIO-only** state before any new sensor traffic;
-3. replay the exact same bounded common-init sequence once in PIO and compare it with the established DMA-silent result;
-4. if PIO is also silent, move deeper into LPSS/runtime-PM/controller-state comparison without adding speculative Goodix commands.
-
-Do not add generic Goodix wake commands without same-device evidence.
+See [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
 
 ## Repository map
 

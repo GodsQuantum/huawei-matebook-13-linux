@@ -6,6 +6,25 @@
 
 ## État actuel
 
+<!-- current-status-2026-09-07 -->
+### Frontière actuelle — 7 septembre 2026
+
+Le common-init complet, la comparaison DMA/PIO, la trace DMA normale, le test
+runtime-PM maintenu actif et l'observation MISO sur les mêmes clocks sont
+terminés. Le contrôleur a exécuté les 34 transferts et 34 IRQ `idma64.4`
+concrètes attendues, mais Goodix a produit 0 IRQ et les 180 octets RX déjà
+clockés sont tous `0xFF`.
+
+Ne pas rejouer de probes Linux actifs simplement pour varier DMA/runtime-PM,
+timing ou emprunter une commande à un Goodix voisin. Le travail actuel est
+statique, avant la première commande acceptée.
+
+Un driver GXFP3200 Milan fonctionnel est apparu en septembre 2026, mais son
+protocole F0/F1 et son reset LOW->HIGH/final-HIGH diffèrent du GXFP51A0 : c'est
+une référence, pas un driver à forcer sur la cible.
+
+Voir [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
+
 <!-- controller-status-2026-09-03 -->
 ### Résultat contrôleur — 3 septembre 2026
 
@@ -87,18 +106,11 @@ La fonction 1 renvoie un buffer `HWFP/FPDT` de 2048 octets. Linux sait le lire c
 
 ## Question actuelle
 
-Le problème principal est maintenant situé sous la couche readiness/ordonnancement protocolaire : pourquoi des transactions SPI soumises au contrôleur Linux ne provoquent aucun IRQ/RX Goodix observable.
+Pourquoi une séquence GXFP51A0 fidèle à Windows et validée jusqu'au contrôleur ne produit-elle aucune donnée MISO informative ni IRQ de readiness ?
 
-Les Probes #3 et #4 sont terminés et ne doivent pas être rejoués.
+Priorité : analyse statique avant la première commande dans Goodix FP 1.1.141.36 et comparaison uniquement appuyée par des preuves avec les drivers voisins fonctionnels. Aucun force-bind et aucun nouveau probe actif sans hypothèse précise sur le même matériel.
 
-Priorité actuelle :
-
-1. conserver le résultat common-init Windows complet de 34 transferts comme frontière protocolaire ;
-2. prouver un état PXA2xx **uniquement PIO** avant tout nouveau trafic capteur ;
-3. rejouer une seule fois exactement la même séquence common-init bornée en PIO et la comparer au résultat silencieux établi en DMA ;
-4. si le PIO reste lui aussi silencieux, descendre vers la comparaison LPSS/runtime-PM/état contrôleur sans ajouter de commandes Goodix spéculatives.
-
-Aucune commande wake Goodix générique ne doit être ajoutée sans preuve sur ce modèle.
+Voir [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
 
 ## Carte du dépôt
 

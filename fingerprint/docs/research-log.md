@@ -452,3 +452,33 @@ active run is authorized.
 **NEXT:** instrument runtime-PM, PXA2xx transfer, DMA and chip-select state
 around one future unchanged common-init execution. Do not introduce new Goodix
 protocol commands.
+
+<!-- research-update-2026-09-07 -->
+## 2026-09-07: Linux transport boundary closed further
+
+**CONFIRMED on target hardware:** normal-DMA tracing captured 34 target SPI
+start/stop pairs, 34 PXA2xx DMA prepare/start calls, 68 `idma64_issue_pending`
+calls and exactly 34 concrete `irq=23 name=idma64.4` entries, all handled.
+There were 0 Goodix IRQ events and no trace loss.
+
+**CORRECTION:** `idma64_irq=10957` was a false-positive gate caused by counting
+a global shared function. The concrete target iDMA IRQ count remained 34.
+
+**CONFIRMED:** holding LPSS/PXA2xx runtime-active through the complete common-init
+produced zero relevant runtime-PM callbacks and did not change the silence.
+Runtime-PM cycling is strongly eliminated.
+
+**CONFIRMED:** retaining RX bytes already clocked by the PXA2xx MUST_RX path did
+not add traffic. All 180 retained bytes were `0xFF`; target iDMA completion was
+normal and Goodix produced no IRQ. `0xFF` does not distinguish driven-high from
+high-impedance plus pull-up.
+
+**PUBLIC-SOURCE REASSESSMENT:** no working GXFP51A0 driver was found. A working
+GXFP3200 Milan SPI libfprint driver appeared on 2026-09-02 and reached v0.2.0 on
+2026-09-05. It is a strong architectural precedent but must not be force-bound
+to GXFP51A0 because its F0/F1 transport and reset behavior differ. Working
+GXFP5187 and GDIX51C0 drivers provide additional downstream implementation
+references.
+
+**DECISION:** stop blind active probing. Continue static/pre-first-command
+GXFP51A0 analysis; require same-device evidence before any new live experiment.

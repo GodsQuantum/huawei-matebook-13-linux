@@ -3,6 +3,20 @@
 The purpose of this page is to track nearby hardware that can improve static protocol
 understanding without assuming that two machines have identical firmware.
 
+<!-- 2026-09-07-nearby-working-drivers -->
+## 2026-09-07: working nearby Goodix SPI precedents
+
+- **GXFP3200:** `bchapoton/goodix-gxfp3200-linux`, working Milan SPI/libfprint
+  driver (initial release 2026-09-02, v0.2.0 2026-09-05). Do not force-bind to
+  GXFP51A0: it uses F0/F1 register I/O and LOW->HIGH/final-HIGH reset.
+- **GXFP5187:** `Sigfrodr/libfprint-goodixtls`, working Huawei SPI/libfprint
+  implementation; startup/config/TLS is device-specific.
+- **GDIX51C0:** `berkekbgz/libfprint-goodix-spi`, hardware-tested working
+  Huawei SPI/libfprint implementation; TLS/PSK/provisioning is device-specific.
+
+These projects lower downstream libfprint risk but do not establish GXFP51A0
+startup compatibility.
+
 ## Exact GXFP51A0 reports
 
 ### Huawei MateBook 14 2020
