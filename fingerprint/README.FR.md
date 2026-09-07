@@ -6,24 +6,29 @@
 
 ## État actuel
 
-<!-- current-status-2026-09-07 -->
-### Frontière actuelle — 7 septembre 2026
+<!-- current-status-2026-09-08 -->
+### Frontière actuelle — 8 septembre 2026
 
-Le common-init complet, la comparaison DMA/PIO, la trace DMA normale, le test
-runtime-PM maintenu actif et l'observation MISO sur les mêmes clocks sont
-terminés. Le contrôleur a exécuté les 34 transferts et 34 IRQ `idma64.4`
-concrètes attendues, mais Goodix a produit 0 IRQ et les 180 octets RX déjà
-clockés sont tous `0xFF`.
+Le projet possède maintenant un **candidat GXFP51A0 pour libfprint v1.94.100
+qui compile et se lie réellement**, avec l'objet et le type GXFP51A0 présents
+dans libfprint. Le blocker build/intégration est donc fermé, pas le blocker
+matériel.
 
-Ne pas rejouer de probes Linux actifs simplement pour varier DMA/runtime-PM,
-timing ou emprunter une commande à un Goodix voisin. Le travail actuel est
-statique, avant la première commande acceptée.
+Sous Linux, le capteur ne fournit toujours aucun ACK/A8 accepté. Le common-init
+déjà validé reste à 34 transferts, 0 IRQ Goodix et 180 octets RX retenus tous à
+`0xFF`; DMA/PIO, runtime-PM, mapping IRQ et timing split mode-5 sont déjà fermés.
 
-Un driver GXFP3200 Milan fonctionnel est apparu en septembre 2026, mais son
-protocole F0/F1 et son reset LOW->HIGH/final-HIGH diffèrent du GXFP51A0 : c'est
-une référence, pas un driver à forcer sur la cible.
+Une passe r2ghidra ciblée résout aussi partiellement l'enveloppe `_DSM` Windows :
+longueur variable encodée dans le premier DWORD et payload à offset +4. Une PSK
+GXFP51A0 fixe de 48 octets **n'est pas démontrée**; le candidat garde donc PSK,
+config et TLS hérités des modèles voisins derrière un gate.
 
-Voir [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
+Ne pas rejouer le même common-init actif. La preuve suivante la plus utile est
+une trace Windows fonctionnelle SpbCx/WDF/WPP/ETW, puis si nécessaire une
+comparaison physique CS/SCLK/MOSI/MISO/IRQ.
+
+Voir [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
+et [`driver/goodix51a0/`](driver/goodix51a0/).
 
 <!-- controller-status-2026-09-03 -->
 ### Résultat contrôleur — 3 septembre 2026

@@ -6,23 +6,29 @@
 
 ## Current status
 
-<!-- current-status-2026-09-07 -->
-### Current boundary — 2026-09-07
+<!-- current-status-2026-09-08 -->
+### Current boundary — 2026-09-08
 
-The complete common-init, DMA/PIO comparison, normal-DMA controller trace,
-runtime-PM-held test and same-wire MISO observation are complete. The target
-controller executed the expected 34 transfers and 34 concrete `idma64.4` IRQ
-completions, but Goodix produced 0 IRQ events and the 180 already-clocked RX
-bytes were all `0xFF`.
+The project now has a **GXFP51A0 libfprint v1.94.100 candidate that compiles and
+links successfully**, including the real driver object/type in libfprint.
+This closes the software/build integration blocker, not the hardware blocker.
 
-Do not repeat active Linux probes just to vary DMA/runtime-PM/timing or borrow a
-neighbouring Goodix command. Current work is static/pre-first-command analysis.
+The sensor still produces no accepted ACK/A8 response under Linux. The already
+validated common-init remains 34 transfers, 0 Goodix IRQ and 180 retained RX
+bytes all `0xFF`; DMA/PIO, runtime-PM, IRQ mapping and mode-5 split timing are
+already closed.
 
-A working GXFP3200 Milan driver appeared in September 2026, but its F0/F1
-protocol and LOW->HIGH/final-HIGH reset differ from GXFP51A0; it is a reference,
-not a driver to force-bind.
+A focused r2ghidra pass also partially resolves the Windows `_DSM` envelope:
+variable payload length is encoded in the first returned DWORD and payload
+starts at offset +4. A fixed 48-byte GXFP51A0 PSK is **not proven**; the
+candidate keeps sibling PSK/config/TLS behavior gated.
 
-See [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
+Do not repeat the same active common-init. The highest-value next evidence is a
+working-Windows SpbCx/WDF/WPP/ETW trace, then physical
+CS/SCLK/MOSI/MISO/IRQ comparison if necessary.
+
+See [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
+and [`driver/goodix51a0/`](driver/goodix51a0/).
 
 <!-- controller-status-2026-09-03 -->
 ### Controller result — 2026-09-03

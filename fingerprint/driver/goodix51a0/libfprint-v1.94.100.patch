@@ -1,0 +1,43 @@
+diff --git a/libfprint/meson.build b/libfprint/meson.build
+index f11533ca..993e7e16 100644
+--- a/libfprint/meson.build
++++ b/libfprint/meson.build
+@@ -88,6 +88,13 @@ nbis_sources = [
+ ]
+ 
+ driver_sources = {
++    'goodix51a0' : files(
++        'drivers/goodix51a0/goodix51a0.c',
++        'drivers/goodix51a0/goodix_tls.c',
++        'drivers/goodix51a0/goodix_sift.c',
++        'drivers/goodix51a0/gx51_transport.c',
++    ),
++
+     'upekts' : files(
+         'drivers/upekts.c',
+         'drivers/upek_proto.c',
+diff --git a/meson.build b/meson.build
+index ab09dc1d..c68f17ae 100644
+--- a/meson.build
++++ b/meson.build
+@@ -147,6 +147,7 @@ drivers_info = {
+     'focaltech_moc': {},
+     'mafpmoc': {},
+     'secugen': {},
++    'goodix51a0': { 'spi': true, 'helper': ['udev', 'openssl'], 'optional': true },
+ 
+     # SPI driver (non-optional if SPI is available)
+     'elanspi': { 'spi': true, 'helper': ['udev'], 'optional': not have_spi },
+diff --git a/tests/meson.build b/tests/meson.build
+index aad0675e..64a220e1 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -292,7 +292,7 @@ else
+         args: ['-c', 'exit 77']
+     )
+ 
+-    foreach driver_test: drivers_tests
++    foreach driver_test, driver_test_info : drivers_tests
+         test(driver_test,
+             sh,
+             args: ['-c', 'exit 77']

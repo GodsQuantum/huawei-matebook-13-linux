@@ -2,6 +2,20 @@
 
 ## Canonical current state
 
+<!-- canonical-2026-09-08 -->
+Current canonical boundary:
+
+- [Session handoff — 2026-09-08](SESSION_HANDOFF_2026-09-08.md)
+- [Current boundary — 2026-09-08](docs/current-boundary-2026-09-08.md)
+- [Buildable libfprint candidate](driver/goodix51a0/)
+
+The GXFP51A0 candidate now compiles and links against libfprint v1.94.100.
+This is a software/build milestone only: target communication remains silent.
+The exact Windows `_DSM` outer envelope is partly reconstructed, but target
+PSK material semantics/length and target config are not yet validated.
+Do not repeat the unchanged common-init; seek working-Windows SPB/WDF/WPP/ETW
+or physical bus evidence next.
+
 <!-- canonical-2026-09-07 -->
 Current canonical boundary:
 
@@ -37,7 +51,7 @@ Read first:
 - [Safety policy](docs/safety.md)
 - [Research log](docs/research-log.md)
 
-There is no working Linux fingerprint driver yet.
+There is now a buildable GXFP51A0 libfprint candidate, but no hardware-functional Linux fingerprint driver yet.
 
 The intended end state remains:
 
