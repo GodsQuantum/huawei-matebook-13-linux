@@ -373,3 +373,35 @@ first ACK
 -> fprintd
 -> PAM/desktop
 ```
+
+<!-- contributor-tooling-postscript-2026-09-08 -->
+
+## Postscript: public contributor baseline
+
+After the first-contact fidelity commit, the repository was consolidated so a
+new contributor does not need this chat/session to reproduce the software
+state.
+
+Canonical first command:
+
+```bash
+make -C fingerprint verify
+```
+
+This performs software-only regressions, verifies the source manifest and
+builds the GXFP51A0 candidate against libfprint `v1.94.100` using pinned
+Meson/Ninja versions.
+
+Additional public tools:
+
+```text
+fingerprint/scripts/build-libfprint-v1.94.100.sh
+fingerprint/scripts/verify-software-baseline.sh
+fingerprint/scripts/passive-linux-observability.sh
+fingerprint/scripts/windows/gxfp51a0_windows_observability.ps1
+```
+
+The current development installation has no Windows boot. Windows observability
+is therefore an external-contributor path, not a locally executed result.
+
+See `HANDOFF_CURRENT.md` for the shortest resume point.

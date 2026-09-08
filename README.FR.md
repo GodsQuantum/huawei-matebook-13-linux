@@ -16,7 +16,7 @@ Le dépôt est désormais organisé autour de ces deux écueils.
 | Domaine | État | Ce que fournit le dépôt |
 | --- | --- | --- |
 | **GPU & alimentation — NVIDIA MX250** | **Fonctionnel sur la configuration validée** | Vrai état Integrated au repos, activation à la volée par application, PRIME Render Offload, déchargement/retrait PCI automatique, isolation Plasma/KWin, gestion Desktop et Steam |
-| **Empreinte — Goodix GXFP51A0 / GF3658** | **Recherche / pas encore utilisable pour la connexion** | Le replay complet du common-init Windows atteint les 34 transferts SPI mais toujours 0 IRQ/RX Goodix ; le discriminateur actuel est DMA vs PIO côté contrôleur |
+| **Empreinte — Goodix GXFP51A0 / GF3658** | **Recherche / candidat compilable, pas encore utilisable pour la connexion** | Candidat libfprint v1.94.100 reproductible, first-contact corrigé, frontière matérielle silencieuse à 34 transferts ; prochaine frontière : observabilité physique/plateforme |
 
 ### Configuration GPU validée
 
@@ -85,7 +85,7 @@ Voir [`gpu-power/README.FR.md`](gpu-power/README.FR.md) pour l'architecture, les
 
 Tout le projet de recherche initial sur le capteur d'empreinte est conservé dans ce dossier : protocole, ressources ACPI/SPI/GPIO, probes supervisées, cross-checks du pilote Windows et documentation de sécurité.
 
-État actuel : **il n'existe toujours pas de pilote Linux fonctionnel pour ce capteur.** La séquence common-init Windows reconstruite s'exécute désormais intégralement sous Linux mais reste silencieuse (34 transferts SPI, 0 IRQ/RX Goodix). Le prochain discriminateur contrôlé est le datapath du contrôleur PXA2xx : DMA contre PIO.
+État actuel : **il n'existe toujours pas de pilote Linux fonctionnel pour ce capteur.** Le candidat compile désormais de manière reproductible contre libfprint v1.94.100 et son first-contact est aligné sur le chemin Windows reconstruit, mais la séquence Linux déjà testée reste silencieuse (34 transferts SPI, 0 IRQ Goodix, 180/180 octets RX retenus à `0xFF`). DMA/PIO et les autres hypothèses côté contrôleur sont fermés ; la frontière actuelle est l'observabilité physique/plateforme. Un nouveau contributeur peut reproduire tout le baseline logiciel avec `make -C fingerprint verify`.
 
 Architecture cible :
 

@@ -1,0 +1,50 @@
+name: Fingerprint candidate build
+
+on:
+  push:
+    paths:
+      - 'fingerprint/**'
+      - 'tests/test-goodix51a0-first-contact.py'
+      - '.github/workflows/fingerprint-build.yml'
+  pull_request:
+    paths:
+      - 'fingerprint/**'
+      - 'tests/test-goodix51a0-first-contact.py'
+      - '.github/workflows/fingerprint-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  software-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install libfprint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git python3 python3-venv pkg-config \
+            libglib2.0-dev libgusb-dev libcairo2-dev libgudev-1.0-dev \
+            libssl-dev libudev-dev
+
+      - name: Fingerprint tooling regression
+        run: python3 tests/test-fingerprint-tooling.py
+
+      - name: Bash syntax
+        run: |
+          find fingerprint/scripts fingerprint/research -type f -name '*.sh' -print0 \
+            | xargs -0 -n1 bash -n
+
+      - name: Software tests and reproducible libfprint build
+        run: make -C fingerprint verify
+
+      - name: Prove public scripts contain no active hardware action
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE \
+            '(/sys/.*/(bind|unbind)|modprobe|rmmod|SPI_IOC_MESSAGE|gpiod_line_request_output|gpioset)' \
+            fingerprint/scripts

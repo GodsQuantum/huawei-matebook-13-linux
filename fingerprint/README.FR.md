@@ -1,166 +1,191 @@
 # Goodix GXFP51A0 / GF3658 Milan sous Linux
 
-> Recherche expérimentale de rétro-ingénierie. Il n'existe pas encore de pilote Linux fonctionnel pour ce capteur. Aucun firmware ne doit être flashé.
+> Projet expérimental de rétro-ingénierie. Le candidat public compile dans
+> libfprint, mais le capteur d'empreinte **ne fonctionne pas encore sous Linux**.
+> Aucun flash firmware ni flux constructeur non revu n'est autorisé.
 
-> English version: [README.md](README.md)
+> English: [README.md](README.md)
 
-## État actuel
+## État actuel — 8 septembre 2026
 
-<!-- current-status-2026-09-08 -->
-### Frontière actuelle — 8 septembre 2026
-
-Le projet possède maintenant un **candidat GXFP51A0 pour libfprint v1.94.100
-qui compile et se lie réellement**, avec l'objet et le type GXFP51A0 présents
-dans libfprint. Le blocker build/intégration est donc fermé, pas le blocker
-matériel.
-
-Sous Linux, le capteur ne fournit toujours aucun ACK/A8 accepté. Le common-init
-déjà validé reste à 34 transferts, 0 IRQ Goodix et 180 octets RX retenus tous à
-`0xFF`; DMA/PIO, runtime-PM, mapping IRQ et timing split mode-5 sont déjà fermés.
-
-Une passe r2ghidra ciblée résout aussi partiellement l'enveloppe `_DSM` Windows :
-longueur variable encodée dans le premier DWORD et payload à offset +4. Une PSK
-GXFP51A0 fixe de 48 octets **n'est pas démontrée**; le candidat garde donc PSK,
-config et TLS hérités des modèles voisins derrière un gate.
-
-Ne pas rejouer le même common-init actif. La preuve suivante la plus utile est
-une trace Windows fonctionnelle SpbCx/WDF/WPP/ETW, puis si nécessaire une
-comparaison physique CS/SCLK/MOSI/MISO/IRQ.
-
-Voir [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
-et [`driver/goodix51a0/`](driver/goodix51a0/).
-
-<!-- controller-status-2026-09-03 -->
-### Résultat contrôleur — 3 septembre 2026
-
-Le discriminant PXA2xx DMA contre PIO est terminé.
-
-Un boot frais a prouvé le fallback PIO natif avant tout trafic fingerprint :
-IDMA64 était absent, le contrôleur correspondant a journalisé
-`no DMA channels available, using PIO` et les statistiques SPI de la cible
-étaient à zéro. Le common-init Windows inchangé a ensuite de nouveau effectué
-34 transferts SPI physiques et 12 attentes avec 0 événement IRQ Goodix,
-0 lecture RX et 0 octet EVK. Les deux resets de fallback ont réussi, aucune
-erreur/timeout SPI n'a été signalée et le nettoyage final a laissé GPIO264 à
-LOW.
-
-Un baseline passif séparé sur boot normal confirme IDMA64 chargé et lié, deux
-canaux DMAengine associés au même parent PCI LPSS, aucun fallback PIO et aucun
-trafic SPI GXFP51A0 antérieur.
-
-DMA contre PIO est donc fermé comme explication principale du silence actuel.
-La prochaine frontière logicielle est l'instrumentation runtime-PM / LPSS /
-PXA2xx et des transferts.
-
-Voir
-[`docs/controller-boundary-2026-09-03.md`](docs/controller-boundary-2026-09-03.md)
-et
-[`SESSION_HANDOFF_2026-09-03.md`](SESSION_HANDOFF_2026-09-03.md).
-
-
-Le projet a établi les ressources ACPI/SPI/GPIO, le framing Milan, le reset Windows réellement utilisé, le RX à longueur exacte, le modèle DriverState ACK/retry/reset, le modèle ACK + réponse de `GetEvkVersion`, le mapping IRQ ACPI natif, les probes Linux jusqu'au Probe #4, le `_DSM` Goodix, le démarrage Windows et un cross-check bas niveau du transport GF3658.
-
-**Dernier résultat matériel :** le chemin common-init Windows corrigé a maintenant été exécuté intégralement une fois sur un boot frais : 34 transferts SPI, 12 attentes IRQ, 0 événement IRQ Goodix, 0 lecture et 0 octet de réponse EVK. Les deux resets de fallback ont réussi, le contrôleur n'a signalé aucune erreur ni timeout SPI, et le nettoyage final a confirmé GPIO264 à LOW.
-
-Voir :
-
-- **[État de la recherche — 2026-08-31](docs/state-of-research-2026-08-31.md)**
-- **[Réévaluation — 2026-09-01](docs/reassessment-2026-09-01.md)**
-
-## Ordre Windows établi
+Le projet dispose maintenant d'un **candidat GXFP51A0 reproductible pour
+libfprint v1.94.100**. L'intégration logicielle n'est plus le blocage.
 
 ```text
-MilanEvtDeviceD0Entry
-  -> _StartInitThread
-      -> InitThread
-          -> _DeviceInit
-              -> send_driver_install_to_MCU
-                  -> SetDriverState(9,3 / 0x96)
-              -> init_MCU
-                  -> GetEvkVersionWithRetry
-          -> étapes SGX/TLS/PSK ultérieures
+build/intégration libfprint          PASS
+régression first-contact             PASS
+tests recherche/sécurité             PASS
+modèle first-contact Windows         reconstruit
+modèle first-contact Linux           aligné
+soumissions contrôleur SPI           prouvées
+premier ACK capteur                  NON OBSERVÉ
+A8 / EVK                             NON OBSERVÉ
+capture/enroll/verify                NON ATTEINT
+fprintd/PAM                          NON ATTEINT
 ```
 
-DriverState est donc bien envoyé avant la requête EVK visible et avant les étapes TLS/PSK ultérieures.
+Le point de reprise canonique est [HANDOFF_CURRENT.md](HANDOFF_CURRENT.md).
+Le checkpoint détaillé de rétro-ingénierie reste dans
+[FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
 
-## Cross-check transport GF3658
+## Validation contributeur en une commande
 
-Goodix FP `1.1.141.36` contient un chemin de transport qui effectue :
+Après clonage :
+
+```bash
+make -C fingerprint verify
+```
+
+Cette commande :
+
+1. vérifie la syntaxe Bash des scripts publics ;
+2. lance la régression GXFP51A0 first-contact ;
+3. lance toute la suite de tests/sécurité software-only ;
+4. vérifie le manifest SHA-256 du candidat ;
+5. crée un venv isolé pour les outils de build ;
+6. fixe Meson 1.12.0 et Ninja 1.13.2 ;
+7. clone exactement libfprint v1.94.100 ;
+8. applique le patch d'intégration revu ;
+9. injecte uniquement les sources GXFP51A0 revues ;
+10. compile et vérifie objet/type/chaîne du driver.
+
+**Aucun transfert SPI capteur, aucune écriture GPIO/MMIO et aucune action
+firmware ne sont effectués.**
+
+Autres commandes :
+
+```bash
+make -C fingerprint build
+make -C fingerprint research
+make -C fingerprint passive-audit
+```
+
+Voir [scripts/README.md](scripts/README.md).
+
+## Faits cible confirmés
+
+- ACPI HID `GXFP51A0`
+- Goodix GF3658 / famille Milan
+- parent actif SPI1 ; enfant fingerprint SPI2 désactivé
+- SPI1 CS0, mode 0, 8 bits, 10 MHz, four-wire
+- GPIO48 : readiness/IRQ level ActiveHigh
+- GPIO264 : HIGH 10 ms -> LOW 100 ms -> LOW final
+- écriture Milan : 4 octets externes -> environ 2 ms -> reste
+- DriverState Install : `(9,3)` / `0x96`
+- checksum NOP : `0xA5`
+- GetEvkVersion : NOP -> 5 ms -> A8, une retransmission A8 identique après
+  le premier timeout ACK
+- vecteur ST411 exact : SP `0x20020000`, Reset_Handler `0x08033198`,
+  base `0x08020000`
+
+## Frontière Linux silencieuse exacte
+
+Le common-init fidèle à Windows a déjà été exécuté :
 
 ```text
-transfert des 4 premiers octets
-attente 2 ms
-transfert du reste
+transferts SPI            34
+octets TX                 180
+attentes IRQ              12
+événements IRQ Goodix     0
+octets RX retenus         180
+octets RX à 0xFF          180
+complétions contrôleur    prouvées
+erreurs contrôleur        aucune
+GPIO264 final             LOW
 ```
 
-pour les modes de transport `2`, `3` et `5`. Cela corrobore indépendamment le modèle Milan outer/inner existant.
+Ne pas rejouer cette expérience active inchangée.
 
-Ces tâches statiques de transport sont maintenant fermées pour cette cible : GXFP51A0 sélectionne le mode 5 et le chemin Windows final utilise deux écritures SPB synchrones séparées pour les 4 octets externes puis le reste du paquet, avec 2 ms d'intervalle.
+## Hypothèses fermées
 
-## `_DSM` ACPI Goodix
+- DMA contre PIO déterministe
+- runtime PM comme cause principale
+- mapping IRQ Linux
+- polling GPIO userspace contre attente IRQ native
+- timing split mode-5 / frontière SPB first-contact
+- permutations de reset déjà revues
+- conservation MISO same-wire
+- hypothèse GPIO112 / GPP_D16
+- switch fingerprint LPSS caché
+- action DeviceInit intermédiaire comme I/O capteur manquante
+- hypothèse PSK GXFP51A0 fixe de 48 octets
+- replay inchangé du common-init
 
-UUID :
+## Encore non résolu
+
+- premier ACK réel sous Linux
+- première réponse A8/EVK
+- réalité électrique CS/SCLK/MOSI/MISO versus simple complétion contrôleur
+- comportement physique GPIO48
+- config exacte GXFP51A0 / `Milan_DlCfg`
+- sémantique/longueur DSM/TLS/PSK exacte
+- capture image
+- enroll / verify
+- fprintd / PAM / desktop
+
+## Frontière suivante
+
+La machine de développement principale ne possède actuellement **pas de boot
+Windows**. La comparaison WDF/SpbCx ne peut donc pas être capturée localement.
+
+Sous Linux :
+
+```bash
+make -C fingerprint passive-audit
+```
+
+Le script collecte uniquement des informations ACPI/SPI/PCI/runtime-PM/IRQ/
+pinctrl en lecture seule.
+
+Un contributeur avec un GXFP51A0 fonctionnel sous Windows peut utiliser
+[scripts/windows/gxfp51a0_windows_observability.ps1](scripts/windows/gxfp51a0_windows_observability.ps1).
+
+Si ces observations software ne discriminent pas le problème, la preuve la plus
+utile devient une comparaison avec analyseur logique/oscilloscope de :
 
 ```text
-cc58b68a-4479-4893-a8bb-961209db59e5
+CS / SCLK / MOSI / MISO / GPIO48
 ```
-
-La fonction 1 renvoie un buffer `HWFP/FPDT` de 2048 octets. Linux sait le lire correctement et le pilote Windows identifie ce chemin comme source de PSK.
-
-**Le blob brut et toute PSK sont des données privées propres à la machine et ne doivent jamais être ajoutés au dépôt.**
-
-## Question actuelle
-
-Pourquoi une séquence GXFP51A0 fidèle à Windows et validée jusqu'au contrôleur ne produit-elle aucune donnée MISO informative ni IRQ de readiness ?
-
-Priorité : analyse statique avant la première commande dans Goodix FP 1.1.141.36 et comparaison uniquement appuyée par des preuves avec les drivers voisins fonctionnels. Aucun force-bind et aucun nouveau probe actif sans hypothèse précise sur le même matériel.
-
-Voir [`docs/current-boundary-2026-09-07.md`](docs/current-boundary-2026-09-07.md).
 
 ## Carte du dépôt
 
-- [État actuel](docs/state-of-research-2026-08-31.md)
-- [Réévaluation 2026-09-01](docs/reassessment-2026-09-01.md)
-- [Réévaluation DMA / PIO — 2026-09-02](docs/dma-pio-reassessment-2026-09-02.md)
-- [Handoff projet](PROJECT_HANDOFF.md)
-- [Handoff session](SESSION_HANDOFF_2026-09-02.md)
+- [Handoff actuel](HANDOFF_CURRENT.md)
+- [Handoff détaillé 2026-09-08](FINAL_HANDOFF_2026-09-08.md)
+- [Candidat driver](driver/goodix51a0/)
+- [Scripts contributeur](scripts/)
+- [Contrat de validation](docs/contributor-validation-2026-09-08.md)
+- [Frontière technique](docs/current-boundary-2026-09-08.md)
+- [Clôture DeviceInit/BESD/SPB](docs/deviceinit-besd-spb-closure-2026-09-08.md)
+- [Différentiel Windows .36 -> .40](docs/windows-14136-14140-differential-2026-09-08.md)
 - [Matériel](docs/hardware.md)
 - [Protocole](docs/protocol.md)
 - [Journal](docs/research-log.md)
 - [Sécurité](docs/safety.md)
-- [Architecture](docs/architecture.md)
-- [Transport de recherche](research/README.md)
+- [Implémentation recherche](research/README.md)
+- [Contribuer](CONTRIBUTING.md)
 
 ## Objectif
 
 ```text
-transport Milan Linux validé
--> libfprint
+premier ACK
+-> A8/EVK
+-> config cible exacte
+-> DSM/TLS/PSK exact
+-> capture image
+-> enroll
+-> verify
 -> fprintd
--> KDE/GNOME/PAM / sudo
+-> PAM/desktop
 ```
 
-## Sécurité
+## Sécurité du dépôt public
 
-Aucun flash firmware, UPFW, erase, bootloader ou flux firmware USB Goodix étranger au GXFP51A0 n'est autorisé.
+Ne jamais publier CAB/DLL/firmware propriétaires, payload `_DSM` brut, PSK,
+clés dérivées, numéros de série, chemins/utilisateurs locaux, IP privées ou
+inventaire matériel personnel sans rapport.
+
+Aucun flash/erase firmware, écriture MMIO/pinmux spéculative, écriture GPIO112
+ou commande wake générique empruntée n'est autorisé sans nouvelle preuve
+exact-target.
 
 Voir [docs/safety.md](docs/safety.md).
-
-## Licence
-
-GPL-2.0-only. Voir [LICENSE](../LICENSE).
-
-<!-- current-boundary-2026-09-02 -->
-## Frontière de recherche actuelle — 2 septembre 2026
-
-La reconstruction du démarrage Windows a été corrigée :
-`DriverState:Install` n'est pas le gate fatal de `_DeviceInit`.
-Le premier véritable gate de réponse du capteur est
-`GetEvkVersionWithRetry`, avec un défaut compilé de 3 tentatives externes dans
-Goodix FP 1.1.141.36, puis un reset de fallback distinct et une dernière
-tentative.
-
-Un traçage Linux réel confirme également que les transferts testés atteignent
-le chemin LPSS `lpss_ssp_cs_control`.
-
-Voir [`docs/software-boundary-2026-09-02.md`](docs/software-boundary-2026-09-02.md).

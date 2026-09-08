@@ -527,3 +527,27 @@ CS/SCLK/MOSI/MISO/GPIO48 behavior.
 
 Canonical resume:
 `../FINAL_HANDOFF_2026-09-08.md`.
+
+## 2026-09-08: contributor-tooling consolidation
+
+**CONFIRMED:** the first-contact fidelity candidate and research suite are now
+published with a reproducible one-command software baseline:
+
+```bash
+make -C fingerprint verify
+```
+
+**CONFIRMED:** the public build path pins libfprint `v1.94.100`, Meson `1.12.0`
+and Ninja `1.13.2`, verifies `SOURCE_MANIFEST.sha256`, applies the reviewed
+integration patch, compiles the candidate and checks the driver object/type
+artifacts.
+
+**CONFIRMED:** a separate public passive Linux observability script contains no
+sensor transfer, GPIO output, MMIO write, module load/unload or driver
+bind/unbind path.
+
+**BOUNDARY:** the primary development installation has no Windows boot.
+Working-Windows WDF/SpbCx evidence is now an external-contributor path.
+
+**NEXT:** physical/platform observability remains the discriminating boundary.
+The first real success criterion remains a sensor-side ACK.

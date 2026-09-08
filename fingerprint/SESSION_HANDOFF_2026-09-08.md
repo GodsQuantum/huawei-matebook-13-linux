@@ -2,6 +2,7 @@
 
 Canonical state:
 
+- [`HANDOFF_CURRENT.md`](HANDOFF_CURRENT.md)
 - [`FINAL_HANDOFF_2026-09-08.md`](FINAL_HANDOFF_2026-09-08.md)
 - [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
 - [`docs/windows-14136-14140-differential-2026-09-08.md`](docs/windows-14136-14140-differential-2026-09-08.md)
@@ -94,3 +95,23 @@ The first success criterion remains a real sensor ACK. After that: A8/EVK,
 target config, DSM/TLS, image, enroll/verify, fprintd/PAM.
 
 See `FINAL_HANDOFF_2026-09-08.md` for the complete resume state.
+
+<!-- contributor-tooling-update -->
+
+## Contributor tooling update
+
+The public repository now includes a one-command software baseline:
+
+```bash
+make -C fingerprint verify
+```
+
+and read-only Linux observability:
+
+```bash
+make -C fingerprint passive-audit
+```
+
+The current development installation has no Windows boot. External Windows
+evidence or physical bus measurement is therefore required to compare a
+known-working sensor against Linux.

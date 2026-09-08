@@ -217,3 +217,28 @@ Canonical resume document:
 
 The next discriminating evidence is Windows-vs-Linux physical/platform
 observability, not another unchanged protocol permutation.
+
+<!-- contributor-tooling-consolidation-2026-09-08 -->
+
+## Contributor tooling and no-Windows boundary
+
+The primary development installation currently has no Windows boot, so the
+working-Windows WDF/SpbCx comparison cannot be collected locally.
+
+The repository now exposes a reproducible external-contributor path:
+
+```bash
+make -C fingerprint verify
+make -C fingerprint passive-audit
+```
+
+`verify` is software-only and compiles the reviewed candidate against exact
+libfprint `v1.94.100`. `passive-audit` is read-only and performs no sensor
+traffic or hardware write.
+
+A Windows observability PowerShell helper is published for a third party with a
+known-working GXFP51A0 installation.
+
+The next high-value evidence remains physical/platform observability and,
+ultimately, a real sensor-side ACK. No closed active common-init experiment
+should be replayed unchanged.

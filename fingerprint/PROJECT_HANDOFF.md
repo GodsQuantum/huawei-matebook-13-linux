@@ -1,5 +1,23 @@
 # Project handoff — GXFP51A0 / GF3658 Milan Linux driver research
 
+<!-- canonical-contributor-tooling-2026-09-08 -->
+
+## Canonical contributor checkpoint
+
+Resume from [`HANDOFF_CURRENT.md`](HANDOFF_CURRENT.md).
+
+A new contributor can reproduce the complete public software baseline with:
+
+```bash
+make -C fingerprint verify
+```
+
+The candidate builds against libfprint `v1.94.100`; hardware remains blocked
+before the first sensor ACK. The development installation has no Windows boot,
+so the next evidence path is passive Linux observability, external Windows WDF
+evidence, or physical CS/SCLK/MOSI/MISO/GPIO48 measurement.
+
+
 <!-- canonical-2026-09-08-final -->
 
 ## Canonical final checkpoint — 2026-09-08

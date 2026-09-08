@@ -16,7 +16,7 @@ This repository is organized around those two gaps.
 | Area | Status | What this repository provides |
 | --- | --- | --- |
 | **GPU & power — NVIDIA MX250** | **Working on the validated setup** | Full-Integrated idle state, hot dGPU activation per app, PRIME Render Offload, automatic unload/PCI removal, Plasma/KWin isolation, Desktop and Steam helpers |
-| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / not yet usable for login** | Full Windows-faithful common-init replay completes all 34 SPI transfers but still produces 0 Goodix IRQ/RX; current discriminator is controller DMA vs PIO |
+| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / buildable candidate, not yet usable for login** | Reproducible libfprint v1.94.100 candidate, corrected first-contact state machine, 34-transfer silent hardware boundary; next discriminator is physical/platform observability |
 
 ### Validated GPU configuration
 
@@ -85,7 +85,7 @@ See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported dis
 
 The entire original fingerprint research project is preserved under this directory. It includes the protocol notes, ACPI/SPI/GPIO mapping, supervised probes, Windows driver cross-checks and safety documentation.
 
-Current reality: **there is still no working Linux fingerprint driver for this sensor.** The complete reconstructed Windows common-init sequence now runs to completion on Linux but remains silent (34 SPI transfers, 0 Goodix IRQ/RX). The next controlled discriminator is the PXA2xx controller datapath: DMA versus PIO.
+Current reality: **there is still no working Linux fingerprint driver for this sensor.** The candidate now builds reproducibly against libfprint v1.94.100 and its first-contact flow is aligned with the reconstructed Windows path, but the already-tested Linux sequence remains silent (34 SPI transfers, 0 Goodix IRQ, 180/180 retained RX bytes equal to `0xFF`). DMA/PIO and the other controller-side hypotheses are closed; the current boundary is physical/platform observability. New contributors can reproduce the complete software baseline with `make -C fingerprint verify`.
 
 Target architecture remains:
 
