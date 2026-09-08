@@ -196,3 +196,24 @@ Still forbidden:
 - repeating a closed active experiment on a consumed boot.
 
 Every future active experiment must end with GPIO264 LOW.
+
+<!-- final-first-contact-closure-2026-09-08 -->
+
+## Final first-contact software closure
+
+The later mega-audits close two formerly open items:
+
+- exact GXFP51A0 first-contact writes use the simple split SPB Read/Write path,
+  not `SpbPeripheralExecuteSequence`;
+- the sole DeviceInit operation between DriverState and `init_MCU` is
+  `device_action(0x0F, &zero, 4)`, which only sets the Windows-local
+  `besdenable` flag to zero and performs no sensor I/O.
+
+The 34-transfer Linux research model is therefore complete for the reconstructed
+first-contact software path. The libfprint candidate is aligned with this model.
+
+Canonical resume document:
+[`../FINAL_HANDOFF_2026-09-08.md`](../FINAL_HANDOFF_2026-09-08.md).
+
+The next discriminating evidence is Windows-vs-Linux physical/platform
+observability, not another unchanged protocol permutation.

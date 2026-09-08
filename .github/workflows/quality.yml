@@ -18,6 +18,8 @@ jobs:
         run: bash -n gpu-power/huawei-matebook-13-gpu-manager.sh
       - name: GPU manager regression tests
         run: python3 tests/test-gpu-manager.py
+      - name: GXFP51A0 first-contact regression test
+        run: python3 tests/test-goodix51a0-first-contact.py
       - name: ShellCheck
         run: shellcheck -S error -x gpu-power/huawei-matebook-13-gpu-manager.sh
       - name: Reject obvious private material

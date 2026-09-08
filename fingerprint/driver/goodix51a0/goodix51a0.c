@@ -378,8 +378,7 @@ gx_decode_12bit (const guint8 *data, gsize len, guint16 *out, gsize n)
 /*  Init, handshake and frame capture                                  */
 /* ------------------------------------------------------------------ */
 
-/* Hardware reset. The reset line is GPIO 58 on gpiochip0, as declared by the
- * ACPI _CRS. A short PULSE is what the sensor wants; holding the line down was
+/* Hardware reset. The reviewed target reset line is GPIO264. A short PULSE is what the sensor wants; holding the line down was
  * measured to be counter-productive, recovery failing where a pulse succeeds.
  * Without this reset, leftovers from a previous run make init and handshake
  * fail. */
@@ -715,11 +714,13 @@ gx_driverstate_install_windows (FpiDeviceGoodix51A0 *self)
 {
   int wrapper, attempt;
 
-  /*
-   * Target Windows policy recovered statically:
-   * lower send/ACK wrapper retries once; the helper invokes that wrapper
-   * again before the reviewed reset fallback is considered.
-   */
+  /* Windows GF3658 first-contact: NOP -> 5 ms -> DriverState Install. */
+  if (!gx_write_frame (self, GOODIX_PKT_PLAIN,
+                       GX_AMORCE, sizeof GX_AMORCE))
+    return FALSE;
+
+  g_usleep (5000);
+
   for (wrapper = 0; wrapper < 2; wrapper++)
     for (attempt = 0; attempt < 2; attempt++)
       {
@@ -742,23 +743,59 @@ gx_read_fw_version_once (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
   static const guint8 a8[] = {
     GOODIX_CMD_FW_VERSION, 0x03, 0x00, 0x00, 0x00, 0xFF
   };
-  guint8 rx[128], ty = 0;
-  int n;
+  guint8 rx[128], cached[128];
+  guint8 ty = 0, cached_ty = 0;
+  int n, cached_n = 0;
+  int send_index, read_index;
+  gboolean acked = FALSE;
 
   if (!gx_write_frame (self, GOODIX_PKT_PLAIN, nop, sizeof nop))
     return FALSE;
   g_usleep (5000);
-  if (!gx_write_frame (self, GOODIX_PKT_PLAIN, a8, sizeof a8))
+
+  for (send_index = 0; send_index < 2 && !acked; send_index++)
+    {
+      cached_n = 0;
+      cached_ty = 0;
+
+      if (!gx_write_frame (self, GOODIX_PKT_PLAIN, a8, sizeof a8))
+        return FALSE;
+
+      for (read_index = 0; read_index < 2; read_index++)
+        {
+          n = gx_read_frame (self, &ty, rx, sizeof rx);
+          if (n <= 0)
+            break;
+          if (ty != GOODIX_PKT_PLAIN)
+            continue;
+
+          if (n >= 5 && rx[0] == 0xB0 && rx[3] == GOODIX_CMD_FW_VERSION)
+            {
+              acked = TRUE;
+              break;
+            }
+
+          if (n > 3 && rx[0] != 0xB0)
+            {
+              memcpy (cached, rx, n);
+              cached_n = n;
+              cached_ty = ty;
+            }
+        }
+    }
+
+  if (!acked)
     return FALSE;
+
+  if (cached_n > 3 && cached_ty == GOODIX_PKT_PLAIN)
+    {
+      g_strlcpy (out, (const gchar *) cached + 3,
+                 MIN ((gsize) (cached_n - 3) + 1, cap));
+      return TRUE;
+    }
 
   n = gx_read_frame (self, &ty, rx, sizeof rx);
-  if (n <= 0)
-    return FALSE;
-
-  if (ty == GOODIX_PKT_PLAIN && rx[0] == 0xB0)
-    n = gx_read_frame (self, &ty, rx, sizeof rx);
-
-  if (n <= 3 || ty != GOODIX_PKT_PLAIN)
+  if (n <= 3 || ty != GOODIX_PKT_PLAIN || rx[0] == 0xB0)
     return FALSE;
 
   g_strlcpy (out, (const gchar *) rx + 3,
@@ -1896,17 +1933,16 @@ gx_dev_open (FpDevice *dev)
   self->timing_saved = 100;
 
   /*
-   * First-contact sequence only. No GXFP5187 config blob, RAM PSK read,
-   * firmware upload or TLS request is permitted here.
+   * First-contact sequence only. Windows does not perform an unconditional
+   * reset before DriverState. After exhausted DriverState retries, perform the
+   * reviewed reset fallback once and continue into init_MCU without replaying
+   * DriverState.
    */
-  gx_gpio_reset (self);
-
   if (!gx_driverstate_install_windows (self))
     {
-      fp_info ("GXFP51A0: first DriverState sequence silent; applying reviewed reset fallback");
+      fp_info ("GXFP51A0: DriverState silent; applying reviewed Windows fallback reset");
       gx_gpio_reset (self);
-      if (!gx_driverstate_install_windows (self))
-        fp_warn ("GXFP51A0: DriverState still silent after reviewed fallback; continuing to init_MCU as Windows does");
+      fp_warn ("GXFP51A0: continuing to init_MCU after DriverState fallback as Windows does");
     }
 
   if (gx_read_fw_version (self, fw, sizeof fw))

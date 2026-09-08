@@ -2,6 +2,7 @@
 
 Canonical state:
 
+- [`FINAL_HANDOFF_2026-09-08.md`](FINAL_HANDOFF_2026-09-08.md)
 - [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
 - [`docs/windows-14136-14140-differential-2026-09-08.md`](docs/windows-14136-14140-differential-2026-09-08.md)
 - [`driver/goodix51a0/`](driver/goodix51a0/)
@@ -78,25 +79,18 @@ Outer `_DSM` result is variable length (4096-byte capacity, byte-swapped first D
 
 ## Next work
 
-No more micro-passes. One mega audit must reconstruct:
+The lifecycle/SPB/DeviceInit mega-audits are complete. Do not repeat them.
+
+Current next boundary:
 
 ```text
-DeviceAdd
-→ PrepareHardware
-→ ACPI resources
-→ IRQ + SPB target
-→ WdfIoTarget create/open
-→ D0Entry
-→ config/profile/hardware mode
-→ DriverState
-→ init_MCU
-→ GetEvkVersion
-→ final WDF/SPB primitive
-→ first physical transfer
+working Windows vs Linux
+-> CS / SCLK / MOSI / MISO / GPIO48 observability
+-> isolate exact platform difference
+-> one bounded fresh-boot Linux experiment only if a new prerequisite is proven
 ```
 
-Output: complete Windows/Linux parity matrix using `MATCHED`, `MISSING`, `DIFFERENT`, `NOT_APPLICABLE`, `UNKNOWN`.
+The first success criterion remains a real sensor ACK. After that: A8/EVK,
+target config, DSM/TLS, image, enroll/verify, fprintd/PAM.
 
-Only a concrete exact-device `MISSING` or materially `DIFFERENT` prerequisite justifies a Linux driver change.
-
-Functional target remains: first ACK → A8/EVK → target config/TLS → image capture → enroll → verify → fprintd → PAM/desktop.
+See `FINAL_HANDOFF_2026-09-08.md` for the complete resume state.

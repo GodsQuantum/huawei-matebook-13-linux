@@ -81,3 +81,17 @@ Those per-file SPDX headers are authoritative for these files.
 
 No proprietary Goodix/Huawei binary, firmware, raw `_DSM`, PSK or derived key
 is included here.
+
+<!-- first-contact-fidelity-2026-09-08 -->
+
+## First-contact fidelity correction — 2026-09-08
+
+The candidate now mirrors the validated 34-transfer Windows-faithful research
+model: no unconditional initial reset, DriverState NOP+5 ms, no DriverState
+replay after fallback reset, and one exact same-attempt A8 retransmission.
+
+The `_DeviceInit` intermediate call is `device_action(0x0F, &zero, 4)` and
+contains no sensor I/O.
+
+Canonical resume point:
+[`../../FINAL_HANDOFF_2026-09-08.md`](../../FINAL_HANDOFF_2026-09-08.md).

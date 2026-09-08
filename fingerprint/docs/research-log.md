@@ -500,3 +500,30 @@ GXFP51A0 analysis; require same-device evidence before any new live experiment.
 **CONFIRMED:** exact-target ACPI/LPSS analysis closes GPIO112/GPP_D16 enable and hidden fingerprint-switch hypotheses. SPI1 is active and SPI2 fingerprint child disabled.
 
 **NEXT:** stop micro-passes. Reconstruct DeviceAdd → PrepareHardware → resource mapping → WDF IoTarget/SPB → D0Entry → config/profile → DriverState → init_MCU → GetEvkVersion → final SPB primitive in one audit, then classify Windows/Linux prerequisites as MATCHED/MISSING/DIFFERENT/NOT_APPLICABLE/UNKNOWN.
+
+## 2026-09-08: final DeviceInit/BESD/SPB and candidate-fidelity closure
+
+**CONFIRMED:** exact `device_action(0x0F, &zero, 4)` between DriverState and
+`init_MCU` writes only `besdenable=0`; previous `SENSOR_IO` classification was
+a whole-dispatcher false positive.
+
+**CONFIRMED:** targeted BESD xref/reachability audit finds no pre-ACK reachable
+external consumer in either reviewed Windows build.
+
+**CONFIRMED:** GXFP51A0 first-contact split write reaches simple SPB Read/Write
+requests in `.36` and `.40`; ExecuteSequence is not selected for this target
+write.
+
+**RECONCILED:** the fully silent Windows-faithful first-contact path remains
+34 physical SPI transfers.
+
+**CORRECTED:** the libfprint candidate now reproduces DriverState NOP+5 ms,
+removes the unconditional initial reset, continues after fallback reset without
+DriverState replay, and implements the exact same-attempt A8 retransmission.
+
+**BOUNDARY:** the already-faithful research harness was still silent, so the
+next discriminating evidence is physical/platform Windows-vs-Linux
+CS/SCLK/MOSI/MISO/GPIO48 behavior.
+
+Canonical resume:
+`../FINAL_HANDOFF_2026-09-08.md`.

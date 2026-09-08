@@ -1,5 +1,24 @@
 # Project handoff — GXFP51A0 / GF3658 Milan Linux driver research
 
+<!-- canonical-2026-09-08-final -->
+
+## Canonical final checkpoint — 2026-09-08
+
+Resume from [`FINAL_HANDOFF_2026-09-08.md`](FINAL_HANDOFF_2026-09-08.md).
+
+The Windows first-contact lifecycle/SPB/DeviceInit reconstruction is now closed
+through the first physical transfer. The apparent DeviceInit `SENSOR_IO`
+operation was a dispatcher-level false positive: exact case `0x0F` only stores
+`besdenable=0`. The 34-transfer common-init model is reconciled.
+
+The candidate libfprint source is aligned with that model and the validation
+transaction requires a successful libfprint `v1.94.100` build before commit.
+
+No unchanged protocol probe is the next step. The unresolved boundary is
+physical/platform reachability and sensor response: compare
+`CS/SCLK/MOSI/MISO/GPIO48` under working Windows versus Linux.
+
+
 ## Canonical current state
 
 <!-- canonical-2026-09-08 -->
