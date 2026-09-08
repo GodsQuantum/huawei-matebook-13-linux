@@ -482,3 +482,21 @@ references.
 
 **DECISION:** stop blind active probing. Continue static/pre-first-command
 GXFP51A0 analysis; require same-device evidence before any new live experiment.
+
+## 2026-09-08: Windows 1.1.141.36 → 1.1.141.40 differential closure
+
+**CONFIRMED by static analysis:** reliable comparison uses exact SHA gates, PE32+ `.pdata`/`RUNTIME_FUNCTION` boundaries and bounded radare2 disassembly. Whole-file radiff and earlier zero-instruction parser verdicts are retired.
+
+**CONFIRMED:** WakeupMCU, DriverState, GetEvkVersion, GPIO reset and most reviewed reset/power paths remain identical or near-identical.
+
+**CONFIRMED:** `init_MCU` changed from 1585 bytes / 267 instructions / 24 calls to 1333 bytes / 228 instructions / 21 calls. The largest removed branches are EC/Mach/Watt firmware-selection/update diagnostics. No `.40`-only first-contact command was recovered.
+
+**CONFIRMED:** `MilanEvtDevicePrepareHardware` changed materially, but `.36` already performs the same effective four-argument WdfInterruptCreate operation. `.40` mainly adds clearer WDF/failure diagnostics around it.
+
+**CONFIRMED:** `.40` helper `0x18000a71c` is a 367-byte / 63-instruction logging/error-formatting path referencing `NoFile`, `NoFunc`, `NoFormat`.
+
+**CONFIRMED:** both DLLs contain `WdfIoTargetCreate` and `WdfIoTargetOpen`; `.40` adds explicit failure labels. Exact `.36` call-site parity is deferred to the complete lifecycle graph.
+
+**CONFIRMED:** exact-target ACPI/LPSS analysis closes GPIO112/GPP_D16 enable and hidden fingerprint-switch hypotheses. SPI1 is active and SPI2 fingerprint child disabled.
+
+**NEXT:** stop micro-passes. Reconstruct DeviceAdd → PrepareHardware → resource mapping → WDF IoTarget/SPB → D0Entry → config/profile → DriverState → init_MCU → GetEvkVersion → final SPB primitive in one audit, then classify Windows/Linux prerequisites as MATCHED/MISSING/DIFFERENT/NOT_APPLICABLE/UNKNOWN.

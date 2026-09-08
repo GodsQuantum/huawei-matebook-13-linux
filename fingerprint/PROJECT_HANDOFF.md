@@ -7,14 +7,14 @@ Current canonical boundary:
 
 - [Session handoff — 2026-09-08](SESSION_HANDOFF_2026-09-08.md)
 - [Current boundary — 2026-09-08](docs/current-boundary-2026-09-08.md)
+- [Windows .36 → .40 differential](docs/windows-14136-14140-differential-2026-09-08.md)
 - [Buildable libfprint candidate](driver/goodix51a0/)
 
-The GXFP51A0 candidate now compiles and links against libfprint v1.94.100.
-This is a software/build milestone only: target communication remains silent.
-The exact Windows `_DSM` outer envelope is partly reconstructed, but target
-PSK material semantics/length and target config are not yet validated.
-Do not repeat the unchanged common-init; seek working-Windows SPB/WDF/WPP/ETW
-or physical bus evidence next.
+The GXFP51A0 candidate compiles and links against libfprint v1.94.100, but target communication remains silent.
+
+Later 2026-09-08 closures: exact-target ACPI/LPSS hidden-switch search and GPIO112 hypothesis are closed; `.36/.40` comparison is grounded by PE `.pdata`; WdfInterruptCreate is already present in `.36`; `.40` helper `0x18000a71c` is logging; WakeupMCU/DriverState/GetEvkVersion/GPIO paths are stable; `init_MCU` changes are dominated by firmware-policy branches.
+
+Do not repeat unchanged common-init. The next work item is one broad Windows lifecycle/SPB reconstruction through the first Milan transfer followed by a Windows/Linux parity matrix. Only exact-device `MISSING` or materially `DIFFERENT` prerequisites should trigger implementation or a fresh active experiment.
 
 <!-- canonical-2026-09-07 -->
 Current canonical boundary:

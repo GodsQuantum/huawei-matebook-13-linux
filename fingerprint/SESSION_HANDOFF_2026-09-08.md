@@ -1,13 +1,14 @@
 # Session handoff — 2026-09-08
 
 Canonical state:
-[`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md).
 
-## One-line state
+- [`docs/current-boundary-2026-09-08.md`](docs/current-boundary-2026-09-08.md)
+- [`docs/windows-14136-14140-differential-2026-09-08.md`](docs/windows-14136-14140-differential-2026-09-08.md)
+- [`driver/goodix51a0/`](driver/goodix51a0/)
 
-A **real GXFP51A0 libfprint 1.94.100 candidate now compiles and links
-successfully**, but the sensor is still not communicative under Linux.
-The driver is build-complete, **not functionally complete**.
+## Current state
+
+A real GXFP51A0 libfprint 1.94.100 candidate builds and links, but the exact target remains non-communicative under Linux. The blocker is the missing first sensor-side ACK/response, not software integration.
 
 ## Build closure
 
@@ -21,78 +22,81 @@ GOODIX51A0_STRING_IN_SHARED_LIBRARY=YES
 SOFTWARE_BUILD_READY=YES
 ```
 
-The reviewed IRQ helper also builds for the tested CachyOS kernel with
-`LLVM=1`. Earlier GCC failures were toolchain mismatch, not module defects.
-
-Canonical libfprint metadata:
-
-```meson
-'goodix51a0': { 'spi': true, 'helper': ['udev', 'openssl'], 'optional': true },
-```
-
-Exact buildable source is preserved under `driver/goodix51a0/`.
-
-## Static closure
-
-Exact ST411 vector:
+## Exact Linux boundary
 
 ```text
-SP            0x20020000
-Reset_Handler 0x08033198
-base          0x08020000
+SPI_TRANSFER_COUNT=34
+TX_BYTES=180
+IRQ_WAIT_COUNT=12
+GOODIX_IRQ_EVENTS=0
+RETAINED_RX_BYTES=180
+RX_FF_BYTES=180
+CONTROLLER_COMPLETIONS=PROVEN
+SPI_CONTROLLER_ERROR=NONE
+FINAL_GPIO264=LOW
 ```
 
-Exact Goodix FP 1.1.141.36 `gfspi.dll` SHA-256:
+Closed: DMA/PIO, runtime PM, IRQ mapping, polling/native IRQ wait, mode-5 split timing/CS, reviewed resets, same-wire MISO.
+
+## Exact-target ACPI closure
 
 ```text
-4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59
+ACTIVE_FINGERPRINT_PARENT=SPI1
+SPI2_FINGERPRINT_CHILD=DISABLED
+SM01=1
+SM02=0
+GPIO112_HYPOTHESIS=CLOSED_DO_NOT_TOUCH
+LPSS_HIDDEN_FINGERPRINT_SWITCH_SEARCH=CLOSED
 ```
 
-The r2ghidra pass resolves the outer `_DSM` result envelope:
+## Windows `.36 → .40` closure
 
-- capacity 0x1000;
-- first returned DWORD byte-swapped;
-- low 16-bit becomes variable payload length;
-- payload copied from offset +4;
-- length <= 4 rejected.
+Exact DLL SHA-256:
 
-A fixed 48-byte GXFP51A0 PSK is **not proven**. `GOODIX_PSK_LEN=48` in the
-candidate is inherited from the GXFP5187 precedent and remains safely gated.
+```text
+1.1.141.36  4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59
+1.1.141.40  36033fbf507620776d9fb686ecfe7847ff41fcbdee6e2afad119e28c6f81ca04
+```
 
-No unique same-device `Milan_DlCfg` sequence was recovered.
+Reliable comparison uses PE `.pdata` plus bounded radare2 disassembly.
 
-## Do not regress
+Stable/near-stable: WakeupMCU, reset, DriverState, GetEvkVersion, GPIO reset, reviewed D0/power paths.
 
-Already exhausted:
+`init_MCU` changed from 1585 bytes / 267 instructions / 24 calls to 1333 bytes / 228 instructions / 21 calls; the largest removed branches are firmware-policy/update diagnostics.
 
-- 34-transfer common-init;
-- 180/180 retained RX bytes = `0xFF`;
-- 0 Goodix IRQ;
-- controller completion proven;
-- DMA vs PIO closed;
-- runtime-PM closed;
-- native IRQ mapping closed;
-- mode-5 split write/CS closed;
-- reviewed resets complete, final GPIO264 LOW.
+PrepareHardware changed from 4038 bytes / 673 instructions / 52 calls to 4524 bytes / 751 instructions / 58 calls, mainly with richer WDF/error diagnostics.
 
-Do not rerun the same common-init merely because it now exists in libfprint.
+Both versions perform the same effective `WdfInterruptCreate` operation. `.40` merely names it explicitly in diagnostics.
 
-## Next evidence
+`.40` helper `0x18000a71c` is a logging/error-formatting helper (`NoFile`, `NoFunc`, `NoFormat`), not hardware wake/bootstrap.
 
-Highest-value missing evidence is a **working Windows SpbCx/WDF/WPP/ETW trace**
-on this same GXFP51A0, ideally D0Entry through the first successful
-DriverState/GetEvkVersion.
+Both DLLs contain `WdfIoTargetCreate` and `WdfIoTargetOpen`; exact `.36` call-site parity is deferred to the full lifecycle audit.
 
-If that cannot expose the missing transition, compare
-CS/SCLK/MOSI/MISO/IRQ electrically under Windows vs Linux.
+## DSM / PSK
 
-Only then authorize one new fresh-boot Linux experiment based on one precise
-same-device action.
+Outer `_DSM` result is variable length (4096-byte capacity, byte-swapped first DWORD, low 16-bit length, payload at +4, reject <=4). A fixed 48-byte GXFP51A0 PSK is not proven. No exact-device `Milan_DlCfg` is validated.
 
-## Privacy / safety
+## Next work
 
-Never commit raw `_DSM`, PSKs, derived keys, vendor binaries/firmware, private
-paths/IPs/boot IDs or proprietary full disassembly.
+No more micro-passes. One mega audit must reconstruct:
 
-No firmware writes, PSK writes, speculative MMIO/pinmux, generic wake guesses
-or sibling force-binding.
+```text
+DeviceAdd
+→ PrepareHardware
+→ ACPI resources
+→ IRQ + SPB target
+→ WdfIoTarget create/open
+→ D0Entry
+→ config/profile/hardware mode
+→ DriverState
+→ init_MCU
+→ GetEvkVersion
+→ final WDF/SPB primitive
+→ first physical transfer
+```
+
+Output: complete Windows/Linux parity matrix using `MATCHED`, `MISSING`, `DIFFERENT`, `NOT_APPLICABLE`, `UNKNOWN`.
+
+Only a concrete exact-device `MISSING` or materially `DIFFERENT` prerequisite justifies a Linux driver change.
+
+Functional target remains: first ACK → A8/EVK → target config/TLS → image capture → enroll → verify → fprintd → PAM/desktop.
