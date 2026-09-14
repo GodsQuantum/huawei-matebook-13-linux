@@ -1,9 +1,11 @@
 # Current handoff — GXFP51A0 / GF3658 Milan
 
-**Updated: 2026-09-08 after contributor-tooling consolidation.**
+**Updated: 2026-09-14 after first Linux ACK / EVK confirmation.**
 
-This is the shortest canonical resume point. For the complete technical
-checkpoint, read [FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
+This is the shortest canonical resume point. The historical 2026-09-08
+checkpoint remains in [FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
+The decisive first-contact evidence is documented in
+[docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md).
 
 ## Current state
 
@@ -11,113 +13,106 @@ checkpoint, read [FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
 candidate libfprint v1.94.100 build       PASS
 first-contact source regression           PASS
 research unit/safety suite                PASS
-Windows .36/.40 first-contact diff         CLOSED
-DeviceInit/BESD intermediate action        CLOSED_NO_SENSOR_IO
-SPB first-contact split-write boundary     MATCHED_HIGH_CONFIDENCE
-34-transfer model                          RECONCILED
-first real sensor ACK under Linux          NOT OBSERVED
-A8/EVK                                     NOT OBSERVED
+Windows .36/.40 first-contact diff        CLOSED
+DeviceInit/BESD intermediate action       CLOSED_NO_SENSOR_IO
+SPB first-contact split-write boundary    MATCHED_HIGH_CONFIDENCE
+first real sensor ACK under Linux         CONFIRMED
+A8 ACK                                    CONFIRMED
+a8 firmware/EVK response                  CONFIRMED
+firmware                                  GF_ST411SEC_APP_14115
+config/TLS/image                          NOT YET INTEGRATED
+```
+## Confirmed Linux operating recipe
+
+The previous normal-CS 34-transfer run is now a historical negative control.
+First contact was reproduced on a MateBook 13 2021 using:
+
+```text
+GPIO264 HIGH 300 ms        active MCU reset
+GPIO264 LOW                MCU running
+settle after LOW           600 ms
+SPI CPOL/CPHA              mode 0
+Linux CS mode bit          SPI_CS_HIGH (0x04)
+SPI rate                   1 MHz (currently proven rate)
+final GPIO264              LOW
 ```
 
-The public candidate includes the latest fidelity corrections:
+Positive A8 ACK:
 
-- no unconditional reset before DriverState;
-- DriverState NOP + 5 ms restored;
-- no DriverState replay after fallback reset;
-- one exact same-attempt A8 retransmission.
+```text
+a0 06 00 a6 b0 03 00 a8 03 4c
+```
 
-## Reproduce the software baseline
+Positive EVK response contains `GF_ST411SEC_APP_14115`.
+The identical command sequence with normal Linux CS polarity produced only
+idle bytes.
+## Candidate changes on the current branch
 
-A new contributor should begin with exactly:
+The branch `research/gxfp51a0-cshigh-first-contact` changes only the
+first-contact transport boundary:
+
+- initial spidev configuration: mode 0 + `SPI_CS_HIGH`;
+- recovery reopen: same mode;
+- SPI rate: 1 MHz until a separate higher-rate test proves 10 MHz on Linux;
+- reset helper: HIGH 300 ms -> LOW -> 600 ms settle;
+- source and research regressions assert those values.
+
+Config/TLS/PSK remain deliberately gated. No firmware update path is enabled.
+
+## Software validation
+
+Canonical software-only validation remains:
 
 ```bash
 make -C fingerprint verify
 ```
 
-This runs all software-only tests and builds the candidate against the exact
-validated libfprint tag.
+Before merging/pushing this branch, require a fresh PASS of the complete
+research suite, source manifest, libfprint v1.94.100 build, privacy gate and
+`git diff --check`.
 
-Contributor tooling is documented in
-[docs/contributor-validation-2026-09-08.md](docs/contributor-validation-2026-09-08.md).
+## Next boundary
 
-## Current hardware boundary
+First-contact transport is no longer the blocker. Work in this order:
 
-The already-tested Linux common-init remains:
-
-```text
-34 SPI transfers
-180 TX bytes
-12 IRQ waits
-0 Goodix IRQ
-180 retained RX bytes
-180/180 RX = 0xFF
-controller completions proven
-no controller error
-final GPIO264 LOW
-```
-
-Do not repeat it unchanged.
-
-## What changed after the previous handoff
-
-The repository now publishes:
-
-- one-shot software validation/build scripts;
-- an exact libfprint v1.94.100 build script with pinned Meson/Ninja;
-- a passive Linux platform-observability script;
-- an optional Windows WDF observability script for external contributors;
-- a dedicated GitHub Actions workflow that builds the candidate;
-- synchronized EN/FR current-status README files.
-
-The primary development installation has **no Windows boot**, so a working
-Windows trace cannot currently be collected locally.
-
-## Next useful evidence
-
-Preferred order:
-
-1. `make -C fingerprint passive-audit` on Linux target hardware;
-2. external contributor Windows WDF/SpbCx trace if available;
-3. logic-analyzer/oscilloscope comparison of CS/SCLK/MOSI/MISO/GPIO48;
-4. only after a concrete new exact-device prerequisite is identified, one
-   bounded Linux experiment changing exactly that prerequisite.
-
-First success criterion: **a real sensor-side ACK**.
-
-Only after that proceed to A8/EVK -> exact target config -> DSM/TLS/PSK ->
-image -> enroll -> verify -> fprintd/PAM.
-
+1. cleanly confirm/read chip identity and target state;
+2. integrate the exact GXFP51A0 / ChicagoHS configuration from same-device
+   evidence;
+3. resolve the target TLS/PSK path without assuming the GXFP5187 48-byte RAM
+   PSK is identical;
+4. image capture;
+5. enrol/verify;
+6. fprintd/PAM/desktop integration.
 ## Do not reopen without new evidence
 
-- DMA/PIO;
-- runtime PM;
+- DMA versus PIO;
+- runtime PM as primary cause;
 - Linux IRQ mapping;
-- userspace polling vs native IRQ wait;
-- mode-5 split timing;
-- simple SPB split-write semantics;
-- GPIO112/GPP_D16;
-- hidden LPSS switch;
-- DeviceInit `besdenable`;
-- fixed 48-byte target PSK;
-- unchanged 34-transfer common-init.
+- userspace polling versus native IRQ wait;
+- DeviceInit `besdenable` as missing sensor I/O;
+- GPIO112/GPP_D16 or hidden LPSS switch;
+- unchanged normal-CS 34-transfer replay;
+- fixed 48-byte GXFP51A0 PSK assumption.
+
+The CS-polarity conclusion is now positive hardware evidence: do not revert to
+normal Linux CS polarity based only on ACPI `PolarityLow` wording.
 
 ## Canonical files
 
 1. `HANDOFF_CURRENT.md`
-2. `FINAL_HANDOFF_2026-09-08.md`
-3. `docs/contributor-validation-2026-09-08.md`
+2. `docs/first-contact-confirmed-2026-09-14.md`
+3. `driver/goodix51a0/README.md`
 4. `docs/current-boundary-2026-09-08.md`
 5. `docs/deviceinit-besd-spb-closure-2026-09-08.md`
 6. `docs/windows-14136-14140-differential-2026-09-08.md`
-7. `driver/goodix51a0/README.md`
-8. `scripts/README.md`
-9. `docs/research-log.md`
-10. `docs/safety.md`
+7. `docs/research-log.md`
+8. `FINAL_HANDOFF_2026-09-08.md` (historical checkpoint)
+9. `docs/safety.md`
 
 ## Public-repository locks
 
 No proprietary binaries/firmware, raw DSM material, PSK/derived keys, private
 machine identifiers or bulk proprietary disassembly.
 
-No firmware, PSK, speculative MMIO/pinmux or GPIO112 write without new
-exact-device evidence.
+No firmware/PSK write, speculative MMIO/pinmux write or GPIO112 write without
+new exact-target evidence. Every active experiment must leave GPIO264 LOW.

@@ -101,6 +101,11 @@ static void test_open_is_configuration_only(void)
     struct gxfp_spi spi;
     reset_state(&state);
 
+    /* GXFP51A0 first-contact evidence (2026-09-13): Linux must request
+     * mode 0 with active-HIGH chip select. This is intentionally asserted
+     * against the Linux UAPI constants rather than only against our macro. */
+    assert(GXFP_SPI_MODE == (SPI_MODE_0 | SPI_CS_HIGH));
+    assert(GXFP_SPI_MAX_SPEED_HZ == 1000000u);
     assert(gxfp_spi_open_configure(&spi, "/dev/spidev9.7", &fake_ops) == 0);
     assert(state.open_calls == 1);
     assert(state.message_calls == 0);

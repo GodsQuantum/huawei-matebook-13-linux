@@ -1,5 +1,7 @@
 # Final handoff — GXFP51A0 / GF3658 Milan — 2026-09-08
 
+> **Superseded current boundary (2026-09-14):** first Linux ACK and EVK firmware response are now confirmed with GPIO264 LOW and `SPI_CS_HIGH`. Preserve this file as the historical 2026-09-08 checkpoint; resume from [`HANDOFF_CURRENT.md`](HANDOFF_CURRENT.md).
+
 This file is the canonical resume point for the fingerprint work completed on
 2026-09-08. It intentionally contains only sanitized public research facts.
 

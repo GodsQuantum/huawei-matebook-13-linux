@@ -551,3 +551,20 @@ Working-Windows WDF/SpbCx evidence is now an external-contributor path.
 
 **NEXT:** physical/platform observability remains the discriminating boundary.
 The first real success criterion remains a sensor-side ACK.
+
+## 2026-09-14: first real GXFP51A0 Linux ACK and EVK response
+
+**CONFIRMED ON HARDWARE:** work by `szlukabence/goodix-fingerprint-spi-linux` identified that GXFP51A0 on Linux requires GPIO264 LOW at runtime and `SPI_CS_HIGH`. The published controlled reproduction was independently repeated on a MateBook 13 2021 GXFP51A0.
+
+At 1 MHz, mode 0 + `SPI_CS_HIGH`, reset HIGH 300 ms -> LOW and 600 ms settle:
+
+```text
+A8-only reply: a0 06 00 a6 b0 03 00 a8 03 4c
+EVK firmware:  GF_ST411SEC_APP_14115
+```
+
+**CONTROL:** identical NOP/A8/chip-ID traffic with normal Linux CS polarity produced only idle bytes. `SPI_CS_HIGH` is therefore a causal first-contact discriminator on the tested target, not merely correlated with a successful run.
+
+**CORRECTION:** GPIO264 HIGH is active MCU reset; LOW is the runtime state. The earlier 10 ms/100 ms reset and normal-CS 34-transfer runs are historical controls, not the current operating recipe.
+
+**DRIVER ACTION:** candidate first-contact setup is changed to mode 0 + `SPI_CS_HIGH`, 1 MHz (the currently proven Linux rate), reset HIGH 300 ms -> LOW with 600 ms settle. Config/TLS/PSK remain gated pending the next exact-target integration step.

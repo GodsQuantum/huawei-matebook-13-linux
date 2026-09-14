@@ -16,7 +16,7 @@ This repository is organized around those two gaps.
 | Area | Status | What this repository provides |
 | --- | --- | --- |
 | **GPU & power — NVIDIA MX250** | **Working on the validated setup** | Full-Integrated idle state, hot dGPU activation per app, PRIME Render Offload, automatic unload/PCI removal, Plasma/KWin isolation, Desktop and Steam helpers |
-| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Research / buildable candidate, not yet usable for login** | Reproducible libfprint v1.94.100 candidate, corrected first-contact state machine, 34-transfer silent hardware boundary; next discriminator is physical/platform observability |
+| **Fingerprint — Goodix GXFP51A0 / GF3658** | **First contact confirmed / driver integration in progress** | Real Linux ACK + `GF_ST411SEC_APP_14115` confirmed on MateBook 13 2021 with GPIO264 LOW and `SPI_CS_HIGH`; config/TLS/capture remain next |
 
 ### Validated GPU configuration
 

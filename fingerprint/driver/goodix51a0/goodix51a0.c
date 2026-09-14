@@ -378,10 +378,9 @@ gx_decode_12bit (const guint8 *data, gsize len, guint16 *out, gsize n)
 /*  Init, handshake and frame capture                                  */
 /* ------------------------------------------------------------------ */
 
-/* Hardware reset. The reviewed target reset line is GPIO264. A short PULSE is what the sensor wants; holding the line down was
- * measured to be counter-productive, recovery failing where a pulse succeeds.
- * Without this reset, leftovers from a previous run make init and handshake
- * fail. */
+/* Hardware reset. GPIO264 is active-HIGH reset on GXFP51A0: HIGH holds the
+ * MCU in reset and LOW lets it run. First-contact hardware confirmation uses
+ * HIGH for 300 ms, then LOW with a 600 ms settle; final state remains LOW. */
 static void
 gx_gpio_reset (FpiDeviceGoodix51A0 *self)
 {
@@ -1869,8 +1868,8 @@ gx_read_psk (FpiDeviceGoodix51A0 *self, const gchar *path)
           if (self->spi_fd < 0)
             return FALSE;
           {
-            guint8 mode = SPI_MODE_0, bits = 8;
-            guint32 speed = 10000000;
+            guint8 mode = SPI_MODE_0 | SPI_CS_HIGH, bits = 8;
+            guint32 speed = 1000000;
             ioctl (self->spi_fd, SPI_IOC_WR_MODE, &mode);
             ioctl (self->spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
             ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
@@ -1911,8 +1910,8 @@ gx_dev_open (FpDevice *dev)
     }
 
   {
-    guint8 mode = SPI_MODE_0, bits = 8;
-    guint32 speed = 10000000;
+    guint8 mode = SPI_MODE_0 | SPI_CS_HIGH, bits = 8;
+    guint32 speed = 1000000;
     ioctl (self->spi_fd, SPI_IOC_WR_MODE, &mode);
     ioctl (self->spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
     ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);

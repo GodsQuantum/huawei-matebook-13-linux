@@ -242,3 +242,26 @@ known-working GXFP51A0 installation.
 The next high-value evidence remains physical/platform observability and,
 ultimately, a real sensor-side ACK. No closed active common-init experiment
 should be replayed unchanged.
+
+## Superseding first-contact result — 2026-09-14
+
+The physical/platform boundary is now closed for first contact. Independent work by `szlukabence/goodix-fingerprint-spi-linux` identified two required Linux conditions, both reproduced on a MateBook 13 2021 GXFP51A0:
+
+- GPIO264 LOW while the MCU runs; GPIO264 HIGH is active reset;
+- SPI CPOL/CPHA mode 0 with Linux `SPI_CS_HIGH` (`0x04`).
+
+A bounded 1 MHz reproduction returned the checksum-valid A8 ACK:
+
+```text
+a0 06 00 a6 b0 03 00 a8 03 4c
+```
+
+and the EVK firmware string:
+
+```text
+GF_ST411SEC_APP_14115
+```
+
+The same command sequence with normal Linux CS polarity returned only idle bytes. The historical 34-transfer silent result therefore remains useful as a control but no longer defines the current boundary.
+
+Current next boundary: exact GXFP51A0 configuration, target TLS/PSK semantics, then image capture. See `first-contact-confirmed-2026-09-14.md`.

@@ -1,7 +1,6 @@
 # GXFP51A0 experimental libfprint candidate
 
-**Status: builds and links against libfprint v1.94.100; hardware communication
-is not established.**
+**Status: builds and links against libfprint v1.94.100; first sensor communication is confirmed, but config/TLS/capture are not integrated yet.**
 
 This directory preserves the reviewed GXFP51A0 candidate source. Compilation is
 not evidence of working fingerprint capture.
@@ -51,10 +50,10 @@ SOFTWARE_BUILD_READY=YES
 ## Target-specific facts represented by the candidate
 
 - ACPI HID `GXFP51A0`
-- SPI mode 0, 8 bits, 10 MHz
+- SPI CPOL/CPHA mode 0 + `SPI_CS_HIGH`, 8 bits; 1 MHz currently proven on Linux
 - Milan split write: outer 4 bytes -> about 2 ms -> remaining bytes
 - reviewed `/dev/gxfp_irq_wait` readiness bridge contract
-- GPIO264 reset HIGH 10 ms -> LOW 100 ms -> final LOW
+- GPIO264 active-HIGH reset: HIGH 300 ms -> LOW -> 600 ms settle -> final LOW
 - target NOP checksum `0xA5`
 - DriverState Install `(9,3)` / `0x96`
 - GetEvkVersion NOP + 5 ms + A8 with one identical same-attempt A8 retry
@@ -108,8 +107,7 @@ used by the validated Meson 1.12.0 environment.
 
 ## Current research boundary
 
-The corrected Windows-faithful software model is already represented in a
-separate research harness that remained silent on target hardware:
+Historical runs with normal chip-select polarity remained silent:
 
 ```text
 34 physical SPI transfers
@@ -119,8 +117,7 @@ separate research harness that remained silent on target hardware:
 180 retained RX bytes, all 0xFF
 ```
 
-Therefore rebuilding this candidate does not itself justify another active
-hardware probe.
+Those runs are superseded by the 2026-09-14 first-contact confirmation: `SPI_CS_HIGH` + GPIO264 LOW produces a real A8 ACK and `GF_ST411SEC_APP_14115`. Config/TLS/capture remain gated.
 
 Resume from [`../../HANDOFF_CURRENT.md`](../../HANDOFF_CURRENT.md).
 

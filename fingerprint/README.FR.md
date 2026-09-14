@@ -6,7 +6,7 @@
 
 > English: [README.md](README.md)
 
-## État actuel — 8 septembre 2026
+## État actuel — 14 septembre 2026
 
 Le projet dispose maintenant d'un **candidat GXFP51A0 reproductible pour
 libfprint v1.94.100**. L'intégration logicielle n'est plus le blocage.
@@ -18,8 +18,9 @@ tests recherche/sécurité             PASS
 modèle first-contact Windows         reconstruit
 modèle first-contact Linux           aligné
 soumissions contrôleur SPI           prouvées
-premier ACK capteur                  NON OBSERVÉ
-A8 / EVK                             NON OBSERVÉ
+premier ACK capteur                  CONFIRMÉ
+ACK A8                               CONFIRMÉ
+réponse EVK firmware                 CONFIRMÉE : GF_ST411SEC_APP_14115
 capture/enroll/verify                NON ATTEINT
 fprintd/PAM                          NON ATTEINT
 ```
@@ -67,9 +68,9 @@ Voir [scripts/README.md](scripts/README.md).
 - ACPI HID `GXFP51A0`
 - Goodix GF3658 / famille Milan
 - parent actif SPI1 ; enfant fingerprint SPI2 désactivé
-- SPI1 CS0, mode 0, 8 bits, 10 MHz, four-wire
+- SPI1 CS0, CPOL/CPHA mode 0, 8 bits, four-wire ; le premier contact Linux exige `SPI_CS_HIGH` ; 1 MHz est le débit Linux actuellement prouvé
 - GPIO48 : readiness/IRQ level ActiveHigh
-- GPIO264 : HIGH 10 ms -> LOW 100 ms -> LOW final
+- GPIO264 est le reset MCU actif-haut : HIGH 300 ms -> LOW -> attente 600 ms -> LOW final
 - écriture Milan : 4 octets externes -> environ 2 ms -> reste
 - DriverState Install : `(9,3)` / `0x96`
 - checksum NOP : `0xA5`

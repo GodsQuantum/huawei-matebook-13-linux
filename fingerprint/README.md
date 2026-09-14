@@ -1,12 +1,12 @@
 # Goodix GXFP51A0 / GF3658 Milan on Linux
 
-> Experimental reverse-engineering project. The public candidate builds against
-> libfprint, but the fingerprint sensor is **not functional under Linux yet**.
-> Do not flash firmware or run unreviewed vendor flows.
+> Experimental reverse-engineering project. Linux first contact is now confirmed
+> on GXFP51A0, but enrol/verify are **not functional yet**. Do not flash firmware
+> or run unreviewed vendor flows.
 
 > Français: [README.FR.md](README.FR.md)
 
-## Current status — 2026-09-08
+## Current status — 2026-09-14
 
 The project has a reproducible **GXFP51A0 libfprint v1.94.100 candidate**.
 Software integration is no longer the blocker.
@@ -20,8 +20,9 @@ research unit/safety suite          PASS
 Windows first-contact model         reconstructed
 Linux first-contact model           aligned
 SPI controller submissions          proven
-first sensor ACK                    NOT OBSERVED
-A8 / EVK                            NOT OBSERVED
+first sensor ACK                    CONFIRMED
+A8 ACK                              CONFIRMED
+EVK firmware response               CONFIRMED: GF_ST411SEC_APP_14115
 capture/enroll/verify               NOT REACHED
 fprintd/PAM                         NOT REACHED
 ```
@@ -69,9 +70,9 @@ See [scripts/README.md](scripts/README.md) and
 - ACPI HID: `GXFP51A0`
 - Goodix GF3658 / Milan family
 - active parent: SPI1; fingerprint child on SPI2 disabled
-- SPI1 CS0, mode 0, 8-bit, 10 MHz, four-wire
+- SPI1 CS0, CPOL/CPHA mode 0, 8-bit, four-wire; Linux first contact requires `SPI_CS_HIGH`; 1 MHz is the currently proven Linux rate
 - GPIO48: level-triggered ActiveHigh readiness/IRQ
-- GPIO264 reset: HIGH 10 ms -> LOW 100 ms -> final LOW
+- GPIO264 is active-HIGH MCU reset; confirmed sequence: HIGH 300 ms -> LOW -> 600 ms settle -> final LOW
 - Milan write: outer 4 bytes -> about 2 ms -> remaining bytes
 - DriverState Install: `(9,3)` / packed `0x96`
 - NOP checksum: `0xA5`
@@ -110,10 +111,9 @@ See
 and
 [docs/windows-14136-14140-differential-2026-09-08.md](docs/windows-14136-14140-differential-2026-09-08.md).
 
-## Exact Linux silent boundary
+## Historical Linux silent boundary
 
-The reconstructed Windows-faithful common-init has already been executed under
-Linux:
+Before the CS-polarity discovery, the reconstructed common-init was executed under Linux with normal CS and remained silent:
 
 ```text
 SPI transfers             34
@@ -131,6 +131,11 @@ The 34-transfer count is reconciled with DeviceInit/BESD and the corrected
 DriverState/GetEvkVersion state machine.
 
 Do **not** repeat this unchanged active experiment.
+
+That result is now explained by the wrong Linux chip-select polarity. On
+2026-09-14 the same target returned a checksum-valid A8 ACK and firmware version
+when run with `SPI_CS_HIGH` and GPIO264 LOW. See
+[docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md).
 
 ## Closed hypotheses
 
@@ -151,11 +156,9 @@ Do not restart these branches without new exact-device evidence:
 
 ## Still unresolved
 
-- first real sensor ACK under Linux
-- first A8/EVK response
-- physical CS/SCLK/MOSI/MISO reachability versus controller completion
-- physical GPIO48 behavior
 - exact GXFP51A0 target config / `Milan_DlCfg`
+- exact target DSM/TLS/PSK semantics and key material path
+- image capture
 - exact `_DSM` TLS/PSK semantics and length
 - image capture
 - enroll / verify

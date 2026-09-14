@@ -4,7 +4,9 @@ import re
 
 ROOT=Path(__file__).resolve().parents[1]
 SRC=ROOT/"fingerprint/driver/goodix51a0/goodix51a0.c"
+TRANSPORT=ROOT/"fingerprint/driver/goodix51a0/gx51_transport.c"
 text=SRC.read_text(encoding="utf-8")
+transport=TRANSPORT.read_text(encoding="utf-8")
 
 def fn(name):
     pos=text.find(name+" (")
@@ -40,5 +42,15 @@ assert op.count("gx_driverstate_install_windows")==1
 assert "GXFP51A0: TLS/config gate blocked" in gate
 assert "return FALSE;" in gate
 assert 10 + 4*6 == 34
+
+psk=fn("gx_read_psk")
+for spi_setup in (op, psk):
+    assert "SPI_MODE_0 | SPI_CS_HIGH" in spi_setup
+    assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", spi_setup)
+
+assert "gx51_sleep_us(300000)" in transport
+assert "gx51_sleep_us(600000)" in transport
+assert "val.bits = 1; /* HIGH: active reset */" in transport
+assert "val.bits = 0; /* LOW: MCU runs */" in transport
 
 print("GOODIX51A0_FIRST_CONTACT_SOURCE_TEST=PASS")

@@ -247,7 +247,7 @@ static void test_init_rejects_incomplete_or_wrong_speed_spi(void)
     };
     struct gxfp_spi wrong_speed_spi = {
         .fd = 7,
-        .max_speed_hz = 1000000u,
+        .max_speed_hz = 10000000u, /* historical ACPI rate; not the currently proven Linux rate */
         .ops = &complete_ops,
     };
     struct gxfp_linux_active_backend active;

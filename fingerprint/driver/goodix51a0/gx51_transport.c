@@ -177,16 +177,16 @@ int gx51_reset_gpio264(void)
     }
 
     val.mask = 1;
-    val.bits = 1; /* HIGH */
+    val.bits = 1; /* HIGH: active reset */
     if (ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &val) < 0)
         goto fail;
-    if (gx51_sleep_us(10000) < 0)
+    if (gx51_sleep_us(300000) < 0)
         goto fail;
 
-    val.bits = 0; /* LOW */
+    val.bits = 0; /* LOW: MCU runs */
     if (ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &val) < 0)
         goto fail;
-    if (gx51_sleep_us(100000) < 0)
+    if (gx51_sleep_us(600000) < 0)
         goto fail;
 
     /* Final state deliberately remains LOW. */

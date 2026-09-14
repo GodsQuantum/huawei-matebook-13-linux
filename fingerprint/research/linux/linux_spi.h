@@ -4,9 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define GXFP_SPI_MODE 0u
+/* GXFP51A0 board integration: first real Linux replies were observed only
+ * with active-HIGH CS. CPOL/CPHA remain mode 0; 0x04 is SPI_CS_HIGH. */
+#define GXFP_SPI_MODE 0x04u
 #define GXFP_SPI_BITS_PER_WORD 8u
-#define GXFP_SPI_MAX_SPEED_HZ 10000000u
+#define GXFP_SPI_MAX_SPEED_HZ 1000000u
 
 struct gxfp_spi_ops {
     int (*open_fn)(const char *path, int flags);
