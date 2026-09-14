@@ -1,15 +1,14 @@
 /*
- * Goodix GXFP5187 SPI (TLS-PSK) driver for libfprint
+ * Goodix GXFP51A0 SPI (TLS-PSK) driver for libfprint
  *
  * Copyright (C) 2026 Benjamin Allègre (https://github.com/Sigfrodr)
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *
- * Driver for the SPI fingerprint sensor found in the Huawei MateBook X Pro,
- * whose protocol was reverse-engineered for this work. The chain is: SPI
- * dialogue where one frame must be exactly one transfer, opening the command
- * gate by uploading a configuration blob, a TLS-PSK channel whose key is read
- * out of the sensor's own RAM, and an 80x64 ChicagoHS image path (capture integration still under validation)
+ * Driver candidate for the GXFP51A0 SPI fingerprint sensor used in Huawei
+ * MateBook systems. The chain is: split Milan SPI framing, target-specific
+ * ChicagoHS configuration, TLS-PSK, and an 80x64 image path (capture
+ * integration still under validation).
  * (six bytes carry four interleaved pixels) calibrated by subtracting a
  * background frame.
  *
@@ -66,7 +65,7 @@ struct gx51_irq_wait_request {
 /* Finger detection threshold on the standard deviation of the
  * background-minus-frame difference. */
 #define GOODIX_FINGER_STD    150.0
-/* Largest frame body we ever receive: the image, at about 22 kB. */
+/* Headroom above the ~10.6 kB target TLS record observed under Windows. */
 #define GOODIX_RX_MAX        24000
 
 struct _FpiDeviceGoodix51A0

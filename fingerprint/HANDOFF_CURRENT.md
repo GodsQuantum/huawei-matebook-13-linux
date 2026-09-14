@@ -21,7 +21,8 @@ A8 ACK                                    CONFIRMED
 a8 firmware/EVK response                  CONFIRMED
 firmware                                  GF_ST411SEC_APP_14115
 target config                              CONFIRMED ON HARDWARE
-TLS/PMK                                   NEXT BOUNDARY
+TLS cipher                               CONFIRMED: TLS1.2 / PSK-AES128-GCM-SHA256
+PMK retrieval                            CURRENT BOUNDARY
 image/capture                             NOT REACHED
 ```
 ## Confirmed Linux operating recipe
@@ -63,7 +64,11 @@ first-contact transport and the exact-target ChicagoHS configuration path:
 - exact 256-byte target config patch/checksum/upload;
 - runtime config path enabled before TLS.
 
-TLS/PMK remains deliberately gated. No firmware or PMK write path is enabled.
+Target TLS is now pinned from the working Windows ServerHello: suite `0x00A8`,
+`PSK-AES128-GCM-SHA256`, TLS 1.2, sensor client / host server, identity
+`Client_identity`. The software GCM handshake + 10.6 kB record regression is
+PASS. PMK retrieval remains deliberately gated. No firmware or PMK write path
+is enabled.
 
 ## Software validation
 
@@ -81,8 +86,8 @@ research suite, source manifest, libfprint v1.94.100 build, privacy gate and
 
 First-contact transport is no longer the blocker. Work in this order:
 
-1. resolve the target PMK read path using the exact ST411 firmware evidence;
-2. establish the TLS-PSK handshake;
+1. validate the F2 application-relative address base and read the 48-byte PMK;
+2. establish the already-modeled TLS 1.2 PSK-GCM handshake;
 3. capture and decode the first 80x64 image;
 4. enrol/verify;
 5. fprintd/PAM/desktop integration.

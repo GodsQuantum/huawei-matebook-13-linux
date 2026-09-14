@@ -59,6 +59,8 @@ SOFTWARE_BUILD_READY=YES
 - GetEvkVersion NOP + 5 ms + A8 with one identical same-attempt A8 retry
 - no unconditional initial reset before DriverState
 - fallback reset continues into `init_MCU` without DriverState replay
+- TLS 1.2 target suite `0x00A8` / `PSK-AES128-GCM-SHA256`
+- PSK identity `Client_identity`; sensor is TLS client, host is server
 
 ## Deliberately blocked
 
@@ -68,13 +70,13 @@ register writes, then the exact 256-byte config upload. The PMK/TLS step remains
 strictly gated.
 
 The candidate does **not** promote GXFP5187-specific PMK addresses or keys to
-GXFP51A0. TLS/capture/matcher/enroll/verify code is preserved as a downstream
-architectural base but remains unreachable until the target PMK is read and
-validated.
+GXFP51A0. The exact target TLS ciphersuite is integrated and regression-tested,
+but the runtime PMK read remains gated until the F2 address mapping is proven.
 
-A 48-byte PMK length is suggested by exact ST411 firmware control flow, but
-the runtime PMK read is still pending and no key material is published. Windows
-`_DSM` handling at the reconstructed layer remains variable-length.
+Same-device Windows logs confirm a 48-byte PMK. Exact ST411 firmware control
+flow identifies its TLS RAM globals, but Linux F2 retrieval is still being
+hardware-validated and no key material is published. Windows `_DSM` handling
+at the reconstructed layer remains variable-length.
 
 No proprietary Goodix/Huawei binary, firmware, raw `_DSM`, PSK or derived key
 is included here.

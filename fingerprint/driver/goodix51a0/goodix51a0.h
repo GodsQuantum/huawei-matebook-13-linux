@@ -51,15 +51,14 @@
 #define GOODIX_CMD_MEM_READ    0xF2   /* arbitrary memory read: [addr32][len32] */
 
 /*
- * The pre-shared key is a 48-byte PMK that the sensor decrypts into its own RAM
- * at boot; the driver reads it back with the memory-read command above. This is
- * what lets the TLS channel be established on Linux without Intel ME, SGX or
- * the in-application-programming mode that other approaches rely on — and it is
- * non-destructive, unlike rewriting the key through IAP.
+ * Same-device Windows logs establish a 48-byte PMK. Exact ST411-14115 firmware
+ * analysis identifies RAM globals used by its TLS setup, but Linux retrieval
+ * through command 0xF2 is still being hardware-validated before those addresses
+ * are enabled in the public driver. No PMK write/provision path is used.
  *
- * TLS identity is "Client_identity", ciphersuite TLS-PSK-WITH-AES-128-CBC-SHA256.
- * Note the roles are reversed from what one might expect: the SENSOR is the TLS
- * client and the host is the server.
+ * TLS identity is "Client_identity". The exact target Windows ServerHello
+ * selects TLS 1.2 suite 0x00A8, TLS_PSK_WITH_AES_128_GCM_SHA256. The SENSOR is
+ * the TLS client and the host is the server.
  */
 #define GOODIX_PSK_ADDR   0 /* GXFP51A0 target DSM source; sibling address disabled */
 #define GOODIX_PSK_LEN    48

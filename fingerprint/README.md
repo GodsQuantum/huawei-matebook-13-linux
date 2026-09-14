@@ -25,7 +25,8 @@ A8 ACK                              CONFIRMED
 EVK firmware response               CONFIRMED: GF_ST411SEC_APP_14115
 chip ID / OTP calibration            CONFIRMED
 target 256-byte config               CONFIRMED
-TLS/PMK                              NEXT BOUNDARY
+TLS cipher                           CONFIRMED: TLS1.2 PSK-AES128-GCM-SHA256
+PMK retrieval                        CURRENT BOUNDARY
 capture/enroll/verify               NOT REACHED
 fprintd/PAM                         NOT REACHED
 ```
@@ -160,8 +161,8 @@ Do not restart these branches without new exact-device evidence:
 
 ## Still unresolved
 
-- runtime read/validation of the exact-target PMK identified by ST411 firmware analysis
-- TLS-PSK handshake
+- F2 application-base calibration and runtime read/validation of the exact-target 48-byte PMK
+- TLS 1.2 PSK-AES128-GCM-SHA256 handshake
 - first 80x64 image capture and decode
 - enroll / verify
 - fprintd / PAM / desktop integration

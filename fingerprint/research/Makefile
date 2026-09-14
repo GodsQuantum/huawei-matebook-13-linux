@@ -6,6 +6,7 @@ BUILD_DIR ?= ../../../temp/research-build
 TEST_ATTEMPT := $(BUILD_DIR)/test_milan_attempt
 TEST_PACKET := $(BUILD_DIR)/test_milan_packet
 TEST_TARGET_INIT := $(BUILD_DIR)/test_target_init
+TEST_GOODIX_TLS_GCM := $(BUILD_DIR)/test_goodix_tls_gcm
 TEST_DISCOVERY := $(BUILD_DIR)/test_spidev_discovery
 TEST_LINUX_SPI := $(BUILD_DIR)/test_linux_spi
 TEST_IRQ_LOGIC := $(BUILD_DIR)/test_irq_logic
@@ -19,7 +20,7 @@ PROBE_BIN := $(BUILD_DIR)/gxfp-live-probe
 RESET_RESTORE_BIN := $(BUILD_DIR)/gxfp-reset-restore
 PASSIVE_BIN := $(BUILD_DIR)/gxfp-passive-preflight
 
-.PHONY: all prepare-build test clean test_target_init test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile reset-restore-compile
+.PHONY: all prepare-build test clean test_target_init test_goodix_tls_gcm test_milan_attempt test_milan_packet test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir passive-preflight active-runtime-compile probe-runtime-compile reset-restore-compile
 
 all: test
 
@@ -37,6 +38,12 @@ test_milan_packet: prepare-build
 test_target_init: prepare-build
 	$(CC) $(CFLAGS) -I. tests/test_target_init.c ../driver/goodix51a0/gx51_target.c -o "$(TEST_TARGET_INIT)"
 	"$(TEST_TARGET_INIT)"
+
+test_goodix_tls_gcm: prepare-build
+	$(CC) $(CFLAGS) -I../driver/goodix51a0 $$(pkg-config --cflags gio-2.0 openssl) \
+		tests/test_goodix_tls_gcm.c ../driver/goodix51a0/goodix_tls.c \
+		$$(pkg-config --libs gio-2.0 openssl) -pthread -o "$(TEST_GOODIX_TLS_GCM)"
+	"$(TEST_GOODIX_TLS_GCM)"
 
 test_spidev_discovery: prepare-build
 	$(CC) $(CFLAGS) -I. tests/test_spidev_discovery.c linux/spidev_discovery.c -o "$(TEST_DISCOVERY)"
@@ -100,7 +107,7 @@ test_passive_safety:
 test_makefile_space_build_dir:
 	./tests/test_makefile_space_build_dir.sh
 
-test: test_milan_attempt test_milan_packet test_target_init test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir
+test: test_milan_attempt test_milan_packet test_target_init test_goodix_tls_gcm test_spidev_discovery test_linux_spi test_irq_logic test_milan_rx test_milan_rx_drain test_linux_active_backend test_probe_harness test_event_driven_backend test_active_runtime_source_safety test_probe_runtime_source_safety test_live_probe_supervisor test_pio_preflight test_pio_live_probe_supervisor test_pio_source_safety test_irq_wait_source_safety test_reset_restore_source_safety test_passive_safety test_makefile_space_build_dir
 
 passive-preflight: prepare-build
 	@major="$$(pkg-config --modversion libgpiod 2>/dev/null | cut -d. -f1)"; \

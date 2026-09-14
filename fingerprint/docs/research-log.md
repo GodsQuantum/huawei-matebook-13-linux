@@ -591,3 +591,21 @@ configuration path is enabled before TLS; PMK/TLS remains gated.
 state consumed directly by the TLS setup routine. Validate that state with a
 bounded read-only `0xF2` probe; never publish the recovered PMK bytes and do not
 use a sibling-part address or key as a substitute.
+## 2026-09-14: exact target TLS ciphersuite closure
+
+**CONFIRMED FROM WORKING WINDOWS TRAFFIC:** the GXFP51A0 ServerHello selects
+TLS 1.2 ciphersuite `0x00A8`, `PSK-AES128-GCM-SHA256`. The sensor is the TLS
+client, the host is the server, and the identity is `Client_identity`.
+
+**CORRECTED:** the candidate inherited GXFP5187 CBC record handling. A TDD
+regression using a simulated 48-byte-PSK sensor client first failed against the
+CBC candidate, then passed after switching to GCM and feeding raw application
+records back through the established OpenSSL BIO/`SSL_read()` path. The target
+working transcript's large TLS record (~10.6 kB) is below the TLS 1.2 record
+limit, so no GXFP5187-style oversized-record manual crypto is required.
+
+**CURRENT BOUNDARY:** PMK length is 48 bytes from same-device Windows logs, but
+the first targeted F2 probe returned `0xc8` at the presumed length global. This
+contradicts the ST411 loader's `<=0x30` bound and points to the inherited F2
+address-base conversion, not to a 200-byte PMK. The next probe calibrates F2
+with offset zero against the exact ST411 vector before reading any PMK bytes.
