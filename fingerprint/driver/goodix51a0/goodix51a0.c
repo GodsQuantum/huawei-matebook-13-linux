@@ -9,7 +9,7 @@
  * whose protocol was reverse-engineered for this work. The chain is: SPI
  * dialogue where one frame must be exactly one transfer, opening the command
  * gate by uploading a configuration blob, a TLS-PSK channel whose key is read
- * out of the sensor's own RAM, and a 132x112 image in packed 12-bit samples
+ * out of the sensor's own RAM, and an 80x64 ChicagoHS image path (capture integration still under validation)
  * (six bytes carry four interleaved pixels) calibrated by subtracting a
  * background frame.
  *
@@ -49,6 +49,7 @@
 #include "goodix_tls.h"
 
 #include "gx51_transport.h"
+#include "gx51_target.h"
 
 #define GX51_IRQ_DEV "/dev/gxfp_irq_wait"
 #define GXFP_IRQ_WAIT_IOC_MAGIC 0xF5
@@ -392,21 +393,138 @@ gx_gpio_reset (FpiDeviceGoodix51A0 *self)
 
 
 
-/* Uploads the configuration blob, which opens the command gate, then enables
- * the chip and requests a TLS session. */
+static gboolean
+gx_target_read_body (FpiDeviceGoodix51A0 *self,
+                     guint8                 *body,
+                     gsize                   cap,
+                     int                    *out_len)
+{
+  guint8 type = 0;
+  int n = gx_read_frame (self, &type, body, cap);
+
+  if (n <= 0 || type != GOODIX_PKT_PLAIN)
+    return FALSE;
+  if (out_len)
+    *out_len = n;
+  return TRUE;
+}
+
+static gboolean
+gx_target_send_ack (FpiDeviceGoodix51A0       *self,
+                    const struct gxfp_target_packet *packet,
+                    guint8                           command,
+                    guint8                          *status)
+{
+  guint8 rx[128];
+  guint8 ack_status = 0;
+  int n = 0;
+
+  if (!gx_write_frame (self, GOODIX_PKT_PLAIN,
+                       packet->inner, packet->inner_len) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_ack (rx, n, command, &ack_status) ||
+      !gxfp_ack_status_success (ack_status))
+    return FALSE;
+
+  if (status)
+    *status = ack_status;
+  return TRUE;
+}
+
+static gboolean
+gx_target_soft_reset (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_target_packet packet;
+  guint8 rx[128];
+  uint32_t code = 0;
+  int n = 0;
+
+  if (!gxfp_build_soft_reset (&packet) ||
+      !gx_target_send_ack (self, &packet, 0xa2, NULL) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_soft_reset_response (rx, n, &code))
+    return FALSE;
+
+  return code == 0x010008u;
+}
+
+static gboolean
+gx_target_configure (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_target_packet packet;
+  struct gxfp_target_calibration cal;
+  guint8 rx[512];
+  guint8 otp[64];
+  guint8 config[GXFP_CONFIG_LEN];
+  guint8 status = 0;
+  uint16_t chip_id = 0;
+  int n = 0;
+
+  if (!gx_target_soft_reset (self))
+    return FALSE;
+
+  if (!gxfp_build_chip_id (&packet) ||
+      !gx_target_send_ack (self, &packet, 0x82, NULL) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_chip_id_response (rx, n, &chip_id) ||
+      chip_id != 0x2504u)
+    return FALSE;
+
+  if (!gxfp_build_read_otp (&packet) ||
+      !gx_target_send_ack (self, &packet, 0xa6, NULL) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_otp_response (rx, n, otp) ||
+      !gxfp_derive_calibration (otp, &cal))
+    return FALSE;
+
+  memcpy (config, GXFP_TARGET_BASE_CONFIG, sizeof config);
+  if (!gxfp_patch_config (config, &cal) ||
+      !gxfp_config_checksum_valid (config))
+    return FALSE;
+
+  if (!gx_target_soft_reset (self))
+    return FALSE;
+
+  if (!gxfp_build_idle (&packet) ||
+      !gx_target_send_ack (self, &packet, 0x70, &status))
+    return FALSE;
+
+  if (!gxfp_build_reg_write (0x0220u, cal.dac_main, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
+      !gxfp_build_reg_write (0x0236u, cal.dac1, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
+      !gxfp_build_reg_write (0x0238u, cal.dac2, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
+      !gxfp_build_reg_write (0x023au, cal.dac3, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL))
+    return FALSE;
+
+  if (!gxfp_build_upload_config (config, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x90, NULL) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_config_response (rx, n, &status) || status != 0x01u)
+    return FALSE;
+
+  fp_info ("GXFP51A0 target config accepted: chip=0x%04x tcode=%u "
+           "fdt_delta=%u dac=0x%03x/%02x/%02x/%02x",
+           chip_id, cal.tcode, cal.fdt_delta, cal.dac_main,
+           cal.dac1, cal.dac2, cal.dac3);
+  return TRUE;
+}
+
+/* Same-device Pegasus validation confirmed A2 -> chip ID -> OTP -> DAC ->
+ * 0x90 with the exact ST411/ChicagoHS target sequence.  Keep the subsequent
+ * PMK/PSK/TLS boundary gated until its source is proven on this firmware. */
 static gboolean
 gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self)
 {
-  (void) self;
+  if (!gx_target_configure (self))
+    {
+      fp_warn ("GXFP51A0: target initialization/configuration failed");
+      return FALSE;
+    }
 
-  /*
-   * Deliberately gated. GXFP5187's CONFIG_PCAP and RAM-PSK path are working
-   * precedents, not same-device evidence. GXFP51A0 Windows analysis instead
-   * uses the machine-specific ACPI DSM/FPDT path and a target-specific Milan
-   * configuration. Enabling the sibling sequence here would make a compiling
-   * port less safe and less scientifically useful.
-   */
-  fp_warn ("GXFP51A0: TLS/config gate blocked pending target DSM parser/config");
+  fp_warn ("GXFP51A0: PMK/PSK gate blocked pending exact target key source");
   return FALSE;
 }
 

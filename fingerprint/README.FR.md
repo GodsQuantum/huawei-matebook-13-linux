@@ -21,6 +21,9 @@ soumissions contrôleur SPI           prouvées
 premier ACK capteur                  CONFIRMÉ
 ACK A8                               CONFIRMÉ
 réponse EVK firmware                 CONFIRMÉE : GF_ST411SEC_APP_14115
+chip ID / calibration OTP            CONFIRMÉS
+config cible 256 octets              CONFIRMÉE
+TLS/PMK                              FRONTIÈRE SUIVANTE
 capture/enroll/verify                NON ATTEINT
 fprintd/PAM                          NON ATTEINT
 ```
@@ -76,6 +79,7 @@ Voir [scripts/README.md](scripts/README.md).
 - checksum NOP : `0xA5`
 - GetEvkVersion : NOP -> 5 ms -> A8, une retransmission A8 identique après
   le premier timeout ACK
+- config cible exacte : reset A2 -> chip ID 0x2504 -> OTP 64 octets -> calibration tcode/FDT/DAC -> config 0x90 acceptée
 - vecteur ST411 exact : SP `0x20020000`, Reset_Handler `0x08033198`,
   base `0x08020000`
 
@@ -109,27 +113,25 @@ Ne pas rejouer cette expérience active inchangée.
 - hypothèse GPIO112 / GPP_D16
 - switch fingerprint LPSS caché
 - action DeviceInit intermédiaire comme I/O capteur manquante
-- hypothèse PSK GXFP51A0 fixe de 48 octets
+- adresse/clé PMK GXFP5187 réutilisée sans preuve cible
 - replay inchangé du common-init
 
 ## Encore non résolu
 
-- premier ACK réel sous Linux
-- première réponse A8/EVK
-- réalité électrique CS/SCLK/MOSI/MISO versus simple complétion contrôleur
-- comportement physique GPIO48
-- config exacte GXFP51A0 / `Milan_DlCfg`
-- sémantique/longueur DSM/TLS/PSK exacte
-- capture image
+- lecture/validation runtime de la PMK cible identifiée par l’analyse du firmware ST411
+- handshake TLS-PSK
+- première capture et décodage image 80x64
 - enroll / verify
 - fprintd / PAM / desktop
 
 ## Frontière suivante
 
-La machine de développement principale ne possède actuellement **pas de boot
-Windows**. La comparaison WDF/SpbCx ne peut donc pas être capturée localement.
+Le premier contact et la configuration cible n’étant plus les blocages, la
+frontière suivante est la PMK/TLS. Le prochain test actif est une lecture F2
+bornée de l’état PMK identifié dans le firmware ST411, sans publication de la
+clé brute.
 
-Sous Linux :
+Pour l’observabilité Linux passive :
 
 ```bash
 make -C fingerprint passive-audit
@@ -168,10 +170,10 @@ CS / SCLK / MOSI / MISO / GPIO48
 ## Objectif
 
 ```text
-premier ACK
--> A8/EVK
--> config cible exacte
--> DSM/TLS/PSK exact
+premier ACK [CONFIRMÉ]
+-> A8/EVK [CONFIRMÉ]
+-> config cible exacte [CONFIRMÉE]
+-> PMK/TLS exact
 -> capture image
 -> enroll
 -> verify

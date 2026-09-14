@@ -568,3 +568,26 @@ EVK firmware:  GF_ST411SEC_APP_14115
 **CORRECTION:** GPIO264 HIGH is active MCU reset; LOW is the runtime state. The earlier 10 ms/100 ms reset and normal-CS 34-transfer runs are historical controls, not the current operating recipe.
 
 **DRIVER ACTION:** candidate first-contact setup is changed to mode 0 + `SPI_CS_HIGH`, 1 MHz (the currently proven Linux rate), reset HIGH 300 ms -> LOW with 600 ms settle. Config/TLS/PSK remain gated pending the next exact-target integration step.
+
+## 2026-09-14: exact-target configuration accepted on hardware
+
+**CONFIRMED ON HARDWARE:** after the CS_HIGH first-contact breakthrough, the
+same MateBook 13 2021 target completed the exact ChicagoHS initialization path:
+A2 reset returned `0x010008`, chip ID returned `0x2504`, and the 64-byte OTP
+passed all reviewed CRC checks.
+
+**CONFIRMED:** OTP-derived calibration on this target yielded tcode 256, FDT
+delta 33 and DAC values `0x0b68 / 0xb8 / 0xb6 / 0xb6`. IDLE and all four DAC
+register writes returned successful pre-TLS ACK state.
+
+**CONFIRMED:** the patched 256-byte target configuration was accepted by command
+`0x90`; the separate config response returned status `0x01`. Cleanup left
+GPIO264 LOW.
+**DRIVER ACTION:** the candidate now carries a reusable target helper for A2,
+chip-ID, OTP parsing/calibration, config patch/checksum and upload. The runtime
+configuration path is enabled before TLS; PMK/TLS remains gated.
+
+**NEXT:** exact ST411 firmware analysis identifies a target PMK buffer/length
+state consumed directly by the TLS setup routine. Validate that state with a
+bounded read-only `0xF2` probe; never publish the recovered PMK bytes and do not
+use a sibling-part address or key as a substitute.

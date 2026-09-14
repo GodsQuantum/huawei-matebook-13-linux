@@ -1,6 +1,6 @@
 # Current handoff — GXFP51A0 / GF3658 Milan
 
-**Updated: 2026-09-14 after first Linux ACK / EVK confirmation.**
+**Updated: 2026-09-14 after first Linux ACK / EVK and target-config confirmation.**
 
 This is the shortest canonical resume point. The historical 2026-09-08
 checkpoint remains in [FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
@@ -20,7 +20,9 @@ first real sensor ACK under Linux         CONFIRMED
 A8 ACK                                    CONFIRMED
 a8 firmware/EVK response                  CONFIRMED
 firmware                                  GF_ST411SEC_APP_14115
-config/TLS/image                          NOT YET INTEGRATED
+target config                              CONFIRMED ON HARDWARE
+TLS/PMK                                   NEXT BOUNDARY
+image/capture                             NOT REACHED
 ```
 ## Confirmed Linux operating recipe
 
@@ -48,16 +50,20 @@ The identical command sequence with normal Linux CS polarity produced only
 idle bytes.
 ## Candidate changes on the current branch
 
-The branch `research/gxfp51a0-cshigh-first-contact` changes only the
-first-contact transport boundary:
+The branch `research/gxfp51a0-config-tls` now carries both the confirmed
+first-contact transport and the exact-target ChicagoHS configuration path:
 
 - initial spidev configuration: mode 0 + `SPI_CS_HIGH`;
 - recovery reopen: same mode;
 - SPI rate: 1 MHz until a separate higher-rate test proves 10 MHz on Linux;
 - reset helper: HIGH 300 ms -> LOW -> 600 ms settle;
-- source and research regressions assert those values.
+- source and research regressions assert those values;
+- target soft reset A2, chip ID 0x2504 and 64-byte OTP parsing;
+- OTP-derived tcode/FDT/DAC calibration;
+- exact 256-byte target config patch/checksum/upload;
+- runtime config path enabled before TLS.
 
-Config/TLS/PSK remain deliberately gated. No firmware update path is enabled.
+TLS/PMK remains deliberately gated. No firmware or PMK write path is enabled.
 
 ## Software validation
 
@@ -75,14 +81,11 @@ research suite, source manifest, libfprint v1.94.100 build, privacy gate and
 
 First-contact transport is no longer the blocker. Work in this order:
 
-1. cleanly confirm/read chip identity and target state;
-2. integrate the exact GXFP51A0 / ChicagoHS configuration from same-device
-   evidence;
-3. resolve the target TLS/PSK path without assuming the GXFP5187 48-byte RAM
-   PSK is identical;
-4. image capture;
-5. enrol/verify;
-6. fprintd/PAM/desktop integration.
+1. resolve the target PMK read path using the exact ST411 firmware evidence;
+2. establish the TLS-PSK handshake;
+3. capture and decode the first 80x64 image;
+4. enrol/verify;
+5. fprintd/PAM/desktop integration.
 ## Do not reopen without new evidence
 
 - DMA versus PIO;
@@ -101,7 +104,8 @@ normal Linux CS polarity based only on ACPI `PolarityLow` wording.
 
 1. `HANDOFF_CURRENT.md`
 2. `docs/first-contact-confirmed-2026-09-14.md`
-3. `driver/goodix51a0/README.md`
+3. `docs/target-config-confirmed-2026-09-14.md`
+4. `driver/goodix51a0/README.md`
 4. `docs/current-boundary-2026-09-08.md`
 5. `docs/deviceinit-besd-spb-closure-2026-09-08.md`
 6. `docs/windows-14136-14140-differential-2026-09-08.md`

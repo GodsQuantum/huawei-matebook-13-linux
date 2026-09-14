@@ -162,6 +162,8 @@ sources=(
   goodix_sift.h
   gx51_transport.c
   gx51_transport.h
+  gx51_target.c
+  gx51_target.h
 )
 for file in "${sources[@]}"; do
   [[ -f "$DRIVER_DIR/$file" ]] || die "CANDIDATE_SOURCE_MISSING:$file"

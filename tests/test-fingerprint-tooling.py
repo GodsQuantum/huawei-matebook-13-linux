@@ -28,6 +28,10 @@ require("sha256sum -c SOURCE_MANIFEST.sha256" in build, "source manifest gate mi
 require("git -C \"$SRC_DIR\" apply --check" in build, "patch preflight missing")
 require("fpi_device_goodix51a0_get_type" in build, "type-symbol artifact gate missing")
 require("GXFP51A0" in build, "driver string artifact gate missing")
+require("gx51_target.c" in build, "target-init source injection missing")
+require("gx51_target.h" in build, "target-init header injection missing")
+patch = (FP / "driver/goodix51a0/libfprint-v1.94.100.patch").read_text(encoding="utf-8")
+require("drivers/goodix51a0/gx51_target.c" in patch, "target-init source missing from libfprint patch")
 require(
     re.search(r'nm\s+"\$archive"\s*\|\s*grep\s+[^\n]*-q', build) is None,
     "pipefail-unsafe nm|grep -q artifact gate reintroduced",

@@ -23,6 +23,9 @@ SPI controller submissions          proven
 first sensor ACK                    CONFIRMED
 A8 ACK                              CONFIRMED
 EVK firmware response               CONFIRMED: GF_ST411SEC_APP_14115
+chip ID / OTP calibration            CONFIRMED
+target 256-byte config               CONFIRMED
+TLS/PMK                              NEXT BOUNDARY
 capture/enroll/verify               NOT REACHED
 fprintd/PAM                         NOT REACHED
 ```
@@ -77,6 +80,7 @@ See [scripts/README.md](scripts/README.md) and
 - DriverState Install: `(9,3)` / packed `0x96`
 - NOP checksum: `0xA5`
 - GetEvkVersion: NOP -> 5 ms -> A8, one identical A8 retry after first ACK timeout
+- exact target config: A2 reset -> chip ID 0x2504 -> 64-byte OTP -> OTP-derived tcode/FDT/DAC -> 0x90 config accepted
 - exact ST411 vector evidence:
   - SP `0x20020000`
   - Reset_Handler `0x08033198`
@@ -151,16 +155,14 @@ Do not restart these branches without new exact-device evidence:
 - GPIO112 / GPP_D16 enable hypothesis
 - hidden LPSS fingerprint switch
 - DeviceInit intermediate action as missing sensor I/O
-- fixed 48-byte GXFP51A0 PSK assumption
+- unverified GXFP5187 PMK address/key assumptions
 - unchanged common-init replay
 
 ## Still unresolved
 
-- exact GXFP51A0 target config / `Milan_DlCfg`
-- exact target DSM/TLS/PSK semantics and key material path
-- image capture
-- exact `_DSM` TLS/PSK semantics and length
-- image capture
+- runtime read/validation of the exact-target PMK identified by ST411 firmware analysis
+- TLS-PSK handshake
+- first 80x64 image capture and decode
 - enroll / verify
 - fprintd / PAM / desktop integration
 

@@ -1,6 +1,6 @@
 # GXFP51A0 experimental libfprint candidate
 
-**Status: builds and links against libfprint v1.94.100; first sensor communication is confirmed, but config/TLS/capture are not integrated yet.**
+**Status: builds and links against libfprint v1.94.100; first contact and exact-target configuration are confirmed. TLS/PMK and capture are not complete yet.**
 
 This directory preserves the reviewed GXFP51A0 candidate source. Compilation is
 not evidence of working fingerprint capture.
@@ -62,16 +62,19 @@ SOFTWARE_BUILD_READY=YES
 
 ## Deliberately blocked
 
-`gx_upload_config_and_reqtls()` remains target-gated.
+`gx_upload_config_and_reqtls()` now executes the same-device target init/config
+path: A2 soft reset, chip ID, OTP validation/calibration, IDLE + four DAC
+register writes, then the exact 256-byte config upload. The PMK/TLS step remains
+strictly gated.
 
-The candidate does **not** promote GXFP5187-specific configuration or RAM-PSK
-behavior to GXFP51A0. TLS/capture/matcher/enroll/verify code is preserved as a
-downstream architectural base but remains unreachable until exact-device
-communication/config/TLS evidence exists.
+The candidate does **not** promote GXFP5187-specific PMK addresses or keys to
+GXFP51A0. TLS/capture/matcher/enroll/verify code is preserved as a downstream
+architectural base but remains unreachable until the target PMK is read and
+validated.
 
-`GOODIX_PSK_LEN=48` is inherited precedent and is **not a validated GXFP51A0
-constant**. Windows `_DSM` handling at the reconstructed layer is
-variable-length.
+A 48-byte PMK length is suggested by exact ST411 firmware control flow, but
+the runtime PMK read is still pending and no key material is published. Windows
+`_DSM` handling at the reconstructed layer remains variable-length.
 
 No proprietary Goodix/Huawei binary, firmware, raw `_DSM`, PSK or derived key
 is included here.
@@ -117,7 +120,7 @@ Historical runs with normal chip-select polarity remained silent:
 180 retained RX bytes, all 0xFF
 ```
 
-Those runs are superseded by the 2026-09-14 first-contact confirmation: `SPI_CS_HIGH` + GPIO264 LOW produces a real A8 ACK and `GF_ST411SEC_APP_14115`. Config/TLS/capture remain gated.
+Those runs are superseded by the 2026-09-14 hardware results: `SPI_CS_HIGH` + GPIO264 LOW produces a real A8 ACK and `GF_ST411SEC_APP_14115`, and the exact OTP-derived ChicagoHS config is accepted. TLS/PMK/capture remain the next boundary.
 
 Resume from [`../../HANDOFF_CURRENT.md`](../../HANDOFF_CURRENT.md).
 

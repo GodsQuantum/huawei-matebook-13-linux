@@ -16,7 +16,7 @@ Le dépôt est désormais organisé autour de ces deux écueils.
 | Domaine | État | Ce que fournit le dépôt |
 | --- | --- | --- |
 | **GPU & alimentation — NVIDIA MX250** | **Fonctionnel sur la configuration validée** | Vrai état Integrated au repos, activation à la volée par application, PRIME Render Offload, déchargement/retrait PCI automatique, isolation Plasma/KWin, gestion Desktop et Steam |
-| **Empreinte — Goodix GXFP51A0 / GF3658** | **Premier contact confirmé / intégration driver en cours** | ACK Linux réel + `GF_ST411SEC_APP_14115` confirmés sur MateBook 13 2021 avec GPIO264 LOW et `SPI_CS_HIGH` ; config/TLS/capture restent à faire |
+| **Empreinte — Goodix GXFP51A0 / GF3658** | **Premier contact confirmé / intégration driver en cours** | ACK Linux réel + `GF_ST411SEC_APP_14115` et configuration cible dérivée de l’OTP confirmés sur MateBook 13 2021 ; TLS/PMK est la prochaine frontière |
 
 ### Configuration GPU validée
 

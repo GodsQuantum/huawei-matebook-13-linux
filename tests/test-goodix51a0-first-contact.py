@@ -5,8 +5,14 @@ import re
 ROOT=Path(__file__).resolve().parents[1]
 SRC=ROOT/"fingerprint/driver/goodix51a0/goodix51a0.c"
 TRANSPORT=ROOT/"fingerprint/driver/goodix51a0/gx51_transport.c"
+HEADER=ROOT/"fingerprint/driver/goodix51a0/goodix51a0.h"
+TARGET=ROOT/"fingerprint/driver/goodix51a0/gx51_target.c"
+TARGET_HEADER=ROOT/"fingerprint/driver/goodix51a0/gx51_target.h"
 text=SRC.read_text(encoding="utf-8")
 transport=TRANSPORT.read_text(encoding="utf-8")
+header=HEADER.read_text(encoding="utf-8")
+target=TARGET.read_text(encoding="utf-8")
+target_header=TARGET_HEADER.read_text(encoding="utf-8")
 
 def fn(name):
     pos=text.find(name+" (")
@@ -39,8 +45,19 @@ first_reset=op.find("gx_gpio_reset")
 assert first_ds>=0 and first_reset>first_ds
 assert op.count("gx_driverstate_install_windows")==1
 
-assert "GXFP51A0: TLS/config gate blocked" in gate
+assert "gx_target_configure" in text
+assert "gxfp_derive_calibration" in text
+assert "gxfp_patch_config" in text
+assert "GXFP_TARGET_BASE_CONFIG" in text
+assert "gx_target_configure (self)" in gate
+assert "GXFP51A0: target config gate blocked pending live hardware validation" not in gate
+assert "GXFP51A0: PMK/PSK gate blocked pending exact target key source" in gate
 assert "return FALSE;" in gate
+assert "#define GOODIX_IMG_WIDTH   80" in header
+assert "#define GOODIX_IMG_HEIGHT  64" in header
+assert "const uint8_t GXFP_TARGET_BASE_CONFIG" in target
+assert "GXFP_TARGET_PMK_ADDR" not in target_header
+assert "GXFP_TARGET_PMK_LEN_ADDR" not in target_header
 assert 10 + 4*6 == 34
 
 psk=fn("gx_read_psk")

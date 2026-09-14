@@ -25,8 +25,8 @@
 #include "drivers_api.h"
 
 /* Sensor geometry, cross-checked against the vendor driver's own logs. */
-#define GOODIX_IMG_WIDTH   132
-#define GOODIX_IMG_HEIGHT  112
+#define GOODIX_IMG_WIDTH   80
+#define GOODIX_IMG_HEIGHT  64
 #define GOODIX_IMG_PIXELS  (GOODIX_IMG_WIDTH * GOODIX_IMG_HEIGHT)
 
 /* SPI framing: 0xA0 is a cleartext message, 0xB0 carries a TLS record. */
