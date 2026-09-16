@@ -25,7 +25,7 @@ chip ID / calibration OTP            CONFIRMÉS
 config cible 256 octets              CONFIRMÉE
 TLS                                  CONFIRMÉ : TLS1.2 PSK-AES128-GCM-SHA256
 recherche PMK runtime via F2         FERMÉE / NON APPLICABLE
-variante hash E4 du 14115            CONFIRMÉE SUR PEGASUS
+variante E4 AAAA/32 octets du 14115  CONFIRMÉE SUR PEGASUS
 provisioning PSK E0                  FERMÉ : PAS DE HANDLER
 réchiffrement PMK factory            CONFIRMÉ MÊME FIRMWARE
 TLS live sur GXFP51A0/14115          CONFIRMÉ EXTERNE
@@ -141,7 +141,8 @@ chemin : extraction F2 corrigée du record flash -> déchiffrement privé de la 
 reproduire ces gates indépendamment avant de déclarer le TLS local fonctionnel.
 
 L'analyse exacte du 14115 ferme aussi le raccourci GDIX51C0 de provisioning :
-E4/hash existe et est confirmé sur Pegasus, mais E0/write est absent/no-op sur
+la lecture E4 AAAA/32 octets existe et est confirmée sur Pegasus, mais elle n'est
+pas utilisée comme hash du body factory ou de la PMK. E0/write est absent/no-op sur
 ce firmware. Aucune écriture E0 ne doit être tentée.
 
 La suite est donc : reproduire le secret factory en privé, ouvrir TLS, puis
@@ -173,7 +174,7 @@ dépendance bloquante.
 premier ACK [CONFIRMÉ]
 -> A8/EVK [CONFIRMÉ]
 -> config cible exacte [CONFIRMÉE]
--> unseal SGX du secret hôte
+-> déchiffrement des records factory redondants (body 256 octets)
 -> TLS PSK-GCM
 -> capture image
 -> enroll

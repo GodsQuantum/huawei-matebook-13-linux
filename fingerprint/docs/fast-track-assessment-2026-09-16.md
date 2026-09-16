@@ -33,7 +33,10 @@ state-changing provisioning experiment before touching sensor state.
 
 The replacement fast track is the factory flash-secret path. Independent work
 on another GXFP51A0 running the same 14115 firmware has now recovered and
-validated the complete scheme: a flash record is decrypted with AES-128-CBC;
+validated the complete scheme. Three redundant records exist at the known
+factory slots; each has an 8-byte header declaring a 256-byte body. That body is
+16 bytes of salt plus 240 bytes of AES-128-CBC ciphertext. The record is
+decrypted with AES-128-CBC;
 the key is the first 16 bytes of `SHA256(salt || 48 zero bytes || fallback
 seed)`, the IV is the 16-byte salt, and the authenticated plaintext begins with
 record type `0x000d`, length `0x30`, followed by the 48-byte TLS PSK. The full
@@ -55,8 +58,10 @@ overlapping-read checks, and validate reconstructed private data before use.
    sequence, 1 MHz and final GPIO264 LOW.
 2. Reconstruct the 14115 factory flash record on Pegasus using read-only,
    overlapping F2 reads and strict known-vector/record-integrity checks.
-3. Decrypt only in private storage, require record type `0x000d` and length
-   `48`, and never log or publish the PSK.
+3. Decrypt only in memory, recover the F2-corrupted first byte by requiring a
+   unique type `0x000d` / length `48` candidate, and require matching PMKs from
+   at least two redundant copies. E4 is a firmware sanity check, not a body hash.
+   Never log, store or publish the PSK.
 4. Establish the already-modelled TLS 1.2 PSK-GCM session on Pegasus.
 5. Reuse/adapt the tested same-die ChicagoHS capture, calibration, matcher and
    libfprint/fprintd integration instead of reimplementing those layers.

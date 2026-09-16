@@ -27,7 +27,7 @@ chip ID / OTP calibration            CONFIRMED
 target 256-byte config               CONFIRMED
 TLS cipher                           CONFIRMED: TLS1.2 PSK-AES128-GCM-SHA256
 runtime-RAM PMK hunting              CLOSED_NOT_APPLICABLE
-E4 14115 hash variant                CONFIRMED ON PEGASUS
+E4 14115 AAAA/32-byte variant        CONFIRMED ON PEGASUS
 E0 PSK provisioning                 CLOSED_NO_HANDLER
 factory PMK decrypt                 CONFIRMED SAME-FIRMWARE
 live TLS on GXFP51A0/14115          CONFIRMED EXTERNAL
@@ -183,7 +183,8 @@ live TLS 1.2 `PSK-AES128-GCM-SHA256`. Pegasus must reproduce those gates
 independently before this repository claims local TLS success.
 
 Exact 14115 analysis also closes the GDIX51C0 Linux-owned-key shortcut: the E4
-read/hash operation exists and is confirmed on Pegasus, but the corresponding E0
+AAAA/32-byte read operation exists and is confirmed on Pegasus, but it is not
+treated as a hash of the factory body or PMK. The corresponding E0
 write/provisioning operation is absent/no-op on this firmware. No E0 write should
 be attempted.
 
@@ -216,7 +217,7 @@ fallback research path rather than a blocking dependency.
 first ACK [CONFIRMED]
 -> A8/EVK [CONFIRMED]
 -> exact target config [CONFIRMED]
--> SGX host-secret unseal
+-> redundant factory record decrypt (256-byte body)
 -> TLS PSK-GCM
 -> image capture
 -> enroll

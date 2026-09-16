@@ -464,22 +464,21 @@ gx_factory_mem_read_cb (void *user, uint32_t address,
 }
 
 static bool
-gx_factory_hash_read_cb (void *user, uint8_t hash[32])
+gx_factory_e4_sanity (FpiDeviceGoodix51A0 *self)
 {
-  FpiDeviceGoodix51A0 *self = user;
   struct gxfp_target_packet packet;
-  guint8 rx[128];
+  guint8 rx[128], value[32];
   uint32_t dtype = 0;
   int n = 0;
+  bool ok;
 
-  if (!gxfp_build_factory_hash_read (&packet) ||
-      !gx_target_send_ack (self, &packet, 0xe4, NULL) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
-      !gxfp_parse_factory_hash_response (rx, n, &dtype, hash))
-    return false;
-
-  /* Exact GF_ST411SEC_APP_14115 contract confirmed on Pegasus. */
-  return dtype == 0x0000aaaau;
+  ok = gxfp_build_factory_hash_read (&packet) &&
+       gx_target_send_ack (self, &packet, 0xe4, NULL) &&
+       gx_target_read_body (self, rx, sizeof rx, &n) &&
+       gxfp_parse_factory_hash_response (rx, n, &dtype, value) &&
+       dtype == 0x0000aaaau;
+  OPENSSL_cleanse (value, sizeof value);
+  return ok;
 }
 
 static gboolean
@@ -488,14 +487,13 @@ gx_factory_load_pmk (FpiDeviceGoodix51A0 *self)
   guint8 pmk[GXFP_FACTORY_PMK_LEN];
   gboolean ok;
 
-  ok = gxfp_factory_load_pmk (gx_factory_mem_read_cb,
-                              gx_factory_hash_read_cb,
-                              self, pmk);
+  ok = gx_factory_e4_sanity (self) &&
+       gxfp_factory_load_pmk (gx_factory_mem_read_cb, self, pmk);
   if (ok)
     {
       memcpy (self->psk, pmk, sizeof pmk);
       self->psk_ready = TRUE;
-      fp_info ("GXFP51A0 factory PMK validated in memory");
+      fp_info ("GXFP51A0 factory PMK validated by redundant-record consensus");
     }
   else
     {
@@ -589,8 +587,9 @@ gx_target_configure (FpiDeviceGoodix51A0 *self)
 }
 
 /* Same-device Pegasus validation confirmed A2 -> chip ID -> OTP -> DAC ->
- * 0x90. The factory record is read-only, decrypted in RAM and checked against
- * E4 before D0 is ever sent. */
+ * 0x90. E4 is only an exact-firmware sanity check on 14115; it is not treated
+ * as a hash of the factory record. The read-only redundant factory records are
+ * decrypted in RAM and require 2-of-3 PMK consensus before D0 is sent. */
 static gboolean
 gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self)
 {

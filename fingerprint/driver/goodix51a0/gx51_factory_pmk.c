@@ -9,19 +9,6 @@ static const uint8_t goodix_fallback_seed[16] = {
   0x2d, 0x53, 0xe9, 0x6d, 0xc0, 0x34, 0x7a, 0xb0
 };
 
-bool
-gxfp_factory_body_sha256 (const uint8_t *body,
-                          size_t body_len,
-                          uint8_t hash[32])
-{
-  unsigned int n = 0;
-
-  if (!body || !hash)
-    return false;
-
-  return EVP_Digest (body, body_len, hash, &n, EVP_sha256 (), NULL) == 1 && n == 32;
-}
-
 static bool
 derive_factory_key (const uint8_t salt[GXFP_FACTORY_SALT_LEN], uint8_t key[16])
 {
@@ -35,7 +22,6 @@ derive_factory_key (const uint8_t salt[GXFP_FACTORY_SALT_LEN], uint8_t key[16])
   ok = EVP_Digest (input, sizeof input, digest, &n, EVP_sha256 (), NULL) == 1 && n == 32;
   if (ok)
     memcpy (key, digest, 16);
-
   OPENSSL_cleanse (digest, sizeof digest);
   OPENSSL_cleanse (input, sizeof input);
   return ok;
@@ -54,13 +40,11 @@ gxfp_factory_pmk_decrypt (const uint8_t *body,
                           uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
   EVP_CIPHER_CTX *ctx = NULL;
-  uint8_t key[16], plain[64];
+  uint8_t key[16], plain[GXFP_FACTORY_BODY_LEN - GXFP_FACTORY_SALT_LEN];
   int out1 = 0, out2 = 0;
   bool ok = false;
 
-  if (!body || !pmk || body_len < GXFP_FACTORY_BODY_MIN_LEN)
-    return false;
-  if ((body_len - GXFP_FACTORY_SALT_LEN) != sizeof plain)
+  if (!body || !pmk || body_len != GXFP_FACTORY_BODY_LEN)
     return false;
   if (!derive_factory_key (body, key))
     return false;
@@ -74,21 +58,18 @@ gxfp_factory_pmk_decrypt (const uint8_t *body,
     goto out;
   if (EVP_DecryptUpdate (ctx, plain, &out1,
                          body + GXFP_FACTORY_SALT_LEN,
-                         (int) (body_len - GXFP_FACTORY_SALT_LEN)) != 1)
+                         GXFP_FACTORY_BODY_LEN - GXFP_FACTORY_SALT_LEN) != 1)
     goto out;
   if (EVP_DecryptFinal_ex (ctx, plain + out1, &out2) != 1)
     goto out;
   if (out1 + out2 != (int) sizeof plain)
     goto out;
-
-  if (plain[0] != 0x00 || plain[1] != 0x0d)
-    goto out;
-  if (read_be32 (plain + 2) != GXFP_FACTORY_PMK_LEN)
+  if (plain[0] != 0x00 || plain[1] != 0x0d ||
+      read_be32 (plain + 2) != GXFP_FACTORY_PMK_LEN)
     goto out;
 
   memcpy (pmk, plain + 6, GXFP_FACTORY_PMK_LEN);
   ok = true;
-
 out:
   EVP_CIPHER_CTX_free (ctx);
   OPENSSL_cleanse (plain, sizeof plain);
@@ -99,19 +80,18 @@ out:
 }
 
 bool
-gxfp_factory_pmk_recover_first_byte (
-  const uint8_t *damaged_body,
-  size_t body_len,
-  uint8_t *recovered_first_byte,
-  uint8_t pmk[GXFP_FACTORY_PMK_LEN])
+gxfp_factory_pmk_recover_first_byte (const uint8_t *damaged_body,
+                                     size_t body_len,
+                                     uint8_t *recovered_first_byte,
+                                     uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
-  uint8_t candidate_body[GXFP_FACTORY_BODY_MIN_LEN];
+  uint8_t candidate_body[GXFP_FACTORY_BODY_LEN];
   uint8_t candidate_pmk[GXFP_FACTORY_PMK_LEN];
   unsigned int hits = 0;
   uint8_t found = 0;
 
   if (!damaged_body || !recovered_first_byte || !pmk ||
-      body_len != GXFP_FACTORY_BODY_MIN_LEN)
+      body_len != GXFP_FACTORY_BODY_LEN)
     return false;
 
   memcpy (candidate_body, damaged_body, body_len);
@@ -124,98 +104,63 @@ gxfp_factory_pmk_recover_first_byte (
       found = (uint8_t) i;
       memcpy (pmk, candidate_pmk, GXFP_FACTORY_PMK_LEN);
     }
-
   OPENSSL_cleanse (candidate_pmk, sizeof candidate_pmk);
   OPENSSL_cleanse (candidate_body, sizeof candidate_body);
-
   if (hits != 1)
     {
       OPENSSL_cleanse (pmk, GXFP_FACTORY_PMK_LEN);
       return false;
     }
-
   *recovered_first_byte = found;
   return true;
 }
 
 bool
-gxfp_factory_pmk_recover_verified (
-  const uint8_t *damaged_body,
-  size_t body_len,
-  const uint8_t expected_hash[32],
-  uint8_t pmk[GXFP_FACTORY_PMK_LEN])
-{
-  uint8_t corrected[GXFP_FACTORY_BODY_MIN_LEN];
-  uint8_t actual_hash[32];
-  uint8_t first = 0;
-  bool ok = false;
-
-  if (!damaged_body || !expected_hash || !pmk ||
-      body_len != GXFP_FACTORY_BODY_MIN_LEN)
-    return false;
-  if (!gxfp_factory_pmk_recover_first_byte (damaged_body, body_len,
-                                             &first, pmk))
-    return false;
-
-  memcpy (corrected, damaged_body, body_len);
-  corrected[0] = first;
-  if (gxfp_factory_body_sha256 (corrected, body_len, actual_hash) &&
-      CRYPTO_memcmp (actual_hash, expected_hash, sizeof actual_hash) == 0)
-    ok = true;
-
-  OPENSSL_cleanse (corrected, sizeof corrected);
-  OPENSSL_cleanse (actual_hash, sizeof actual_hash);
-  if (!ok)
-    OPENSSL_cleanse (pmk, GXFP_FACTORY_PMK_LEN);
-  return ok;
-}
-
-bool
 gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
-                       GxfpFactoryHashRead hash_read,
                        void *user,
                        uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
-  static const uint32_t bases[] = {
-    0x08004000u, 0x08008000u, 0x0800a000u
-  };
-  uint8_t expected_hash[32], len_probe[5], body[GXFP_FACTORY_BODY_MIN_LEN];
+  static const uint32_t bases[] = {0x08004000u, 0x08008000u, 0x0800a000u};
+  uint8_t len_probe[5], body[GXFP_FACTORY_BODY_LEN];
+  uint8_t candidates[3][GXFP_FACTORY_PMK_LEN];
+  bool valid[3] = {false, false, false};
   bool ok = false;
 
-  if (!mem_read || !hash_read || !pmk)
+  if (!mem_read || !pmk)
     return false;
-  if (!hash_read (user, expected_hash))
-    goto out;
 
-  for (size_t i = 0; i < sizeof bases / sizeof bases[0]; i++)
+  for (size_t i = 0; i < 3; i++)
     {
       uint32_t body_len;
-
+      uint8_t first = 0;
       memset (len_probe, 0, sizeof len_probe);
       memset (body, 0, sizeof body);
       if (!mem_read (user, bases[i] + 3u, sizeof len_probe, len_probe))
         continue;
-
       body_len = (uint32_t) len_probe[1] |
                  ((uint32_t) len_probe[2] << 8) |
                  ((uint32_t) len_probe[3] << 16) |
                  ((uint32_t) len_probe[4] << 24);
-      if (body_len != GXFP_FACTORY_BODY_MIN_LEN)
+      if (body_len != GXFP_FACTORY_BODY_LEN)
         continue;
       if (!mem_read (user, bases[i] + 8u, body_len, body))
         continue;
-      if (gxfp_factory_pmk_recover_verified (body, body_len,
-                                              expected_hash, pmk))
-        {
-          ok = true;
-          break;
-        }
+      valid[i] = gxfp_factory_pmk_recover_first_byte (body, body_len,
+                                                       &first, candidates[i]);
     }
 
-out:
-  OPENSSL_cleanse (expected_hash, sizeof expected_hash);
+  for (size_t i = 0; i < 3 && !ok; i++)
+    for (size_t j = i + 1; j < 3 && !ok; j++)
+      if (valid[i] && valid[j] &&
+          CRYPTO_memcmp (candidates[i], candidates[j], GXFP_FACTORY_PMK_LEN) == 0)
+        {
+          memcpy (pmk, candidates[i], GXFP_FACTORY_PMK_LEN);
+          ok = true;
+        }
+
   OPENSSL_cleanse (len_probe, sizeof len_probe);
   OPENSSL_cleanse (body, sizeof body);
+  OPENSSL_cleanse (candidates, sizeof candidates);
   if (!ok)
     OPENSSL_cleanse (pmk, GXFP_FACTORY_PMK_LEN);
   return ok;
