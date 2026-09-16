@@ -25,12 +25,10 @@
  * TLS_PSK_WITH_AES_128_GCM_SHA256. The sensor is the TLS CLIENT and the host
  * is the server. The PSK identity is "Client_identity".
  *
- * Target TLS records observed during the working Windows session fit inside
- * the standard TLS 1.2 record limit (the large captured record is ~10.6 kB),
- * so stock OpenSSL can authenticate/decrypt them. The SPI layer sometimes
- * hands us an already framed raw TLS record; gx_tls_decrypt_record() injects
- * that complete record back into the OpenSSL BIO and lets SSL_read() perform
- * the AEAD/GCM record processing.
+ * GF3658/14115 image capture returns one application-data record larger than
+ * the TLS 1.2 16 KiB plaintext limit. Stock SSL_read() rejects that record,
+ * so gx_tls_decrypt_record() authenticates/decrypts the already-framed record
+ * directly with the TLS 1.2 client_write_key/IV and AES-128-GCM sequence AAD.
  */
 #pragma once
 

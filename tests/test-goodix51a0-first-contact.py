@@ -8,11 +8,15 @@ TRANSPORT=ROOT/"fingerprint/driver/goodix51a0/gx51_transport.c"
 HEADER=ROOT/"fingerprint/driver/goodix51a0/goodix51a0.h"
 TARGET=ROOT/"fingerprint/driver/goodix51a0/gx51_target.c"
 TARGET_HEADER=ROOT/"fingerprint/driver/goodix51a0/gx51_target.h"
+FACTORY=ROOT/"fingerprint/driver/goodix51a0/gx51_factory_pmk.c"
+FACTORY_HEADER=ROOT/"fingerprint/driver/goodix51a0/gx51_factory_pmk.h"
 text=SRC.read_text(encoding="utf-8")
 transport=TRANSPORT.read_text(encoding="utf-8")
 header=HEADER.read_text(encoding="utf-8")
 target=TARGET.read_text(encoding="utf-8")
 target_header=TARGET_HEADER.read_text(encoding="utf-8")
+factory=FACTORY.read_text(encoding="utf-8")
+factory_header=FACTORY_HEADER.read_text(encoding="utf-8")
 
 def fn(name):
     pos=text.find(name+" (")
@@ -50,9 +54,16 @@ assert "gxfp_derive_calibration" in text
 assert "gxfp_patch_config" in text
 assert "GXFP_TARGET_BASE_CONFIG" in text
 assert "gx_target_configure (self)" in gate
-assert "GXFP51A0: target config gate blocked pending live hardware validation" not in gate
-assert "GXFP51A0: PMK/PSK gate blocked pending exact target key source" in gate
+assert "!self->psk_ready && !gx_factory_load_pmk (self)" in gate
+assert "GX_REQTLS" in gate and "gxfp_parse_ack (ack, n, 0xd0" in gate
+assert "PMK/PSK gate blocked" not in gate
 assert "return FALSE;" in gate
+assert "gxfp_factory_load_pmk" in factory
+assert "gxfp_factory_pmk_recover_verified" in factory
+assert "CRYPTO_memcmp" in factory and "OPENSSL_cleanse" in factory
+assert "GXFP_FACTORY_PMK_LEN 48u" in factory_header
+assert "gxfp_parse_mem_read_response" in target
+assert "gxfp_parse_factory_hash_response" in target
 assert "#define GOODIX_IMG_WIDTH   80" in header
 assert "#define GOODIX_IMG_HEIGHT  64" in header
 assert "const uint8_t GXFP_TARGET_BASE_CONFIG" in target
@@ -60,10 +71,10 @@ assert "GXFP_TARGET_PMK_ADDR" not in target_header
 assert "GXFP_TARGET_PMK_LEN_ADDR" not in target_header
 assert 10 + 4*6 == 34
 
-psk=fn("gx_read_psk")
-for spi_setup in (op, psk):
-    assert "SPI_MODE_0 | SPI_CS_HIGH" in spi_setup
-    assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", spi_setup)
+assert "gx_read_psk" not in text
+assert "SPI_MODE_0 | SPI_CS_HIGH" in op
+assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", op)
+assert "OPENSSL_cleanse (self->psk" in fn("gx_dev_close")
 
 assert "gx51_sleep_us(300000)" in transport
 assert "gx51_sleep_us(600000)" in transport

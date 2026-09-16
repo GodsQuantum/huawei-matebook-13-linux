@@ -34,6 +34,7 @@ bool gxfp_build_reg_write(uint16_t address, uint16_t value,
                           struct gxfp_target_packet *packet);
 bool gxfp_build_mem_read(uint32_t address, uint32_t len,
                          struct gxfp_target_packet *packet);
+bool gxfp_build_factory_hash_read(struct gxfp_target_packet *packet);
 
 bool gxfp_config_checksum_valid(const uint8_t config[GXFP_CONFIG_LEN]);
 void gxfp_config_fix_checksum(uint8_t config[GXFP_CONFIG_LEN]);
@@ -53,5 +54,10 @@ bool gxfp_parse_chip_id_response(const uint8_t *body, size_t len,
                                  uint16_t *chip_id);
 bool gxfp_parse_otp_response(const uint8_t *body, size_t len, uint8_t out[64]);
 bool gxfp_parse_config_response(const uint8_t *body, size_t len, uint8_t *status);
+bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
+                                  uint32_t address, uint32_t requested_len,
+                                  uint8_t *out);
+bool gxfp_parse_factory_hash_response(const uint8_t *body, size_t len,
+                                      uint32_t *dtype, uint8_t hash[32]);
 
 #endif

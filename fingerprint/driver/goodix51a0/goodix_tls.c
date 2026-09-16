@@ -25,8 +25,18 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/bio.h>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <openssl/crypto.h>
 
 #include "goodix_tls.h"
+
+#define GCM_KEY_LEN             16u
+#define GCM_FIXED_IV_LEN         4u
+#define GCM_EXPLICIT_NONCE_LEN   8u
+#define GCM_NONCE_LEN           12u
+#define GCM_TAG_LEN             16u
+#define GCM_KEY_BLOCK_LEN       40u
 
 struct _GxTls
 {
@@ -41,6 +51,15 @@ struct _GxTls
   guint8     psk[64];
   gsize      psk_len;
   gchar     *identity;
+
+  /* TLS 1.2 PSK-AES128-GCM traffic material. The sensor is the client,
+   * therefore image records use the client_write key and fixed IV. */
+  guint8     client_key[GCM_KEY_LEN];
+  guint8     server_key[GCM_KEY_LEN];
+  guint8     client_iv[GCM_FIXED_IV_LEN];
+  guint8     server_iv[GCM_FIXED_IV_LEN];
+  guint64    read_seq;
+  gboolean   keys_ready;
 
   /* Optional complete TLS record injected by gx_tls_decrypt_record().
    * This lets stock OpenSSL authenticate/decrypt GCM records that the SPI
@@ -105,6 +124,88 @@ bio_create_cb (BIO *b)
 }
 
 /* ------------------------------------------------------------------ */
+/*  TLS 1.2 key expansion for PSK-AES128-GCM-SHA256                  */
+/* ------------------------------------------------------------------ */
+
+static void
+tls_prf (const guint8 *secret, gsize secret_len,
+         const gchar *label, const guint8 *seed, gsize seed_len,
+         guint8 *out, gsize out_len)
+{
+  gsize label_len = strlen (label);
+  g_autofree guint8 *ls = g_malloc (label_len + seed_len);
+  guint8 a[EVP_MAX_MD_SIZE];
+  unsigned int a_len = 0;
+  gsize done = 0;
+
+  memcpy (ls, label, label_len);
+  memcpy (ls + label_len, seed, seed_len);
+  HMAC (EVP_sha256 (), secret, (int) secret_len,
+        ls, label_len + seed_len, a, &a_len);
+
+  while (done < out_len)
+    {
+      guint8 block[EVP_MAX_MD_SIZE];
+      unsigned int block_len = 0;
+      g_autofree guint8 *tmp = g_malloc (a_len + label_len + seed_len);
+      gsize take;
+
+      memcpy (tmp, a, a_len);
+      memcpy (tmp + a_len, ls, label_len + seed_len);
+      HMAC (EVP_sha256 (), secret, (int) secret_len, tmp,
+            a_len + label_len + seed_len, block, &block_len);
+      take = MIN ((gsize) block_len, out_len - done);
+      memcpy (out + done, block, take);
+      done += take;
+      HMAC (EVP_sha256 (), secret, (int) secret_len,
+            a, a_len, a, &a_len);
+      OPENSSL_cleanse (block, sizeof block);
+    }
+  OPENSSL_cleanse (a, sizeof a);
+}
+
+static gboolean
+derive_record_keys (GxTls *t, GError **error)
+{
+  SSL_SESSION *sess = SSL_get_session (t->ssl);
+  guint8 master[48], cr[32], sr[32], seed[64], kb[GCM_KEY_BLOCK_LEN];
+  gsize n;
+
+  if (!sess)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED, "no TLS session");
+      return FALSE;
+    }
+  n = SSL_SESSION_get_master_key (sess, master, sizeof master);
+  if (n != sizeof master ||
+      SSL_get_client_random (t->ssl, cr, sizeof cr) != sizeof cr ||
+      SSL_get_server_random (t->ssl, sr, sizeof sr) != sizeof sr)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "cannot derive TLS 1.2 record keys");
+      return FALSE;
+    }
+
+  memcpy (seed, sr, 32);
+  memcpy (seed + 32, cr, 32);
+  tls_prf (master, sizeof master, "key expansion", seed, sizeof seed,
+           kb, sizeof kb);
+  memcpy (t->client_key, kb, GCM_KEY_LEN);
+  memcpy (t->server_key, kb + GCM_KEY_LEN, GCM_KEY_LEN);
+  memcpy (t->client_iv, kb + 2 * GCM_KEY_LEN, GCM_FIXED_IV_LEN);
+  memcpy (t->server_iv, kb + 2 * GCM_KEY_LEN + GCM_FIXED_IV_LEN,
+          GCM_FIXED_IV_LEN);
+
+  /* After ChangeCipherSpec the client's Finished is encrypted at sequence 0.
+   * The first post-handshake application record is therefore sequence 1. */
+  t->read_seq = 1;
+  t->keys_ready = TRUE;
+  OPENSSL_cleanse (master, sizeof master);
+  OPENSSL_cleanse (kb, sizeof kb);
+  return TRUE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Handshake                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -158,6 +259,8 @@ gx_tls_handshake_run (GxTls *t, GError **error)
    * TLS_PSK_WITH_AES_128_GCM_SHA256. */
   SSL_CTX_set_min_proto_version (t->ctx, TLS1_2_VERSION);
   SSL_CTX_set_max_proto_version (t->ctx, TLS1_2_VERSION);
+  /* ST411SEC_APP_14115 uses the classic TLS 1.2 PRF; EMS must stay off. */
+  SSL_CTX_set_options (t->ctx, SSL_OP_NO_EXTENDED_MASTER_SECRET);
   if (!SSL_CTX_set_cipher_list (t->ctx, "PSK-AES128-GCM-SHA256"))
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
@@ -200,7 +303,7 @@ gx_tls_handshake_run (GxTls *t, GError **error)
                    SSL_get_error (t->ssl, r), buf);
       return FALSE;
     }
-  return TRUE;
+  return derive_record_keys (t, error);
 }
 
 const gchar *
@@ -223,29 +326,65 @@ gssize
 gx_tls_decrypt_record (GxTls *t, const guint8 *raw, gsize raw_len,
                        guint8 *out, gsize out_cap)
 {
-  gsize body_len;
-  int n;
+  EVP_CIPHER_CTX *c = NULL;
+  const guint8 *body, *cipher, *tag;
+  guint8 nonce[GCM_NONCE_LEN], aad[13];
+  gsize body_len, cipher_len;
+  int n = 0, fin = 0;
+  gssize result = -1;
 
-  if (!t || !t->ssl || !raw || !out || raw_len < 5 || out_cap == 0)
+  if (!t || !t->ssl || !t->keys_ready || !raw || !out || raw_len < 5)
     return -1;
   if (raw[0] != 0x17 || raw[1] != 0x03 || raw[2] != 0x03)
     return -1;
+
   body_len = ((gsize) raw[3] << 8) | raw[4];
-  if (body_len + 5 != raw_len)
+  if (body_len + 5 != raw_len ||
+      body_len < GCM_EXPLICIT_NONCE_LEN + GCM_TAG_LEN)
+    return -1;
+  cipher_len = body_len - GCM_EXPLICIT_NONCE_LEN - GCM_TAG_LEN;
+  if (cipher_len > out_cap || cipher_len > G_MAXINT)
     return -1;
 
-  t->inject_buf = raw;
-  t->inject_len = raw_len;
-  t->inject_pos = 0;
-  t->inject_active = TRUE;
-  ERR_clear_error ();
-  n = SSL_read (t->ssl, out, (int) MIN (out_cap, (gsize) G_MAXINT));
-  t->inject_active = FALSE;
-  t->inject_buf = NULL;
-  t->inject_len = 0;
-  t->inject_pos = 0;
+  body = raw + 5;
+  cipher = body + GCM_EXPLICIT_NONCE_LEN;
+  tag = cipher + cipher_len;
+  memcpy (nonce, t->client_iv, GCM_FIXED_IV_LEN);
+  memcpy (nonce + GCM_FIXED_IV_LEN, body, GCM_EXPLICIT_NONCE_LEN);
 
-  return n > 0 ? (gssize) n : -1;
+  for (int i = 0; i < 8; i++)
+    aad[i] = (guint8) (t->read_seq >> (56 - 8 * i));
+  aad[8] = raw[0];
+  aad[9] = raw[1];
+  aad[10] = raw[2];
+  aad[11] = (guint8) (cipher_len >> 8);
+  aad[12] = (guint8) cipher_len;
+
+  c = EVP_CIPHER_CTX_new ();
+  if (!c)
+    goto out;
+  if (EVP_DecryptInit_ex (c, EVP_aes_128_gcm (), NULL, NULL, NULL) != 1 ||
+      EVP_CIPHER_CTX_ctrl (c, EVP_CTRL_GCM_SET_IVLEN, sizeof nonce, NULL) != 1 ||
+      EVP_DecryptInit_ex (c, NULL, NULL, t->client_key, nonce) != 1 ||
+      EVP_DecryptUpdate (c, NULL, &n, aad, sizeof aad) != 1 ||
+      EVP_DecryptUpdate (c, out, &n, cipher, (int) cipher_len) != 1 ||
+      EVP_CIPHER_CTX_ctrl (c, EVP_CTRL_GCM_SET_TAG, GCM_TAG_LEN,
+                           (void *) tag) != 1 ||
+      EVP_DecryptFinal_ex (c, out + n, &fin) != 1)
+    goto out;
+  if ((gsize) (n + fin) != cipher_len)
+    goto out;
+
+  t->read_seq++;
+  result = (gssize) cipher_len;
+
+out:
+  EVP_CIPHER_CTX_free (c);
+  OPENSSL_cleanse (nonce, sizeof nonce);
+  OPENSSL_cleanse (aad, sizeof aad);
+  if (result < 0 && cipher_len <= out_cap)
+    OPENSSL_cleanse (out, cipher_len);
+  return result;
 }
 
 void

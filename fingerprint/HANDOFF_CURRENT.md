@@ -1,6 +1,6 @@
 # Current handoff — GXFP51A0 / GF3658 Milan
 
-**Updated: 2026-09-16 after target-config/TLS integration and SGX host-secret validation.**
+**Updated: 2026-09-16 after factory-PMK integration and oversized TLS-GCM support.**
 
 This is the shortest canonical resume point. First-contact evidence is in
 [docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md),
@@ -29,11 +29,14 @@ WBDI exact private structure gate         PASS
 GDIX51C0 same-die Linux path              CONFIRMED REFERENCE
 E4 14115 hash variant                     CONFIRMED ON PEGASUS
 E0 Linux-owned PSK provisioning           CLOSED_NO_HANDLER
-factory flash PMK decrypt                 CONFIRMED SAME-FIRMWARE
+factory flash PMK decrypt                 IMPLEMENTED + TESTED OFFLINE
+factory E4/F2 loader in libfprint          SOFTWARE BUILD PASS
+TLS EMS disabled                           REGRESSION PASS
+oversized ~22 kB AES-GCM record decrypt    REGRESSION PASS
 live TLS on GXFP51A0/14115                CONFIRMED EXTERNAL
 Pegasus PMK + live TLS                     CURRENT BOUNDARY
 WBDI MRENCLAVE reproduction               FALLBACK RESEARCH
-image/capture                             NOT REACHED
+image/capture hardware                     NOT REACHED
 ```
 
 ## Confirmed sensor-side recipe
@@ -72,10 +75,14 @@ SHA-256-derived key and salt-derived IV; the plaintext record is type `0x000d`,
 length `0x30`, followed by the full 48-byte PSK.
 
 F2 can address the relevant flash (and can address RAM), but direct PMK hunting
-in runtime RAM remains closed. Upstream testing also identified F2 dump artifacts
-that require strict response-shape, known-vector and overlapping-read validation.
-Raw flash-secret material and PMK bytes remain private and must never enter this
-repository or logs.
+in runtime RAM remains closed. Pegasus historically returned the direct
+`F2|len|data|checksum` response shape, while another 14115 unit prepends an
+8-byte request echo; the driver parser now accepts only those two exact forms,
+with exact length/checksum validation. The factory loader reads only the selected
+0x08008000 record, recovers the known F2-corrupted first byte, requires a unique
+type-0x000d/length-48 decrypt candidate, and requires SHA-256(body) to match E4
+before marking the PMK ready. PMK bytes exist only in memory and are cleansed on
+close/failure; they are never logged or stored by the driver.
 
 The previously validated legacy SGX/WBDI work remains useful as a fallback and
 Windows-compatibility path, but it is no longer on the critical path to a Linux
@@ -95,13 +102,13 @@ sensor I/O, GPIO/MMIO write or firmware action.
 
 Work in this order:
 
-1. reproduce the factory flash-record extraction on Pegasus using read-only,
-   overlap-validated F2 reads;
-2. privately decrypt it and require type `0x000d` / length `48`;
-3. establish the live TLS 1.2 PSK-GCM session on Pegasus;
-4. adapt/reuse the hardware-tested same-die ChicagoHS capture/calibration and
-   matcher layers;
-5. reach the first 80x64 frame, then enrol/verify and fprintd/PAM integration;
+1. run the read-only factory→PMK-in-RAM→config→D0→TLS probe on Pegasus;
+2. require the exact E4/body hash match and successful TLS 1.2
+   `PSK-AES128-GCM-SHA256` handshake with EMS disabled;
+3. verify a small encrypted FDT `0x36` exchange before asking for an image;
+4. reach the first ChicagoHS image record and validate the oversized-record GCM
+   path already covered by the 22,176-byte software regression;
+5. reach the first decoded 80x64 frame, then enrol/verify and fprintd/PAM;
 6. resume WBDI/SGX only if the factory-secret path fails exact-target validation.
 
 ## Do not reopen without new evidence

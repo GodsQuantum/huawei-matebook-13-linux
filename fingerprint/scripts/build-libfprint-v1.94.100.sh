@@ -164,6 +164,8 @@ sources=(
   gx51_transport.h
   gx51_target.c
   gx51_target.h
+  gx51_factory_pmk.c
+  gx51_factory_pmk.h
 )
 for file in "${sources[@]}"; do
   [[ -f "$DRIVER_DIR/$file" ]] || die "CANDIDATE_SOURCE_MISSING:$file"

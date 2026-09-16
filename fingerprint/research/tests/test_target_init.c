@@ -53,6 +53,60 @@ int main(void)
     assert(!gxfp_build_mem_read(0x20000000u, 0u, &p));
     assert(!gxfp_build_mem_read(0x20000000u, GXFP_MEM_READ_MAX + 1u, &p));
 
+    {
+        static const uint8_t want_e4[] = {
+            0xe4,0x09,0x00,0x03,0x00,0x02,0xbb,0x00,0x00,0x00,0x00,0xfd
+        };
+        uint8_t rsp[45] = {0xe4,0x2a,0x00,0x00,0xaa,0xaa,0x00,0x00,0x20,0x00,0x00,0x00};
+        uint8_t hash[32] = {0};
+        uint32_t dtype = 0;
+        assert(gxfp_build_factory_hash_read(&p));
+        assert(p.inner_len == sizeof want_e4);
+        expect_bytes(p.inner, want_e4, sizeof want_e4);
+        for (size_t i=0;i<32;i++) rsp[12+i]=(uint8_t)(i+1);
+        rsp[44]=gxfp_body_checksum(rsp,44);
+        assert(gxfp_parse_factory_hash_response(rsp,sizeof rsp,&dtype,hash));
+        assert(dtype==0x0000aaaau);
+        assert(memcmp(hash,rsp+12,32)==0);
+        rsp[3]=1u; rsp[44]=gxfp_body_checksum(rsp,44);
+        assert(!gxfp_parse_factory_hash_response(rsp,sizeof rsp,&dtype,hash));
+    }
+
+    {
+        static const uint8_t direct_rsp[] = {
+            0xf2,0x11,0x00,
+            0x00,0x00,0x02,0x20,0x99,0x31,0x03,0x08,
+            0xe9,0x31,0x03,0x08,0x35,0x5a,0x02,0x08,0xf2
+        };
+        static const uint8_t want[] = {
+            0x00,0x00,0x02,0x20,0x99,0x31,0x03,0x08,
+            0xe9,0x31,0x03,0x08,0x35,0x5a,0x02,0x08
+        };
+        uint8_t out[16] = {0};
+        assert(gxfp_parse_mem_read_response(direct_rsp, sizeof direct_rsp,
+                                            0x08020000u, 16u, out));
+        assert(memcmp(out, want, sizeof want) == 0);
+    }
+
+    {
+        uint8_t rsp[16] = {
+            0xf2,0x0d,0x00,
+            0x08,0x80,0x00,0x00, 0x04,0x00,0x00,0x00,
+            0xaa,0xbb,0xcc,0xdd,0x00
+        };
+        uint8_t out[4] = {0};
+        rsp[15] = gxfp_body_checksum(rsp, 15);
+        assert(gxfp_parse_mem_read_response(rsp, sizeof rsp, 0x08008008u, 4u, out));
+        assert(memcmp(out, rsp + 11, sizeof out) == 0);
+        rsp[3] ^= 1u;
+        rsp[15] = gxfp_body_checksum(rsp, 15);
+        assert(!gxfp_parse_mem_read_response(rsp, sizeof rsp, 0x08008008u, 4u, out));
+        rsp[3] ^= 1u;
+        rsp[15] = gxfp_body_checksum(rsp, 15);
+        rsp[15] ^= 1u;
+        assert(!gxfp_parse_mem_read_response(rsp, sizeof rsp, 0x08008008u, 4u, out));
+    }
+
     /* Internal 16-bit config checksum seed is 0xa5a5. */
     for (size_t i = 0; i < GXFP_CONFIG_LEN - 2; i++)
         cfg[i] = (uint8_t)i;

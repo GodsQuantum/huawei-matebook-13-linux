@@ -92,6 +92,14 @@ bool gxfp_build_reg_write(uint16_t address, uint16_t value,
     return build_fixed(body, sizeof(body), packet);
 }
 
+bool gxfp_build_factory_hash_read(struct gxfp_target_packet *packet)
+{
+    static const uint8_t body[] = {
+        0xe4,0x09,0x00,0x03,0x00,0x02,0xbb,0x00,0x00,0x00,0x00,0xfd
+    };
+    return build_fixed(body, sizeof(body), packet);
+}
+
 bool gxfp_build_mem_read(uint32_t address, uint32_t len,
                          struct gxfp_target_packet *packet)
 {
@@ -236,6 +244,66 @@ bool gxfp_parse_config_response(const uint8_t *body, size_t len, uint8_t *status
     return true;
 }
 
+bool gxfp_parse_factory_hash_response(const uint8_t *body, size_t len,
+                                      uint32_t *dtype, uint8_t hash[32])
+{
+    uint32_t dlen;
+
+    if (dtype == NULL || hash == NULL ||
+        !body_matches(body, len, 0xe4u, 41u) || body[3] != 0u)
+        return false;
+    *dtype = (uint32_t)body[4] | ((uint32_t)body[5] << 8) |
+             ((uint32_t)body[6] << 16) | ((uint32_t)body[7] << 24);
+    dlen = (uint32_t)body[8] | ((uint32_t)body[9] << 8) |
+           ((uint32_t)body[10] << 16) | ((uint32_t)body[11] << 24);
+    if (dlen != 32u)
+        return false;
+    memcpy(hash, body + 12u, 32u);
+    return true;
+}
+
+bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
+                                  uint32_t address, uint32_t requested_len,
+                                  uint8_t *out)
+{
+    uint32_t wire_address;
+    uint8_t echo[8];
+    size_t data_offset;
+
+    if (out == NULL || address < 0x08000000u || requested_len == 0u ||
+        requested_len > GXFP_MEM_READ_MAX)
+        return false;
+
+    /* Two exact 14115 wire contracts are documented in the field:
+     * - Pegasus: F2 | len | data | checksum
+     * - another GXFP51A0: F2 | len | echo(addr32,len32) | data | checksum
+     * Never guess from contents; select solely by the exact framed length. */
+    if (len == (size_t) requested_len + 4u) {
+        if (!body_matches(body, len, 0xf2u, requested_len))
+            return false;
+        data_offset = 3u;
+    } else if (len == (size_t) requested_len + 12u) {
+        if (!body_matches(body, len, 0xf2u, (size_t) requested_len + 8u))
+            return false;
+        wire_address = address - 0x08000000u;
+        echo[0] = (uint8_t)wire_address;
+        echo[1] = (uint8_t)(wire_address >> 8);
+        echo[2] = (uint8_t)(wire_address >> 16);
+        echo[3] = (uint8_t)(wire_address >> 24);
+        echo[4] = (uint8_t)requested_len;
+        echo[5] = (uint8_t)(requested_len >> 8);
+        echo[6] = (uint8_t)(requested_len >> 16);
+        echo[7] = (uint8_t)(requested_len >> 24);
+        if (memcmp(body + 3u, echo, sizeof echo) != 0)
+            return false;
+        data_offset = 11u;
+    } else {
+        return false;
+    }
+
+    memcpy(out, body + data_offset, requested_len);
+    return true;
+}
 
 static uint8_t crc8_goodix(const uint8_t *data, size_t len)
 {

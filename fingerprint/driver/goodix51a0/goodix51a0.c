@@ -42,6 +42,7 @@
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
 #include <linux/gpio.h>
+#include <openssl/crypto.h>
 
 #include "goodix51a0.h"
 #include "goodix_sift.h"
@@ -49,6 +50,9 @@
 
 #include "gx51_transport.h"
 #include "gx51_target.h"
+#include "gx51_factory_pmk.h"
+
+G_STATIC_ASSERT (GOODIX_PSK_LEN == GXFP_FACTORY_PMK_LEN);
 
 #define GX51_IRQ_DEV "/dev/gxfp_irq_wait"
 #define GXFP_IRQ_WAIT_IOC_MAGIC 0xF5
@@ -65,7 +69,7 @@ struct gx51_irq_wait_request {
 /* Finger detection threshold on the standard deviation of the
  * background-minus-frame difference. */
 #define GOODIX_FINGER_STD    150.0
-/* Headroom above the ~10.6 kB target TLS record observed under Windows. */
+/* Headroom above the ~22 kB oversized ChicagoHS image TLS record. */
 #define GOODIX_RX_MAX        24000
 
 struct _FpiDeviceGoodix51A0
@@ -81,6 +85,7 @@ struct _FpiDeviceGoodix51A0
   gboolean      tls_up;
 
   guint8        psk[GOODIX_PSK_LEN];
+  gboolean      psk_ready;
 
   /* Reassembly buffer for TLS records, drained by the BIO recv callback. */
   guint8        tls_rx[GOODIX_RX_MAX];
@@ -345,13 +350,32 @@ gx_tls_cmd (FpiDeviceGoodix51A0 *self, guint8 cmd, const guint8 *data, int dl)
 static int
 gx_mem_read (FpiDeviceGoodix51A0 *self, guint32 mem, guint32 len, guint8 *out)
 {
-  (void) self;
-  (void) mem;
-  (void) len;
-  (void) out;
+  struct gxfp_target_packet packet;
+  guint8 ack[128], rsp[GXFP_MEM_READ_MAX + 16];
+  guint8 type = 0, status = 0;
+  int n;
 
-  fp_warn ("GXFP51A0: sibling RAM PSK read disabled; target uses ACPI DSM/FPDT");
-  return -1;
+  if (!out || len == 0 || len > GXFP_MEM_READ_MAX ||
+      !gxfp_build_mem_read (mem, len, &packet))
+    return -1;
+
+  /* 14115 needs the standard Goodix preamble before F2. */
+  if (!gx_send_plain_raw (self, packet.inner, packet.inner_len))
+    return -1;
+
+  n = gx_read_frame (self, &type, ack, sizeof ack);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (ack, n, 0xf2, &status) ||
+      !gxfp_ack_status_success (status))
+    return -1;
+
+  g_usleep (8000 * self->timing_scale / 100);
+  n = gx_read_frame (self, &type, rsp, sizeof rsp);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_mem_read_response (rsp, n, mem, len, out))
+    return -1;
+
+  return (int) len;
 }
 
 
@@ -428,6 +452,59 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
   if (status)
     *status = ack_status;
   return TRUE;
+}
+
+static bool
+gx_factory_mem_read_cb (void *user, uint32_t address,
+                        uint32_t len, uint8_t *out)
+{
+  FpiDeviceGoodix51A0 *self = user;
+
+  return gx_mem_read (self, address, len, out) == (int) len;
+}
+
+static bool
+gx_factory_hash_read_cb (void *user, uint8_t hash[32])
+{
+  FpiDeviceGoodix51A0 *self = user;
+  struct gxfp_target_packet packet;
+  guint8 rx[128];
+  uint32_t dtype = 0;
+  int n = 0;
+
+  if (!gxfp_build_factory_hash_read (&packet) ||
+      !gx_target_send_ack (self, &packet, 0xe4, NULL) ||
+      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gxfp_parse_factory_hash_response (rx, n, &dtype, hash))
+    return false;
+
+  /* Exact GF_ST411SEC_APP_14115 contract confirmed on Pegasus. */
+  return dtype == 0x0000aaaau;
+}
+
+static gboolean
+gx_factory_load_pmk (FpiDeviceGoodix51A0 *self)
+{
+  guint8 pmk[GXFP_FACTORY_PMK_LEN];
+  gboolean ok;
+
+  ok = gxfp_factory_load_pmk (gx_factory_mem_read_cb,
+                              gx_factory_hash_read_cb,
+                              self, pmk);
+  if (ok)
+    {
+      memcpy (self->psk, pmk, sizeof pmk);
+      self->psk_ready = TRUE;
+      fp_info ("GXFP51A0 factory PMK validated in memory");
+    }
+  else
+    {
+      OPENSSL_cleanse (self->psk, sizeof self->psk);
+      self->psk_ready = FALSE;
+      fp_warn ("GXFP51A0 factory PMK validation failed");
+    }
+  OPENSSL_cleanse (pmk, sizeof pmk);
+  return ok;
 }
 
 static gboolean
@@ -512,19 +589,35 @@ gx_target_configure (FpiDeviceGoodix51A0 *self)
 }
 
 /* Same-device Pegasus validation confirmed A2 -> chip ID -> OTP -> DAC ->
- * 0x90 with the exact ST411/ChicagoHS target sequence.  Keep the subsequent
- * PMK/PSK/TLS boundary gated until its source is proven on this firmware. */
+ * 0x90. The factory record is read-only, decrypted in RAM and checked against
+ * E4 before D0 is ever sent. */
 static gboolean
 gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self)
 {
+  guint8 ack[128], status = 0, type = 0;
+  int n;
+
+  if (!self->psk_ready && !gx_factory_load_pmk (self))
+    return FALSE;
+
   if (!gx_target_configure (self))
     {
       fp_warn ("GXFP51A0: target initialization/configuration failed");
       return FALSE;
     }
 
-  fp_warn ("GXFP51A0: PMK/PSK gate blocked pending exact target key source");
-  return FALSE;
+  if (!gx_send_plain_raw (self, GX_REQTLS, sizeof GX_REQTLS))
+    return FALSE;
+  n = gx_read_frame (self, &type, ack, sizeof ack);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (ack, n, 0xd0, &status) ||
+      !gxfp_ack_status_success (status))
+    {
+      fp_warn ("GXFP51A0: D0 TLS request was not accepted");
+      return FALSE;
+    }
+
+  return TRUE;
 }
 
 
@@ -534,6 +627,8 @@ gx_tls_handshake (FpiDeviceGoodix51A0 *self)
 {
   g_autoptr(GError) err = NULL;
 
+  if (!self->psk_ready)
+    return FALSE;
   self->tls_rxlen = self->tls_rxpos = 0;
   g_clear_pointer (&self->tls, gx_tls_free);
   self->tls = gx_tls_new (self->psk, GOODIX_PSK_LEN, GOODIX_TLS_IDENTITY,
@@ -1952,53 +2047,6 @@ gx_enroll_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 /*  Device operations                                                  */
 /* ------------------------------------------------------------------ */
 
-/* Reads the pre-shared key, with recovery. After a heavy session — a dozen or
- * so captures — the sensor refuses long exchanges such as the memory read while
- * short commands still work. It then needs a reset, and from the third attempt
- * a full reopen of the spidev node to clear the kernel driver's state too. */
-static gboolean
-gx_read_psk (FpiDeviceGoodix51A0 *self, const gchar *path)
-{
-  int att;
-
-  for (att = 1; att <= 6; att++)
-    {
-      guint8 ty, junk[256];
-
-      /* Drain: one pending frame shifts every subsequent read. */
-      while (gx_read_frame (self, &ty, junk, sizeof junk) > 0)
-        ;
-
-      if ((-1) == GOODIX_PSK_LEN)
-        {
-          if (att > 1)
-            fp_info ("PSK read on attempt %d", att);
-          return TRUE;
-        }
-
-      if (att >= 3 && path)
-        {
-          /* Full reopen, to clear the kernel driver's state. */
-          if (self->spi_fd >= 0)
-            close (self->spi_fd);
-          self->spi_fd = open (path, O_RDWR);
-          if (self->spi_fd < 0)
-            return FALSE;
-          {
-            guint8 mode = SPI_MODE_0 | SPI_CS_HIGH, bits = 8;
-            guint32 speed = 1000000;
-            ioctl (self->spi_fd, SPI_IOC_WR_MODE, &mode);
-            ioctl (self->spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-            ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
-          }
-          flock (self->spi_fd, LOCK_EX | LOCK_NB);
-        }
-
-      gx_gpio_reset (self);
-    }
-  return FALSE;
-}
-
 static void
 gx_dev_open (FpDevice *dev)
 {
@@ -2087,6 +2135,8 @@ gx_dev_close (FpDevice *dev)
 
   g_clear_handle_id (&self->poll_id, g_source_remove);
   gx_tls_teardown (self);
+  OPENSSL_cleanse (self->psk, sizeof self->psk);
+  self->psk_ready = FALSE;
 
   if (self->irq_fd >= 0)
     {
