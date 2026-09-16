@@ -132,7 +132,7 @@ as a fallback and Windows-compatibility research path.
 
 Do not resume these without new exact-target evidence:
 
-- F2 PMK retrieval;
+- untimed F2 runtime-RAM PMK hunting;
 - GXFP5187 PMK-address assumptions;
 - GPIO112 / GPP_D16 experiments;
 - speculative MMIO or pinmux writes;

@@ -21,55 +21,46 @@ entire Windows biometric stack.
 
 ## PSK fast track
 
-The decisive new lead is the Linux-owned PSK provisioning path. The GDIX51C0
-work provisions a chosen 32-byte TLS PSK through the Goodix preset-PSK register
-contract and verifies the stored container hash before using TLS 1.2
-`PSK-AES128-GCM-SHA256`.
-The older `goodix-fp-dump` 51x0 implementation independently uses the same
-preset-PSK contract (`0xbb010003` write / `0xbb020003` verification) on ST411SEC
-parts. Its historical flow may erase/reflash firmware and is therefore **not**
-a safe procedure for this machine. Only the protocol evidence is reusable.
+The exact `GF_ST411SEC_APP_14115` behavior is now discriminated. On Pegasus, a
+read-only `E4` probe returns status `0`, type `0x0000aaaa` and 32 bytes. Static
+analysis of the exact target firmware independently explains that response: the
+category-`0xE` operation-2 handler constructs the `AAAA`/32-byte result.
 
-This also changes interpretation of the Windows host-secret work: a 48-byte
-WBDI/DSM record must not be assumed to be the final TLS PSK merely because its
-length was confirmed. Other current Goodix work demonstrates a 48-byte
-Windows-side intermediate/entropy path that ultimately yields a 32-byte TLS
-PSK. Exact GXFP51A0 semantics still require target evidence.
+The GDIX51C0 Linux-owned provisioning route does **not** transfer directly to
+this firmware. Its operation-0 (`E0`) entry is absent/no-op on the exact 14115
+dispatch path, so no `0xbb010003` write should be attempted. This closes the
+state-changing provisioning experiment before touching sensor state.
 
-## Additional 14115 corroboration
+The replacement fast track is the factory flash-secret path. Independent work
+on another GXFP51A0 running the same 14115 firmware has now recovered and
+validated the complete scheme: a flash record is decrypted with AES-128-CBC;
+the key is the first 16 bytes of `SHA256(salt || 48 zero bytes || fallback
+seed)`, the IV is the 16-byte salt, and the authenticated plaintext begins with
+record type `0x000d`, length `0x30`, followed by the 48-byte TLS PSK. The full
+48 bytes, not a 32-byte prefix, are used as the TLS PSK.
 
-A same-firmware GXFP51A0 investigation has now mapped the 14115 boot secret more
-precisely. The protected PMK blob exists in redundant flash copies, is decrypted
-during boot, staged only briefly in RAM and then overwritten/reused before normal
-commands are available. This closes untimed F2 extraction of the existing PMK,
-but does not imply that F2 cannot address RAM.
+That same investigation completed a live hardware TLS 1.2
+`PSK-AES128-GCM-SHA256` handshake on GXFP51A0/14115. Thus SGX/WBDI is no longer
+a prerequisite for Linux operation. Pegasus still needs an independent local
+reproduction before this repository may claim local TLS success.
 
-The same investigation independently reproduces the GDIX51C0 family-derived
-white-box key material byte-for-byte on GF3658/14115. Together with GF3288/11033
-and the working GDIX51C0 driver, this strongly supports a common Milan-family
-white-box/provisioning construction. The exact flash-blob KDF reduction remains
-an open compatibility question, but Linux-owned PSK provisioning does not need
-to recover the existing Windows PMK first.
-
-One F2 parsing hazard is also documented upstream: some readers receive an
-8-byte `addr32 + len32` echo before returned memory. Future probes must assert
-response length/shape and a known firmware vector before using dump contents.
-The historical Pegasus vector read already passed such a known-vector check.
+F2 remains useful for read-only flash access, but upstream testing found two
+possible dump artifacts: an echoed request prefix and corruption of the first
+data byte of a read. Any Pegasus extractor must therefore use known-vector and
+overlapping-read checks, and validate reconstructed private data before use.
 
 ## Revised gates
 
 1. Keep the proven Pegasus transport: mode 0 + `SPI_CS_HIGH`, target reset
    sequence, 1 MHz and final GPIO264 LOW.
-2. Add a **read-only** APP-mode preset-PSK/hash probe for the target firmware.
-3. If the target exposes the compatible contract, validate the GDIX51C0
-   white-box/provisioning algorithm against exact-target evidence before any
-   state-changing write.
-4. Use a Linux-owned PSK stored root-only (`0600`) and establish the already
-   confirmed TLS 1.2 PSK-GCM session.
-5. Reuse/adapt the tested ChicagoHS capture, calibration, matcher and libfprint
-   integration instead of reimplementing those layers.
-6. Keep SGX/WBDI as a fallback and a Windows-compatibility research path, not
-   as the blocking dependency for Linux operation.
+2. Reconstruct the 14115 factory flash record on Pegasus using read-only,
+   overlapping F2 reads and strict known-vector/record-integrity checks.
+3. Decrypt only in private storage, require record type `0x000d` and length
+   `48`, and never log or publish the PSK.
+4. Establish the already-modelled TLS 1.2 PSK-GCM session on Pegasus.
+5. Reuse/adapt the tested same-die ChicagoHS capture, calibration, matcher and
+   libfprint/fprintd integration instead of reimplementing those layers.
+6. Keep SGX/WBDI only as a Windows-compatibility/fallback research path.
 
 ## Safety locks
 

@@ -24,11 +24,14 @@ réponse EVK firmware                 CONFIRMÉE : GF_ST411SEC_APP_14115
 chip ID / calibration OTP            CONFIRMÉS
 config cible 256 octets              CONFIRMÉE
 TLS                                  CONFIRMÉ : TLS1.2 PSK-AES128-GCM-SHA256
-lecture PMK via F2                   FERMÉE / NON APPLICABLE
-chemin legacy /dev/isgx              PASS
-EINIT Intel Launch Enclave           PASS
-parser PE / metadata SGX WBDI        PASS
-reproduction MRENCLAVE WBDI          FRONTIÈRE ACTUELLE
+recherche PMK runtime via F2         FERMÉE / NON APPLICABLE
+variante hash E4 du 14115            CONFIRMÉE SUR PEGASUS
+provisioning PSK E0                  FERMÉ : PAS DE HANDLER
+réchiffrement PMK factory            CONFIRMÉ MÊME FIRMWARE
+TLS live sur GXFP51A0/14115          CONFIRMÉ EXTERNE
+PMK + TLS live sur Pegasus           FRONTIÈRE ACTUELLE
+chemin legacy /dev/isgx              PASS (fallback)
+parser PE / metadata SGX WBDI        PASS (fallback)
 capture/enroll/verify                NON ATTEINT
 fprintd/PAM                          NON ATTEINT
 ```
@@ -119,40 +122,32 @@ Ne pas rejouer cette expérience active inchangée.
 - switch fingerprint LPSS caché
 - action DeviceInit intermédiaire comme I/O capteur manquante
 - adresse/clé PMK GXFP5187 réutilisée sans preuve cible
-- récupération PMK via F2
+- recherche non temporisée de PMK en RAM via F2
 - replay inchangé du common-init
 
 ## Encore non résolu
 
-- reproduction hors ligne exacte du MRENCLAVE signé de WBDI
-- EINIT WBDI + chemin legacy du launch token
-- bridge ECALL/OCALL minimal pour l’unseal privé du secret hôte
-- handshake TLS 1.2 PSK-AES128-GCM-SHA256 réel avec le capteur
+- reproduction indépendante du record factory et de son déchiffrement sur Pegasus
+- handshake TLS 1.2 PSK-AES128-GCM-SHA256 réel sur Pegasus
 - première capture et décodage image 80x64
 - enroll / verify
 - fprintd / PAM / desktop
 
 ## Frontière suivante
 
-Le chemin F2 est fermé. Le stack Windows correspondant passe par une enclave
-Intel SGX legacy pour unseal le secret hôte spécifique à la machine.
+Un autre GXFP51A0 avec le même firmware 14115 a maintenant reproduit tout le
+chemin : extraction F2 corrigée du record flash -> déchiffrement privé de la PMK
+48 octets -> handshake TLS 1.2 `PSK-AES128-GCM-SHA256` complet. Pegasus doit
+reproduire ces gates indépendamment avant de déclarer le TLS local fonctionnel.
 
-La séquence fail-closed actuelle est :
+L'analyse exacte du 14115 ferme aussi le raccourci GDIX51C0 de provisioning :
+E4/hash existe et est confirmé sur Pegasus, mais E0/write est absent/no-op sur
+ce firmware. Aucune écriture E0 ne doit être tentée.
 
-```text
-parse PE / metadata SGX strict      PASS
-chemin matériel legacy /dev/isgx    PASS
-EINIT Intel Launch Enclave          PASS
-gate structure exacte WBDI          PASS
-MRENCLAVE signé exact               EN COURS
-EINIT WBDI / launch token           SUIVANT
-unseal privé type 13 / 48 octets    BLOQUÉ PAR LE GATE
-handshake TLS capteur               BLOQUÉ PAR LE GATE
-frame 80x64                         BLOQUÉ PAR LE GATE
-```
-
-Voir [docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md)
-pour les preuves non sensibles et la frontière exacte du loader.
+La suite est donc : reproduire le secret factory en privé, ouvrir TLS, puis
+réutiliser/adapter les couches capture et matcher ChicagoHS déjà testées sur le
+GDIX51C0 même silicium. SGX/WBDI reste un fallback de recherche, plus une
+dépendance bloquante.
 
 ## Carte du dépôt
 

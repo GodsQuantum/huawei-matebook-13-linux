@@ -27,7 +27,11 @@ Intel production Launch Enclave EINIT     PASS
 WBDI PE / SGX metadata parser             PASS
 WBDI exact private structure gate         PASS
 GDIX51C0 same-die Linux path              CONFIRMED REFERENCE
-APP-mode preset-PSK compatibility         CURRENT BOUNDARY
+E4 14115 hash variant                     CONFIRMED ON PEGASUS
+E0 Linux-owned PSK provisioning           CLOSED_NO_HANDLER
+factory flash PMK decrypt                 CONFIRMED SAME-FIRMWARE
+live TLS on GXFP51A0/14115                CONFIRMED EXTERNAL
+Pegasus PMK + live TLS                     CURRENT BOUNDARY
 WBDI MRENCLAVE reproduction               FALLBACK RESEARCH
 image/capture                             NOT REACHED
 ```
@@ -54,30 +58,28 @@ and large-record regression pass.
 
 ## Host PMK boundary
 
-F2 is no longer a candidate PMK transport: exact-target analysis shows its read
-window is application flash and cannot expose the required host-secret storage.
-Do not spend more time on F2 for PMK retrieval.
+The previous APP-mode provisioning fast track is now closed for exact firmware
+14115. A read-only Pegasus `E4` probe returned status `0`, type `0x0000aaaa` and
+32 bytes; exact-target static analysis reproduces that response and shows the
+corresponding `E0`/operation-0 entry is a no-op. Do not attempt the GDIX51C0
+`0xbb010003` write on this firmware.
 
-The matching Windows path instead obtains machine-specific ACPI `_DSM` data and
-uses a signed SGX enclave to unseal the host secret. The successful Goodix
-record semantics are type `13`, length `48`. Raw `_DSM`, PMK and enclave-derived
-secret bytes remain private and must never enter this repository.
+The shortest path is instead the existing factory flash record. Independent
+work on another GXFP51A0/14115 has recovered its complete decrypt scheme and
+used the resulting 48-byte PSK for a successful live TLS 1.2
+`PSK-AES128-GCM-SHA256` handshake. The flash decrypt is AES-128-CBC with a
+SHA-256-derived key and salt-derived IV; the plaintext record is type `0x000d`,
+length `0x30`, followed by the full 48-byte PSK.
 
-On the target machine, a one-shot legacy SGX boot has been validated: native
-SGX ownership is masked, the compatible legacy `isgx` driver exposes
-`/dev/isgx`, discovers EPC, and the Intel production Launch Enclave reaches
-EINIT. The one-shot boot entry cleans itself and the following reboot returns
-to the normal setup.
+F2 can address the relevant flash (and can address RAM), but direct PMK hunting
+in runtime RAM remains closed. Upstream testing also identified F2 dump artifacts
+that require strict response-shape, known-vector and overlapping-read validation.
+Raw flash-secret material and PMK bytes remain private and must never enter this
+repository or logs.
 
-The Goodix WBDI image is PE32+ x86-64 with legacy SGX metadata 1.2. Its
-`sgxmeta` is VirtualSize `0x754` / RawSize `0x800`: a `0x44`-byte legacy prefix
-followed immediately by a standard `0x710`-byte SIGSTRUCT. Strict offline
-parsing, malformed-input tests and the private exact-structure gate pass.
-
-Matching Windows uRTS analysis additionally proves one 4 KiB page is submitted
-per `enclave_load_data()` call. Current work is to reproduce the complete
-ECREATE/EADD/EEXTEND stream and exact signed MRENCLAVE offline before any Goodix
-enclave EINIT attempt.
+The previously validated legacy SGX/WBDI work remains useful as a fallback and
+Windows-compatibility path, but it is no longer on the critical path to a Linux
+driver.
 
 ## Software validation
 
@@ -91,18 +93,16 @@ sensor I/O, GPIO/MMIO write or firmware action.
 
 ## Next boundary
 
-The shortest route has changed after comparison with the hardware-tested
-GDIX51C0 driver, which uses the same `0x2504` / ChicagoHS profile. Work in this
-order:
+Work in this order:
 
-1. add a read-only APP-mode preset-PSK/hash probe on the exact `14115` target;
-2. if compatible, validate the GDIX51C0 Linux-owned PSK provisioning contract
-   against exact-target evidence, without firmware modification;
-3. establish the existing TLS 1.2 PSK-GCM path with the provisioned Linux key;
-4. adapt/reuse the proven ChicagoHS capture, calibration and matcher layers;
-5. reach first 80x64 frame, then enrol/verify and fprintd/PAM integration;
-6. keep WBDI/SGX reconstruction as fallback if APP-mode provisioning is not
-   supported by this firmware.
+1. reproduce the factory flash-record extraction on Pegasus using read-only,
+   overlap-validated F2 reads;
+2. privately decrypt it and require type `0x000d` / length `48`;
+3. establish the live TLS 1.2 PSK-GCM session on Pegasus;
+4. adapt/reuse the hardware-tested same-die ChicagoHS capture/calibration and
+   matcher layers;
+5. reach the first 80x64 frame, then enrol/verify and fprintd/PAM integration;
+6. resume WBDI/SGX only if the factory-secret path fails exact-target validation.
 
 ## Do not reopen without new evidence
 
@@ -113,7 +113,7 @@ order:
 - GPIO112/GPP_D16 or hidden LPSS switch;
 - unchanged normal-CS replay;
 - GXFP5187 PMK address assumptions;
-- F2 PMK retrieval;
+- untimed F2 runtime-RAM PMK hunting;
 - WinPE/QEMU while the native SGX route remains viable.
 
 ## Canonical files
