@@ -54,6 +54,16 @@ bool gxfp_parse_chip_id_response(const uint8_t *body, size_t len,
                                  uint16_t *chip_id);
 bool gxfp_parse_otp_response(const uint8_t *body, size_t len, uint8_t out[64]);
 bool gxfp_parse_config_response(const uint8_t *body, size_t len, uint8_t *status);
+enum gxfp_mem_read_result {
+    GXFP_MEM_READ_INVALID = 0,
+    GXFP_MEM_READ_DATA = 1,
+    GXFP_MEM_READ_ECHO_ONLY = 2,
+};
+
+enum gxfp_mem_read_result
+gxfp_classify_mem_read_response(const uint8_t *body, size_t len,
+                                uint32_t address, uint32_t requested_len,
+                                uint8_t *out);
 bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
                                   uint32_t address, uint32_t requested_len,
                                   uint8_t *out);

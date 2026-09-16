@@ -44,7 +44,9 @@ gxfp_factory_pmk_decrypt (const uint8_t *body,
   int out1 = 0, out2 = 0;
   bool ok = false;
 
-  if (!body || !pmk || body_len != GXFP_FACTORY_BODY_LEN)
+  if (!body || !pmk || body_len < GXFP_FACTORY_READ_LEN ||
+      body_len > GXFP_FACTORY_BODY_LEN ||
+      ((body_len - GXFP_FACTORY_SALT_LEN) % 16u) != 0u)
     return false;
   if (!derive_factory_key (body, key))
     return false;
@@ -58,11 +60,11 @@ gxfp_factory_pmk_decrypt (const uint8_t *body,
     goto out;
   if (EVP_DecryptUpdate (ctx, plain, &out1,
                          body + GXFP_FACTORY_SALT_LEN,
-                         GXFP_FACTORY_BODY_LEN - GXFP_FACTORY_SALT_LEN) != 1)
+                         body_len - GXFP_FACTORY_SALT_LEN) != 1)
     goto out;
   if (EVP_DecryptFinal_ex (ctx, plain + out1, &out2) != 1)
     goto out;
-  if (out1 + out2 != (int) sizeof plain)
+  if (out1 + out2 != (int) (body_len - GXFP_FACTORY_SALT_LEN))
     goto out;
   if (plain[0] != 0x00 || plain[1] != 0x0d ||
       read_be32 (plain + 2) != GXFP_FACTORY_PMK_LEN)
@@ -91,7 +93,8 @@ gxfp_factory_pmk_recover_first_byte (const uint8_t *damaged_body,
   uint8_t found = 0;
 
   if (!damaged_body || !recovered_first_byte || !pmk ||
-      body_len != GXFP_FACTORY_BODY_LEN)
+      body_len < GXFP_FACTORY_READ_LEN || body_len > GXFP_FACTORY_BODY_LEN ||
+      ((body_len - GXFP_FACTORY_SALT_LEN) % 16u) != 0u)
     return false;
 
   memcpy (candidate_body, damaged_body, body_len);
@@ -121,7 +124,7 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
                        uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
   static const uint32_t bases[] = {0x08004000u, 0x08008000u, 0x0800a000u};
-  uint8_t header[8], body[GXFP_FACTORY_BODY_LEN];
+  uint8_t body[GXFP_FACTORY_READ_LEN];
   uint8_t candidates[3][GXFP_FACTORY_PMK_LEN];
   bool valid[3] = {false, false, false};
   bool ok = false;
@@ -129,25 +132,18 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
   if (!mem_read || !pmk)
     return false;
 
+  /* The firmware's own PMK loader passes factory_base + 8 to the decryptor.
+   * Only the first 80 bytes are needed here: 16-byte salt plus four CBC
+   * blocks, enough for marker(2) + length(4) + the 48-byte PMK.  Avoid a
+   * separate F2 header read entirely; standalone F2 request echoes made that
+   * observation ambiguous on Pegasus. */
   for (size_t i = 0; i < 3; i++)
     {
-      uint32_t body_len;
       uint8_t first = 0;
-      memset (header, 0, sizeof header);
       memset (body, 0, sizeof body);
-      /* F2 corrupts the first byte of each read on 14115. Read the aligned
-       * 8-byte header so the declared body length at +4..+7 is unaffected. */
-      if (!mem_read (user, bases[i], sizeof header, header))
+      if (!mem_read (user, bases[i] + 8u, sizeof body, body))
         continue;
-      body_len = (uint32_t) header[4] |
-                 ((uint32_t) header[5] << 8) |
-                 ((uint32_t) header[6] << 16) |
-                 ((uint32_t) header[7] << 24);
-      if (body_len != GXFP_FACTORY_BODY_LEN)
-        continue;
-      if (!mem_read (user, bases[i] + 8u, body_len, body))
-        continue;
-      valid[i] = gxfp_factory_pmk_recover_first_byte (body, body_len,
+      valid[i] = gxfp_factory_pmk_recover_first_byte (body, sizeof body,
                                                        &first, candidates[i]);
     }
 
@@ -160,7 +156,6 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
           ok = true;
         }
 
-  OPENSSL_cleanse (header, sizeof header);
   OPENSSL_cleanse (body, sizeof body);
   OPENSSL_cleanse (candidates, sizeof candidates);
   if (!ok)

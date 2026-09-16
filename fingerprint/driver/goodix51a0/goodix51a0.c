@@ -369,13 +369,28 @@ gx_mem_read (FpiDeviceGoodix51A0 *self, guint32 mem, guint32 len, guint8 *out)
       !gxfp_ack_status_success (status))
     return -1;
 
-  g_usleep (8000 * self->timing_scale / 100);
-  n = gx_read_frame (self, &type, rsp, sizeof rsp);
-  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
-      !gxfp_parse_mem_read_response (rsp, n, mem, len, out))
-    return -1;
+  /* 14115 may emit an exact addr32||len32 echo as a standalone F2
+   * packet before the memory data.  Drain that packet rather than exposing
+   * it as data; this matters especially for 8-byte reads, where echo-only
+   * and direct-data frames have the same total length. */
+  for (unsigned int i = 0; i < 3; i++)
+    {
+      enum gxfp_mem_read_result result;
 
-  return (int) len;
+      g_usleep ((i == 0 ? 8000 : 5000) * self->timing_scale / 100);
+      n = gx_read_frame (self, &type, rsp, sizeof rsp);
+      if (n <= 0 || type != GOODIX_PKT_PLAIN)
+        return -1;
+
+      result = gxfp_classify_mem_read_response (rsp, n, mem, len, out);
+      if (result == GXFP_MEM_READ_DATA)
+        return (int) len;
+      if (result != GXFP_MEM_READ_ECHO_ONLY)
+        return -1;
+      fp_dbg ("F2: drained standalone request echo, awaiting data");
+    }
+
+  return -1;
 }
 
 

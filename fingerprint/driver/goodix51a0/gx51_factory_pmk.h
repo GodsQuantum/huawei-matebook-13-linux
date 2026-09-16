@@ -7,6 +7,7 @@
 #define GXFP_FACTORY_PMK_LEN 48u
 #define GXFP_FACTORY_SALT_LEN 16u
 #define GXFP_FACTORY_BODY_LEN 256u
+#define GXFP_FACTORY_READ_LEN 80u
 
 bool gxfp_factory_pmk_decrypt (const uint8_t *body,
                                size_t body_len,

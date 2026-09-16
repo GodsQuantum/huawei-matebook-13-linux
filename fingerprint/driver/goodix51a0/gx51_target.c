@@ -262,47 +262,60 @@ bool gxfp_parse_factory_hash_response(const uint8_t *body, size_t len,
     return true;
 }
 
-bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
-                                  uint32_t address, uint32_t requested_len,
-                                  uint8_t *out)
+enum gxfp_mem_read_result
+gxfp_classify_mem_read_response(const uint8_t *body, size_t len,
+                                uint32_t address, uint32_t requested_len,
+                                uint8_t *out)
 {
     uint32_t wire_address;
     uint8_t echo[8];
     size_t data_offset;
 
-    if (out == NULL || address < 0x08000000u || requested_len == 0u ||
-        requested_len > GXFP_MEM_READ_MAX)
-        return false;
+    if (out == NULL || body == NULL || address < 0x08000000u ||
+        requested_len == 0u || requested_len > GXFP_MEM_READ_MAX)
+        return GXFP_MEM_READ_INVALID;
 
-    /* Two exact 14115 wire contracts are documented in the field:
-     * - Pegasus: F2 | len | data | checksum
-     * - another GXFP51A0: F2 | len | echo(addr32,len32) | data | checksum
-     * Never guess from contents; select solely by the exact framed length. */
+    wire_address = address - 0x08000000u;
+    echo[0] = (uint8_t)wire_address;
+    echo[1] = (uint8_t)(wire_address >> 8);
+    echo[2] = (uint8_t)(wire_address >> 16);
+    echo[3] = (uint8_t)(wire_address >> 24);
+    echo[4] = (uint8_t)requested_len;
+    echo[5] = (uint8_t)(requested_len >> 8);
+    echo[6] = (uint8_t)(requested_len >> 16);
+    echo[7] = (uint8_t)(requested_len >> 24);
+
+    /* Some 14115 reads emit the exact addr32||len32 echo as its own F2
+     * packet before the real data.  This must be checked before the direct
+     * form: for an 8-byte request both frames are 12 bytes long. */
+    if (len == 12u && body_matches(body, len, 0xf2u, 8u) &&
+        memcmp(body + 3u, echo, sizeof echo) == 0)
+        return GXFP_MEM_READ_ECHO_ONLY;
+
     if (len == (size_t) requested_len + 4u) {
         if (!body_matches(body, len, 0xf2u, requested_len))
-            return false;
+            return GXFP_MEM_READ_INVALID;
         data_offset = 3u;
     } else if (len == (size_t) requested_len + 12u) {
-        if (!body_matches(body, len, 0xf2u, (size_t) requested_len + 8u))
-            return false;
-        wire_address = address - 0x08000000u;
-        echo[0] = (uint8_t)wire_address;
-        echo[1] = (uint8_t)(wire_address >> 8);
-        echo[2] = (uint8_t)(wire_address >> 16);
-        echo[3] = (uint8_t)(wire_address >> 24);
-        echo[4] = (uint8_t)requested_len;
-        echo[5] = (uint8_t)(requested_len >> 8);
-        echo[6] = (uint8_t)(requested_len >> 16);
-        echo[7] = (uint8_t)(requested_len >> 24);
-        if (memcmp(body + 3u, echo, sizeof echo) != 0)
-            return false;
+        if (!body_matches(body, len, 0xf2u, (size_t) requested_len + 8u) ||
+            memcmp(body + 3u, echo, sizeof echo) != 0)
+            return GXFP_MEM_READ_INVALID;
         data_offset = 11u;
     } else {
-        return false;
+        return GXFP_MEM_READ_INVALID;
     }
 
     memcpy(out, body + data_offset, requested_len);
-    return true;
+    return GXFP_MEM_READ_DATA;
+}
+
+bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
+                                  uint32_t address, uint32_t requested_len,
+                                  uint8_t *out)
+{
+    return gxfp_classify_mem_read_response(body, len, address,
+                                           requested_len, out) ==
+           GXFP_MEM_READ_DATA;
 }
 
 static uint8_t crc8_goodix(const uint8_t *data, size_t len)

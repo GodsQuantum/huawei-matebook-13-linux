@@ -63,9 +63,12 @@ assert "gxfp_factory_pmk_recover_first_byte" in factory
 assert "CRYPTO_memcmp" in factory and "OPENSSL_cleanse" in factory
 assert "GXFP_FACTORY_PMK_LEN 48u" in factory_header
 assert "GXFP_FACTORY_BODY_LEN 256u" in factory_header
+assert "GXFP_FACTORY_READ_LEN 80u" in factory_header
 assert "gx_factory_e4_sanity" in text
 assert "CRYPTO_memcmp (candidates[i], candidates[j]" in factory
 assert "gxfp_parse_mem_read_response" in target
+assert "GXFP_MEM_READ_ECHO_ONLY" in text
+assert "drained standalone request echo" in text
 assert "gxfp_parse_factory_hash_response" in target
 assert "#define GOODIX_IMG_WIDTH   80" in header
 assert "#define GOODIX_IMG_HEIGHT  64" in header

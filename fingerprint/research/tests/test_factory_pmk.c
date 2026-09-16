@@ -37,12 +37,8 @@ static bool fake_mem(void *user,uint32_t address,uint32_t len,uint8_t *out) {
   FakeFactory *f=user; f->mem_calls++;
   for(unsigned i=0;i<3;i++) {
     if (!(f->valid_mask & (1u<<i))) continue;
-    if (address==bases[i] && len==8u) {
-      out[0]=(uint8_t)(0xe0u+i); out[1]=(uint8_t)(bases[i] >> 8);
-      out[2]=0x00; out[3]=0x00; out[4]=0x00; out[5]=0x01; out[6]=0x00; out[7]=0x00; return true;
-    }
-    if (address==bases[i]+8u && len==256u) {
-      memcpy(out,f->body[i],256); out[0]^=(uint8_t)(0x31u+0x10u*i); return true;
+    if (address==bases[i]+8u && len==80u) {
+      memcpy(out,f->body[i],80); out[0]^=(uint8_t)(0x31u+0x10u*i); return true;
     }
   }
   return false;
@@ -54,6 +50,8 @@ int main(void) {
   size_t n=make_body(body,pmk);
   assert(n==GXFP_FACTORY_BODY_LEN);
   assert(gxfp_factory_pmk_decrypt(body,n,got));
+  assert(memcmp(got,pmk,48)==0);
+  assert(gxfp_factory_pmk_decrypt(body,80,got));
   assert(memcmp(got,pmk,48)==0);
 
   {
@@ -70,7 +68,7 @@ int main(void) {
     f.valid_mask=7;
     assert(gxfp_factory_load_pmk(fake_mem,&f,loaded));
     assert(memcmp(loaded,pmk,48)==0);
-    assert(f.mem_calls==6);
+    assert(f.mem_calls==3);
   }
   {
     FakeFactory f={0}; uint8_t loaded[48];

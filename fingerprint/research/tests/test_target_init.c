@@ -89,6 +89,21 @@ int main(void)
     }
 
     {
+        uint8_t echo_only[12] = {
+            0xf2,0x09,0x00,
+            0x00,0x40,0x00,0x00, 0x08,0x00,0x00,0x00,
+            0x00
+        };
+        uint8_t out[8] = {0};
+        echo_only[11] = gxfp_body_checksum(echo_only, 11);
+        assert(gxfp_classify_mem_read_response(echo_only, sizeof echo_only,
+                                               0x08004000u, 8u, out) ==
+               GXFP_MEM_READ_ECHO_ONLY);
+        assert(!gxfp_parse_mem_read_response(echo_only, sizeof echo_only,
+                                             0x08004000u, 8u, out));
+    }
+
+    {
         uint8_t rsp[16] = {
             0xf2,0x0d,0x00,
             0x08,0x80,0x00,0x00, 0x04,0x00,0x00,0x00,
