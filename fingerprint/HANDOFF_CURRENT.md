@@ -6,8 +6,10 @@ This is the shortest canonical resume point. First-contact evidence is in
 [docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md),
 target configuration in
 [docs/target-config-confirmed-2026-09-14.md](docs/target-config-confirmed-2026-09-14.md),
-and the current host-secret boundary in
-[docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md).
+the SGX host-secret research in
+[docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md),
+and the latest fast-track reassessment in
+[docs/fast-track-assessment-2026-09-16.md](docs/fast-track-assessment-2026-09-16.md).
 
 ## Current state
 
@@ -24,8 +26,9 @@ legacy /dev/isgx path                     PASS
 Intel production Launch Enclave EINIT     PASS
 WBDI PE / SGX metadata parser             PASS
 WBDI exact private structure gate         PASS
-WBDI MRENCLAVE reproduction               CURRENT BOUNDARY
-PMK unseal                                NOT REACHED
+GDIX51C0 same-die Linux path              CONFIRMED REFERENCE
+APP-mode preset-PSK compatibility         CURRENT BOUNDARY
+WBDI MRENCLAVE reproduction               FALLBACK RESEARCH
 image/capture                             NOT REACHED
 ```
 
@@ -88,16 +91,18 @@ sensor I/O, GPIO/MMIO write or firmware action.
 
 ## Next boundary
 
-Work in this order; no gate may be skipped:
+The shortest route has changed after comparison with the hardware-tested
+GDIX51C0 driver, which uses the same `0x2504` / ChicagoHS profile. Work in this
+order:
 
-1. reproduce WBDI MRENCLAVE exactly offline;
-2. initialize WBDI through the validated legacy SGX path;
-3. obtain the required launch token and implement the minimum ECALL/OCALL bridge;
-4. unseal privately and accept only type `13` / length `48`;
-5. connect the resulting PMK to the existing TLS 1.2 PSK-GCM path;
-6. capture/decode the first 80x64 frame;
-7. enrol/verify;
-8. fprintd/PAM/desktop integration.
+1. add a read-only APP-mode preset-PSK/hash probe on the exact `14115` target;
+2. if compatible, validate the GDIX51C0 Linux-owned PSK provisioning contract
+   against exact-target evidence, without firmware modification;
+3. establish the existing TLS 1.2 PSK-GCM path with the provisioned Linux key;
+4. adapt/reuse the proven ChicagoHS capture, calibration and matcher layers;
+5. reach first 80x64 frame, then enrol/verify and fprintd/PAM integration;
+6. keep WBDI/SGX reconstruction as fallback if APP-mode provisioning is not
+   supported by this firmware.
 
 ## Do not reopen without new evidence
 
@@ -114,13 +119,14 @@ Work in this order; no gate may be skipped:
 ## Canonical files
 
 1. `HANDOFF_CURRENT.md`
-2. `docs/sgx-host-secret-path-2026-09-16.md`
-3. `docs/target-config-confirmed-2026-09-14.md`
-4. `docs/first-contact-confirmed-2026-09-14.md`
-5. `driver/goodix51a0/README.md`
-6. `docs/research-log.md`
-7. `docs/safety.md`
-8. `FINAL_HANDOFF_2026-09-08.md` (historical checkpoint)
+2. `docs/fast-track-assessment-2026-09-16.md`
+3. `docs/sgx-host-secret-path-2026-09-16.md`
+4. `docs/target-config-confirmed-2026-09-14.md`
+5. `docs/first-contact-confirmed-2026-09-14.md`
+6. `driver/goodix51a0/README.md`
+7. `docs/research-log.md`
+8. `docs/safety.md`
+9. `FINAL_HANDOFF_2026-09-08.md` (historical checkpoint)
 
 ## Public-repository locks
 
