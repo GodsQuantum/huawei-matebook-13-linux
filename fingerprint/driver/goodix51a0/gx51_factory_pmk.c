@@ -176,27 +176,41 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
                        void *user,
                        uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
+  static const uint32_t bases[] = {
+    0x08004000u, 0x08008000u, 0x0800a000u
+  };
   uint8_t expected_hash[32], len_probe[5], body[GXFP_FACTORY_BODY_MIN_LEN];
-  uint32_t body_len;
   bool ok = false;
 
   if (!mem_read || !hash_read || !pmk)
     return false;
   if (!hash_read (user, expected_hash))
     goto out;
-  if (!mem_read (user, 0x08008003u, sizeof len_probe, len_probe))
-    goto out;
 
-  body_len = (uint32_t) len_probe[1] |
-             ((uint32_t) len_probe[2] << 8) |
-             ((uint32_t) len_probe[3] << 16) |
-             ((uint32_t) len_probe[4] << 24);
-  if (body_len != GXFP_FACTORY_BODY_MIN_LEN)
-    goto out;
-  if (!mem_read (user, 0x08008008u, body_len, body))
-    goto out;
-  ok = gxfp_factory_pmk_recover_verified (body, body_len,
-                                           expected_hash, pmk);
+  for (size_t i = 0; i < sizeof bases / sizeof bases[0]; i++)
+    {
+      uint32_t body_len;
+
+      memset (len_probe, 0, sizeof len_probe);
+      memset (body, 0, sizeof body);
+      if (!mem_read (user, bases[i] + 3u, sizeof len_probe, len_probe))
+        continue;
+
+      body_len = (uint32_t) len_probe[1] |
+                 ((uint32_t) len_probe[2] << 8) |
+                 ((uint32_t) len_probe[3] << 16) |
+                 ((uint32_t) len_probe[4] << 24);
+      if (body_len != GXFP_FACTORY_BODY_MIN_LEN)
+        continue;
+      if (!mem_read (user, bases[i] + 8u, body_len, body))
+        continue;
+      if (gxfp_factory_pmk_recover_verified (body, body_len,
+                                              expected_hash, pmk))
+        {
+          ok = true;
+          break;
+        }
+    }
 
 out:
   OPENSSL_cleanse (expected_hash, sizeof expected_hash);

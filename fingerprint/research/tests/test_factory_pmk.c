@@ -32,14 +32,15 @@ typedef struct {
   uint8_t hash[32];
   int mem_calls;
   int hash_calls;
+  uint32_t valid_base;
 } FakeFactory;
 
 static bool fake_mem(void *user, uint32_t address, uint32_t len, uint8_t *out) {
   FakeFactory *f=user; f->mem_calls++;
-  if (address==0x08008003u && len==5u) {
+  if (address==f->valid_base+3u && len==5u) {
     out[0]=0xee; out[1]=80; out[2]=0; out[3]=0; out[4]=0; return true;
   }
-  if (address==0x08008008u && len==80u) {
+  if (address==f->valid_base+8u && len==80u) {
     memcpy(out,f->body,80); out[0]^=0x39; return true;
   }
   return false;
@@ -82,10 +83,11 @@ int main(void) {
   {
     FakeFactory f={0}; uint8_t loaded[48];
     memcpy(f.body, body, n);
+    f.valid_base=0x0800a000u;
     assert(gxfp_factory_body_sha256(f.body,n,f.hash));
     assert(gxfp_factory_load_pmk(fake_mem,fake_hash,&f,loaded));
     assert(memcmp(loaded,pmk,48)==0);
-    assert(f.mem_calls==2 && f.hash_calls==1);
+    assert(f.mem_calls==4 && f.hash_calls==1);
   }
   body[16]^=1;
   assert(!gxfp_factory_pmk_decrypt(body,n,got));
