@@ -53,10 +53,10 @@ assert "gx_target_configure" in text
 assert "gxfp_derive_calibration" in text
 assert "gxfp_patch_config" in text
 assert "GXFP_TARGET_BASE_CONFIG" in text
-assert "gx_target_configure (self)" in gate
-assert "!self->psk_ready && !gx_factory_load_pmk (self)" in gate
-assert "GX_REQTLS" in gate and "gxfp_parse_ack (ack, n, 0xd0" in gate
-assert "PMK/PSK gate blocked" not in gate
+assert "gx_target_configure (self)" not in gate
+assert "gx_factory_load_pmk (self)" not in gate
+assert "factory F2 path unavailable on Pegasus" in gate
+assert "GX_REQTLS" not in gate
 assert "return FALSE;" in gate
 assert "gxfp_factory_load_pmk" in factory
 assert "gxfp_factory_pmk_recover_first_byte" in factory

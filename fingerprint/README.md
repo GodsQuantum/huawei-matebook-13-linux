@@ -31,7 +31,7 @@ E4 14115 AAAA/32-byte variant        CONFIRMED ON PEGASUS
 E0 PSK provisioning                 CLOSED_NO_HANDLER
 factory PMK decrypt                 CONFIRMED SAME-FIRMWARE
 live TLS on GXFP51A0/14115          CONFIRMED EXTERNAL
-Pegasus PMK + live TLS              CURRENT BOUNDARY
+Pegasus PMK provider + live TLS     CURRENT BOUNDARY
 legacy /dev/isgx path               PASS (fallback)
 WBDI PE / SGX metadata gate         PASS (fallback)
 capture/enroll/verify               NOT REACHED
@@ -169,7 +169,7 @@ Do not restart these branches without new exact-device evidence:
 
 ## Still unresolved
 
-- independent factory-record reconstruction/decrypt on Pegasus
+- validated 48-byte PMK provider on Pegasus (factory-via-F2 is closed by the exact 14115 window)
 - live TLS 1.2 PSK-AES128-GCM-SHA256 handshake on Pegasus
 - first 80x64 image capture and decode
 - enroll / verify
@@ -188,10 +188,11 @@ treated as a hash of the factory body or PMK. The corresponding E0
 write/provisioning operation is absent/no-op on this firmware. No E0 write should
 be attempted.
 
-The remaining implementation path is therefore: reproduce the factory-secret
-path privately, open TLS, then reuse/adapt the tested ChicagoHS capture and
-matcher layers from the same-die GDIX51C0 work. Legacy SGX/WBDI remains a
-fallback research path rather than a blocking dependency.
+The remaining implementation path is therefore: keep the rejected factory-F2
+path disabled, obtain the 48-byte PMK through a validated host-side provider (or
+a newly proven alternate path), open TLS, then reuse/adapt the tested ChicagoHS
+capture and matcher layers. The already-validated SGX/WBDI host work is again an
+active fallback while no shorter exact-target provider is demonstrated.
 
 ## Repository map
 

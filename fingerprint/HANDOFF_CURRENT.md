@@ -36,7 +36,7 @@ oversized ~22 kB AES-GCM record decrypt    REGRESSION PASS
 manual GCM sequence handling               CONFIRMED + REGRESSION PASS
 live TLS on GXFP51A0/14115                CONFIRMED EXTERNAL
 Pegasus kernel / spidev module match        PASS (7.2.5)
-Pegasus factory-read hardware probe         ROOT ACTION PENDING
+Pegasus factory-read hardware probe         CLOSED_BY_F2_WINDOW
 Pegasus PMK + live TLS                     CURRENT BOUNDARY
 WBDI MRENCLAVE reproduction               FALLBACK RESEARCH
 image/capture hardware                     NOT REACHED
@@ -77,20 +77,17 @@ used the resulting 48-byte PSK for a successful live TLS 1.2
 SHA-256-derived key and salt-derived IV; the plaintext record is type `0x000d`,
 length `0x30`, followed by the full 48-byte PSK.
 
-F2 can address the relevant flash (and can address RAM), but direct PMK hunting
-in runtime RAM remains closed. Pegasus historically returned the direct
-`F2|len|data|checksum` response shape, while another 14115 unit prepends an
-8-byte request echo; the driver parser accepts only those two exact forms with
-strict length/checksum validation. Factory headers must be read from the aligned
-record base: an unaligned `base+3` read on Pegasus reflected request metadata into
-the apparent payload and produced bogus address-shaped lengths. Each factory copy
-has an 8-byte header whose declared body length is `0x100` (256 bytes). The body is 16 bytes of salt plus
-240 bytes of AES-128-CBC ciphertext. F2 may corrupt the first byte of a read, so
-the loader recovers that byte by requiring a unique type-`0x000d` / length-48
-decrypt candidate, then requires matching PMKs from at least two of the three
-redundant factory copies. E4 is retained only as an exact-14115 sanity check; it
-is not treated as a SHA-256 of the body or PMK. PMK bytes exist only in memory
-and are cleansed on close/failure; they are never logged or stored by the driver.
+Exact 14115 handler analysis now explains the Pegasus hardware result: F2
+read operation 1 accepts only the application-flash window from `0x08020000`
+through `0x08040000`. The factory records below that range are rejected before
+copy-out, which is why Pegasus returns the request echo but no memory data.
+The driver therefore must not use F2 as a factory-PMK provider on this target.
+The strict F2 parser remains useful for the validated application-flash window.
+The offline factory-record decryptor and redundant-copy consensus tests remain in
+the repository as compatibility research, but the GXFP51A0 runtime no longer
+invokes them on Pegasus. E4 remains only an exact-14115 sanity check and is not
+treated as a hash of the factory record or PMK. Any future PMK provider must keep
+key bytes in memory only and cleanse them on close/failure.
 
 The previously validated legacy SGX/WBDI work remains useful as a fallback and
 Windows-compatibility path, but it is no longer on the critical path to a Linux
@@ -108,23 +105,20 @@ sensor I/O, GPIO/MMIO write or firmware action.
 
 ## Next boundary
 
-Pegasus is now booted on kernel 7.2.5 with a matching in-tree `spidev` module.
-The remote connector cannot perform the required privileged module load/bind, so
-the next active step is the already-reviewed read-only factory-header probe under
-local root. It performs A8/E4/F2 reads only and restores GPIO264 LOW.
+Pegasus is booted on kernel 7.2.5 with a matching in-tree `spidev` module.
+The read-only factory-window probe has completed and restored GPIO264 LOW; its
+result is now explained by the exact firmware F2 address gate above.
 
 Work in this order:
 
-1. run the echo-aware read-only factory-header probe on Pegasus;
-2. if the factory record shape is confirmed, run the private in-memory
-   factory→PMK→config→D0→TLS validation;
-3. require 2-of-3 redundant factory-copy PMK consensus and successful TLS 1.2
-   `PSK-AES128-GCM-SHA256` handshake with EMS disabled;
+1. keep factory-via-F2 disabled on Pegasus; the exact 14115 address window closes it;
+2. resolve the remaining 48-byte PMK through a validated host-side provider
+   (or a newly proven alternate sensor path), never from guessed F2 addresses;
+3. establish TLS 1.2 `PSK-AES128-GCM-SHA256` with EMS disabled;
 4. verify a small encrypted FDT `0x36` exchange before asking for an image;
 5. reach the first ChicagoHS image record and validate the oversized-record GCM
    path already covered by the 22,176-byte software regression;
-6. reach the first decoded 80x64 frame, then enrol/verify and fprintd/PAM;
-7. resume WBDI/SGX only if the factory-secret path fails exact-target validation.
+6. reach the first decoded 80x64 frame, then enrol/verify and fprintd/PAM.
 
 ## Do not reopen without new evidence
 

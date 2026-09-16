@@ -29,7 +29,7 @@ variante E4 AAAA/32 octets du 14115  CONFIRMÉE SUR PEGASUS
 provisioning PSK E0                  FERMÉ : PAS DE HANDLER
 réchiffrement PMK factory            CONFIRMÉ MÊME FIRMWARE
 TLS live sur GXFP51A0/14115          CONFIRMÉ EXTERNE
-PMK + TLS live sur Pegasus           FRONTIÈRE ACTUELLE
+provider PMK + TLS live sur Pegasus  FRONTIÈRE ACTUELLE
 chemin legacy /dev/isgx              PASS (fallback)
 parser PE / metadata SGX WBDI        PASS (fallback)
 capture/enroll/verify                NON ATTEINT
@@ -127,7 +127,7 @@ Ne pas rejouer cette expérience active inchangée.
 
 ## Encore non résolu
 
-- reproduction indépendante du record factory et de son déchiffrement sur Pegasus
+- provider PMK 48 octets validé sur Pegasus (factory via F2 fermé par la fenêtre exacte du 14115)
 - handshake TLS 1.2 PSK-AES128-GCM-SHA256 réel sur Pegasus
 - première capture et décodage image 80x64
 - enroll / verify
@@ -145,10 +145,11 @@ la lecture E4 AAAA/32 octets existe et est confirmée sur Pegasus, mais elle n'e
 pas utilisée comme hash du body factory ou de la PMK. E0/write est absent/no-op sur
 ce firmware. Aucune écriture E0 ne doit être tentée.
 
-La suite est donc : reproduire le secret factory en privé, ouvrir TLS, puis
-réutiliser/adapter les couches capture et matcher ChicagoHS déjà testées sur le
-GDIX51C0 même silicium. SGX/WBDI reste un fallback de recherche, plus une
-dépendance bloquante.
+La suite est donc : laisser factory-via-F2 désactivé, obtenir la PMK 48 octets
+via un provider host-side validé (ou une voie alternative nouvellement prouvée),
+ouvrir TLS, puis réutiliser/adapter les couches capture et matcher ChicagoHS.
+Le travail SGX/WBDI déjà validé redevient un fallback actif tant qu’aucun provider
+exact-target plus court n’est démontré.
 
 ## Carte du dépôt
 

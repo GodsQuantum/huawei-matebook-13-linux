@@ -602,36 +602,15 @@ gx_target_configure (FpiDeviceGoodix51A0 *self)
 }
 
 /* Same-device Pegasus validation confirmed A2 -> chip ID -> OTP -> DAC ->
- * 0x90. E4 is only an exact-firmware sanity check on 14115; it is not treated
- * as a hash of the factory record. The read-only redundant factory records are
- * decrypted in RAM and require 2-of-3 PMK consensus before D0 is sent. */
+ * 0x90, but lower factory-flash F2 reads return request echo only and no data.
+ * Keep TLS fail-closed until an exact-target PMK provider is validated. */
 static gboolean
 gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self)
 {
-  guint8 ack[128], status = 0, type = 0;
-  int n;
-
-  if (!self->psk_ready && !gx_factory_load_pmk (self))
-    return FALSE;
-
-  if (!gx_target_configure (self))
-    {
-      fp_warn ("GXFP51A0: target initialization/configuration failed");
-      return FALSE;
-    }
-
-  if (!gx_send_plain_raw (self, GX_REQTLS, sizeof GX_REQTLS))
-    return FALSE;
-  n = gx_read_frame (self, &type, ack, sizeof ack);
-  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
-      !gxfp_parse_ack (ack, n, 0xd0, &status) ||
-      !gxfp_ack_status_success (status))
-    {
-      fp_warn ("GXFP51A0: D0 TLS request was not accepted");
-      return FALSE;
-    }
-
-  return TRUE;
+  (void) self;
+  fp_warn ("GXFP51A0: factory F2 path unavailable on Pegasus; "
+           "validated PMK provider required before TLS");
+  return FALSE;
 }
 
 

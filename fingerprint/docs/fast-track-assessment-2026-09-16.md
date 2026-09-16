@@ -53,6 +53,14 @@ TLS record reader, using the sensor/client write material and the implicit TLS
 record sequence number. The GXFP51A0 branch now carries that GCM path with the
 first application-data sequence set to 1 and a 22,176-byte regression vector.
 
+
+Pegasus hardware testing now closes one important portability assumption. The
+exact 14115 F2 read handler admits only absolute addresses in the application
+flash window `0x08020000` through `0x08040000`. Reads aimed at the lower factory
+regions therefore return the request echo without memory data. Factory-blob
+recovery through F2 must stay disabled on Pegasus unless a genuinely different
+command/state is demonstrated.
+
 F2 remains useful for read-only flash access, but upstream testing found two
 possible dump artifacts: an echoed request prefix and corruption of the first
 data byte of a read. Pegasus also showed that an unaligned `base+3` header read
