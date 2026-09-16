@@ -36,6 +36,26 @@ length was confirmed. Other current Goodix work demonstrates a 48-byte
 Windows-side intermediate/entropy path that ultimately yields a 32-byte TLS
 PSK. Exact GXFP51A0 semantics still require target evidence.
 
+## Additional 14115 corroboration
+
+A same-firmware GXFP51A0 investigation has now mapped the 14115 boot secret more
+precisely. The protected PMK blob exists in redundant flash copies, is decrypted
+during boot, staged only briefly in RAM and then overwritten/reused before normal
+commands are available. This closes untimed F2 extraction of the existing PMK,
+but does not imply that F2 cannot address RAM.
+
+The same investigation independently reproduces the GDIX51C0 family-derived
+white-box key material byte-for-byte on GF3658/14115. Together with GF3288/11033
+and the working GDIX51C0 driver, this strongly supports a common Milan-family
+white-box/provisioning construction. The exact flash-blob KDF reduction remains
+an open compatibility question, but Linux-owned PSK provisioning does not need
+to recover the existing Windows PMK first.
+
+One F2 parsing hazard is also documented upstream: some readers receive an
+8-byte `addr32 + len32` echo before returned memory. Future probes must assert
+response length/shape and a known firmware vector before using dump contents.
+The historical Pegasus vector read already passed such a known-vector check.
+
 ## Revised gates
 
 1. Keep the proven Pegasus transport: mode 0 + `SPI_CS_HIGH`, target reset

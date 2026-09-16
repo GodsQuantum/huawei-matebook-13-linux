@@ -16,18 +16,31 @@ The sensor-side initialization path is no longer the blocker:
 - target TLS is TLS 1.2 / `PSK-AES128-GCM-SHA256` (`0x00A8`), host server and
   sensor client.
 
-The remaining pre-image-capture dependency is the 48-byte host secret used by
-the target TLS session.
+The Windows compatibility route still leads through a type-13 / 48-byte host
+secret. For a Linux-only driver this is no longer assumed to be mandatory:
+current same-die Goodix work supports provisioning a Linux-owned 32-byte TLS PSK
+directly to the sensor. See `fast-track-assessment-2026-09-16.md`.
 
 ## F2 PMK route is closed
 
-The Milan F2 read command and its addressing were validated. On the target
-firmware its readable domain is application flash; it does not expose the
-runtime/private storage used for the host PMK material.
+The Milan F2 command can address target memory, including RAM on the 14115
+family. New same-firmware evidence corrects the earlier claim that its readable
+domain was limited to application flash.
 
-Therefore the earlier plan to retrieve the 48-byte PMK through F2 is closed.
-Do not reintroduce GXFP5187 RAM-address assumptions or continue F2 PMK probing
-without new exact-target evidence.
+The reason F2 is not a practical route to the existing Windows PMK is timing:
+the firmware decrypts the protected flash blob during boot, stages the plaintext
+briefly, then reuses that RAM before the normal command loop is available. A
+later F2 read therefore does not recover the boot-time plaintext PMK.
+
+Some F2 tooling also sees an 8-byte echo of the request (`addr32 + len32`) before
+returned memory. Future diagnostic readers must validate the complete response
+shape and a known target vector before trusting a dump. The historical Pegasus
+vector read at `0x08020000` matched the known firmware vector exactly, so that
+successful calibration is retained; the old "F2 cannot read SRAM" conclusion is
+not.
+
+Do not resume untimed F2 PMK hunting or GXFP5187 RAM-address assumptions without
+new exact-target evidence.
 
 ## Windows host-secret path
 
@@ -90,9 +103,9 @@ The add-page path was traced to `enclave_load_data()` and submits exactly one
 SIGSTRUCT. This gives a concrete page-loading oracle without publishing vendor
 code or relying on heuristic string matches.
 
-## Current gate: exact MRENCLAVE reproduction
+## WBDI fallback gate: exact MRENCLAVE reproduction
 
-No Goodix enclave execution is attempted until the Linux loader independently
+If the SGX fallback is resumed, no Goodix enclave execution is attempted until the Linux loader independently
 reconstructs the exact page stream authenticated by the enclave SIGSTRUCT.
 Current work is therefore:
 
@@ -103,19 +116,17 @@ Current work is therefore:
 5. recompute MRENCLAVE offline;
 6. require a byte-for-byte match with the signed SIGSTRUCT measurement.
 
-Only after this gate passes will work proceed to Goodix WBDI EINIT,
+Only after this fallback gate passes would work proceed to Goodix WBDI EINIT,
 launch-token handling and the minimum ECALL/OCALL bridge needed for unsealing.
+This is no longer the blocking dependency for the Linux-only driver.
 
-## Planned driver integration
+## Preferred Linux integration
 
-After the SGX loader gate passes:
-
-1. unseal privately and accept only record type `13`, length `48`;
-2. keep PMK bytes outside logs and public files with restrictive permissions;
-3. feed the secret to the already-modelled TLS 1.2 PSK-GCM host path;
-4. complete the sensor TLS handshake;
-5. capture and decode the first 80x64 frame;
-6. implement enrol/verify, then fprintd/PAM/desktop integration.
+The preferred path is now the APP-mode PSK fast track documented separately:
+read-only preset-PSK compatibility probe, exact-target validation of the same-die
+white-box/provisioning contract, Linux-owned 32-byte PSK, then the existing TLS
+1.2 PSK-GCM path and the tested ChicagoHS capture/matcher stack. WBDI/SGX stays
+as a fallback and Windows-compatibility research path.
 
 ## Safety / closed branches
 
