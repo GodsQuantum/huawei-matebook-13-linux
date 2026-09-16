@@ -78,8 +78,10 @@ F2 can address the relevant flash (and can address RAM), but direct PMK hunting
 in runtime RAM remains closed. Pegasus historically returned the direct
 `F2|len|data|checksum` response shape, while another 14115 unit prepends an
 8-byte request echo; the driver parser accepts only those two exact forms with
-strict length/checksum validation. Each factory copy has an 8-byte header whose
-declared body length is `0x100` (256 bytes). The body is 16 bytes of salt plus
+strict length/checksum validation. Factory headers must be read from the aligned
+record base: an unaligned `base+3` read on Pegasus reflected request metadata into
+the apparent payload and produced bogus address-shaped lengths. Each factory copy
+has an 8-byte header whose declared body length is `0x100` (256 bytes). The body is 16 bytes of salt plus
 240 bytes of AES-128-CBC ciphertext. F2 may corrupt the first byte of a read, so
 the loader recovers that byte by requiring a unique type-`0x000d` / length-48
 decrypt candidate, then requires matching PMKs from at least two of the three

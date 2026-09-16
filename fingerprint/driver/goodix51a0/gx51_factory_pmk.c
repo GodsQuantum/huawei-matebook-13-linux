@@ -121,7 +121,7 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
                        uint8_t pmk[GXFP_FACTORY_PMK_LEN])
 {
   static const uint32_t bases[] = {0x08004000u, 0x08008000u, 0x0800a000u};
-  uint8_t len_probe[5], body[GXFP_FACTORY_BODY_LEN];
+  uint8_t header[8], body[GXFP_FACTORY_BODY_LEN];
   uint8_t candidates[3][GXFP_FACTORY_PMK_LEN];
   bool valid[3] = {false, false, false};
   bool ok = false;
@@ -133,14 +133,16 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
     {
       uint32_t body_len;
       uint8_t first = 0;
-      memset (len_probe, 0, sizeof len_probe);
+      memset (header, 0, sizeof header);
       memset (body, 0, sizeof body);
-      if (!mem_read (user, bases[i] + 3u, sizeof len_probe, len_probe))
+      /* F2 corrupts the first byte of each read on 14115. Read the aligned
+       * 8-byte header so the declared body length at +4..+7 is unaffected. */
+      if (!mem_read (user, bases[i], sizeof header, header))
         continue;
-      body_len = (uint32_t) len_probe[1] |
-                 ((uint32_t) len_probe[2] << 8) |
-                 ((uint32_t) len_probe[3] << 16) |
-                 ((uint32_t) len_probe[4] << 24);
+      body_len = (uint32_t) header[4] |
+                 ((uint32_t) header[5] << 8) |
+                 ((uint32_t) header[6] << 16) |
+                 ((uint32_t) header[7] << 24);
       if (body_len != GXFP_FACTORY_BODY_LEN)
         continue;
       if (!mem_read (user, bases[i] + 8u, body_len, body))
@@ -158,7 +160,7 @@ gxfp_factory_load_pmk (GxfpFactoryMemRead mem_read,
           ok = true;
         }
 
-  OPENSSL_cleanse (len_probe, sizeof len_probe);
+  OPENSSL_cleanse (header, sizeof header);
   OPENSSL_cleanse (body, sizeof body);
   OPENSSL_cleanse (candidates, sizeof candidates);
   if (!ok)

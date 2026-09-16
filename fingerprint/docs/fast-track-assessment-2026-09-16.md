@@ -49,8 +49,11 @@ reproduction before this repository may claim local TLS success.
 
 F2 remains useful for read-only flash access, but upstream testing found two
 possible dump artifacts: an echoed request prefix and corruption of the first
-data byte of a read. Any Pegasus extractor must therefore use known-vector and
-overlapping-read checks, and validate reconstructed private data before use.
+data byte of a read. Pegasus also showed that an unaligned `base+3` header read
+can reflect request metadata into the apparent payload; factory headers are now
+read from the aligned record base and the body length is taken from bytes `+4..+7`.
+Any extractor must use strict response-shape checks and redundant-record agreement
+before use.
 
 ## Revised gates
 
