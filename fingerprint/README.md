@@ -6,7 +6,7 @@
 
 > Français: [README.FR.md](README.FR.md)
 
-## Current status — 2026-09-14
+## Current status — 2026-09-16
 
 The project has a reproducible **GXFP51A0 libfprint v1.94.100 candidate**.
 Software integration is no longer the blocker.
@@ -26,7 +26,11 @@ EVK firmware response               CONFIRMED: GF_ST411SEC_APP_14115
 chip ID / OTP calibration            CONFIRMED
 target 256-byte config               CONFIRMED
 TLS cipher                           CONFIRMED: TLS1.2 PSK-AES128-GCM-SHA256
-PMK retrieval                        CURRENT BOUNDARY
+F2 PMK retrieval                     CLOSED_NOT_APPLICABLE
+legacy /dev/isgx path                PASS
+Intel Launch Enclave EINIT           PASS
+WBDI PE / SGX metadata gate          PASS
+WBDI MRENCLAVE reproduction          CURRENT BOUNDARY
 capture/enroll/verify               NOT REACHED
 fprintd/PAM                         NOT REACHED
 ```
@@ -157,49 +161,46 @@ Do not restart these branches without new exact-device evidence:
 - hidden LPSS fingerprint switch
 - DeviceInit intermediate action as missing sensor I/O
 - unverified GXFP5187 PMK address/key assumptions
+- F2 PMK retrieval
 - unchanged common-init replay
 
 ## Still unresolved
 
-- F2 application-base calibration and runtime read/validation of the exact-target 48-byte PMK
-- TLS 1.2 PSK-AES128-GCM-SHA256 handshake
+- exact offline reproduction of the WBDI signed MRENCLAVE
+- Goodix WBDI EINIT + legacy launch-token path
+- minimum ECALL/OCALL bridge for private host-secret unsealing
+- live TLS 1.2 PSK-AES128-GCM-SHA256 handshake with the sensor
 - first 80x64 image capture and decode
 - enroll / verify
 - fprintd / PAM / desktop integration
 
 ## Current next boundary
 
-The primary development installation currently has **no Windows boot**.
-Therefore the Windows WDF/SpbCx comparison cannot be collected locally.
+The host-secret path is now the only pre-TLS blocker. The F2 route is closed;
+the matching Windows stack uses a legacy Intel SGX enclave to unseal the
+machine-specific host secret.
 
-The repository now publishes two contributor paths:
-
-### Linux target
-
-```bash
-make -C fingerprint passive-audit
-```
-
-This collects read-only ACPI/SPI/PCI/runtime-PM/IRQ/pinctrl context. It does not
-perform sensor traffic or hardware writes.
-
-### Working Windows GXFP51A0
-
-Use
-[scripts/windows/gxfp51a0_windows_observability.ps1](scripts/windows/gxfp51a0_windows_observability.ps1)
-to inventory the working Windows stack and optionally capture one WDF trace.
-
-If software observability cannot distinguish Windows from Linux, the
-highest-value evidence becomes an external logic-analyzer/oscilloscope
-comparison of:
+The current fail-closed sequence is:
 
 ```text
-CS / SCLK / MOSI / MISO / GPIO48
+strict PE/SGX metadata parse       PASS
+legacy /dev/isgx hardware path     PASS
+Intel Launch Enclave EINIT         PASS
+exact WBDI structure gate          PASS
+exact signed MRENCLAVE match       CURRENT
+WBDI EINIT / launch token          NEXT
+private type-13 / 48-byte unseal   GATED
+sensor TLS handshake               GATED
+80x64 frame                        GATED
 ```
+
+See [docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md)
+for the non-secret evidence and current loader boundary.
 
 ## Repository map
 
 - [Current handoff](HANDOFF_CURRENT.md)
+- [SGX host-secret path — 2026-09-16](docs/sgx-host-secret-path-2026-09-16.md)
 - [Detailed final handoff — 2026-09-08](FINAL_HANDOFF_2026-09-08.md)
 - [Candidate driver](driver/goodix51a0/)
 - [Contributor scripts](scripts/)
@@ -217,10 +218,11 @@ CS / SCLK / MOSI / MISO / GPIO48
 ## Functional target
 
 ```text
-first ACK
--> A8/EVK
--> exact target config
--> exact DSM/TLS/PSK
+first ACK [CONFIRMED]
+-> A8/EVK [CONFIRMED]
+-> exact target config [CONFIRMED]
+-> SGX host-secret unseal
+-> TLS PSK-GCM
 -> image capture
 -> enroll
 -> verify

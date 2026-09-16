@@ -1,34 +1,35 @@
 # Current handoff — GXFP51A0 / GF3658 Milan
 
-**Updated: 2026-09-14 after first Linux ACK / EVK and target-config confirmation.**
+**Updated: 2026-09-16 after target-config/TLS integration and SGX host-secret validation.**
 
-This is the shortest canonical resume point. The historical 2026-09-08
-checkpoint remains in [FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
-The decisive first-contact evidence is documented in
-[docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md).
+This is the shortest canonical resume point. First-contact evidence is in
+[docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md),
+target configuration in
+[docs/target-config-confirmed-2026-09-14.md](docs/target-config-confirmed-2026-09-14.md),
+and the current host-secret boundary in
+[docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md).
 
 ## Current state
 
 ```text
 candidate libfprint v1.94.100 build       PASS
-first-contact source regression           PASS
 research unit/safety suite                PASS
-Windows .36/.40 first-contact diff        CLOSED
-DeviceInit/BESD intermediate action       CLOSED_NO_SENSOR_IO
-SPB first-contact split-write boundary    MATCHED_HIGH_CONFIDENCE
 first real sensor ACK under Linux         CONFIRMED
-A8 ACK                                    CONFIRMED
-a8 firmware/EVK response                  CONFIRMED
 firmware                                  GF_ST411SEC_APP_14115
-target config                              CONFIRMED ON HARDWARE
-TLS cipher                               CONFIRMED: TLS1.2 / PSK-AES128-GCM-SHA256
-PMK retrieval                            CURRENT BOUNDARY
+chip ID / OTP calibration                 CONFIRMED
+target config                             CONFIRMED ON HARDWARE
+TLS profile                               TLS1.2 / PSK-AES128-GCM-SHA256
+F2 PMK retrieval                          CLOSED_NOT_APPLICABLE
+legacy /dev/isgx path                     PASS
+Intel production Launch Enclave EINIT     PASS
+WBDI PE / SGX metadata parser             PASS
+WBDI exact private structure gate         PASS
+WBDI MRENCLAVE reproduction               CURRENT BOUNDARY
+PMK unseal                                NOT REACHED
 image/capture                             NOT REACHED
 ```
-## Confirmed Linux operating recipe
 
-The previous normal-CS 34-transfer run is now a historical negative control.
-First contact was reproduced on a MateBook 13 2021 using:
+## Confirmed sensor-side recipe
 
 ```text
 GPIO264 HIGH 300 ms        active MCU reset
@@ -40,88 +41,91 @@ SPI rate                   1 MHz (currently proven rate)
 final GPIO264              LOW
 ```
 
-Positive A8 ACK:
+A8 ACK and EVK response are confirmed. Target config performs A2 reset, chip ID
+`0x2504`, 64-byte OTP parsing, OTP-derived tcode/FDT/DAC calibration and exact
+0x90 config upload.
 
-```text
-a0 06 00 a6 b0 03 00 a8 03 4c
-```
+Target TLS is pinned to suite `0x00A8`, `PSK-AES128-GCM-SHA256`, TLS 1.2,
+sensor client / host server, identity `Client_identity`. Software GCM handshake
+and large-record regression pass.
 
-Positive EVK response contains `GF_ST411SEC_APP_14115`.
-The identical command sequence with normal Linux CS polarity produced only
-idle bytes.
-## Candidate changes on the current branch
+## Host PMK boundary
 
-The branch `research/gxfp51a0-config-tls` now carries both the confirmed
-first-contact transport and the exact-target ChicagoHS configuration path:
+F2 is no longer a candidate PMK transport: exact-target analysis shows its read
+window is application flash and cannot expose the required host-secret storage.
+Do not spend more time on F2 for PMK retrieval.
 
-- initial spidev configuration: mode 0 + `SPI_CS_HIGH`;
-- recovery reopen: same mode;
-- SPI rate: 1 MHz until a separate higher-rate test proves 10 MHz on Linux;
-- reset helper: HIGH 300 ms -> LOW -> 600 ms settle;
-- source and research regressions assert those values;
-- target soft reset A2, chip ID 0x2504 and 64-byte OTP parsing;
-- OTP-derived tcode/FDT/DAC calibration;
-- exact 256-byte target config patch/checksum/upload;
-- runtime config path enabled before TLS.
+The matching Windows path instead obtains machine-specific ACPI `_DSM` data and
+uses a signed SGX enclave to unseal the host secret. The successful Goodix
+record semantics are type `13`, length `48`. Raw `_DSM`, PMK and enclave-derived
+secret bytes remain private and must never enter this repository.
 
-Target TLS is now pinned from the working Windows ServerHello: suite `0x00A8`,
-`PSK-AES128-GCM-SHA256`, TLS 1.2, sensor client / host server, identity
-`Client_identity`. The software GCM handshake + 10.6 kB record regression is
-PASS. PMK retrieval remains deliberately gated. No firmware or PMK write path
-is enabled.
+On the target machine, a one-shot legacy SGX boot has been validated: native
+SGX ownership is masked, the compatible legacy `isgx` driver exposes
+`/dev/isgx`, discovers EPC, and the Intel production Launch Enclave reaches
+EINIT. The one-shot boot entry cleans itself and the following reboot returns
+to the normal setup.
+
+The Goodix WBDI image is PE32+ x86-64 with legacy SGX metadata 1.2. Its
+`sgxmeta` is VirtualSize `0x754` / RawSize `0x800`: a `0x44`-byte legacy prefix
+followed immediately by a standard `0x710`-byte SIGSTRUCT. Strict offline
+parsing, malformed-input tests and the private exact-structure gate pass.
+
+Matching Windows uRTS analysis additionally proves one 4 KiB page is submitted
+per `enclave_load_data()` call. Current work is to reproduce the complete
+ECREATE/EADD/EEXTEND stream and exact signed MRENCLAVE offline before any Goodix
+enclave EINIT attempt.
 
 ## Software validation
-
-Canonical software-only validation remains:
 
 ```bash
 make -C fingerprint verify
 ```
 
-Before merging/pushing this branch, require a fresh PASS of the complete
-research suite, source manifest, libfprint v1.94.100 build, privacy gate and
-`git diff --check`.
+Fresh validation on 2026-09-16 passed the complete research suite, source
+manifest, libfprint v1.94.100 build, privacy scan and `git diff --check` with no
+sensor I/O, GPIO/MMIO write or firmware action.
 
 ## Next boundary
 
-First-contact transport is no longer the blocker. Work in this order:
+Work in this order; no gate may be skipped:
 
-1. validate the F2 application-relative address base and read the 48-byte PMK;
-2. establish the already-modeled TLS 1.2 PSK-GCM handshake;
-3. capture and decode the first 80x64 image;
-4. enrol/verify;
-5. fprintd/PAM/desktop integration.
+1. reproduce WBDI MRENCLAVE exactly offline;
+2. initialize WBDI through the validated legacy SGX path;
+3. obtain the required launch token and implement the minimum ECALL/OCALL bridge;
+4. unseal privately and accept only type `13` / length `48`;
+5. connect the resulting PMK to the existing TLS 1.2 PSK-GCM path;
+6. capture/decode the first 80x64 frame;
+7. enrol/verify;
+8. fprintd/PAM/desktop integration.
+
 ## Do not reopen without new evidence
 
 - DMA versus PIO;
 - runtime PM as primary cause;
 - Linux IRQ mapping;
-- userspace polling versus native IRQ wait;
 - DeviceInit `besdenable` as missing sensor I/O;
 - GPIO112/GPP_D16 or hidden LPSS switch;
-- unchanged normal-CS 34-transfer replay;
-- fixed 48-byte GXFP51A0 PSK assumption.
-
-The CS-polarity conclusion is now positive hardware evidence: do not revert to
-normal Linux CS polarity based only on ACPI `PolarityLow` wording.
+- unchanged normal-CS replay;
+- GXFP5187 PMK address assumptions;
+- F2 PMK retrieval;
+- WinPE/QEMU while the native SGX route remains viable.
 
 ## Canonical files
 
 1. `HANDOFF_CURRENT.md`
-2. `docs/first-contact-confirmed-2026-09-14.md`
+2. `docs/sgx-host-secret-path-2026-09-16.md`
 3. `docs/target-config-confirmed-2026-09-14.md`
-4. `driver/goodix51a0/README.md`
-4. `docs/current-boundary-2026-09-08.md`
-5. `docs/deviceinit-besd-spb-closure-2026-09-08.md`
-6. `docs/windows-14136-14140-differential-2026-09-08.md`
-7. `docs/research-log.md`
+4. `docs/first-contact-confirmed-2026-09-14.md`
+5. `driver/goodix51a0/README.md`
+6. `docs/research-log.md`
+7. `docs/safety.md`
 8. `FINAL_HANDOFF_2026-09-08.md` (historical checkpoint)
-9. `docs/safety.md`
 
 ## Public-repository locks
 
-No proprietary binaries/firmware, raw DSM material, PSK/derived keys, private
-machine identifiers or bulk proprietary disassembly.
+No proprietary binaries/firmware, raw DSM material, PMK/PSK or derived keys,
+private machine identifiers, local user paths or bulk proprietary disassembly.
 
-No firmware/PSK write, speculative MMIO/pinmux write or GPIO112 write without
-new exact-target evidence. Every active experiment must leave GPIO264 LOW.
+No firmware write, speculative MMIO/pinmux write or GPIO112 write without new
+exact-target evidence. Every active sensor experiment must leave GPIO264 LOW.

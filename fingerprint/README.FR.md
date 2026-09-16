@@ -6,7 +6,7 @@
 
 > English: [README.md](README.md)
 
-## État actuel — 14 septembre 2026
+## État actuel — 16 septembre 2026
 
 Le projet dispose maintenant d'un **candidat GXFP51A0 reproductible pour
 libfprint v1.94.100**. L'intégration logicielle n'est plus le blocage.
@@ -23,7 +23,12 @@ ACK A8                               CONFIRMÉ
 réponse EVK firmware                 CONFIRMÉE : GF_ST411SEC_APP_14115
 chip ID / calibration OTP            CONFIRMÉS
 config cible 256 octets              CONFIRMÉE
-TLS/PMK                              FRONTIÈRE SUIVANTE
+TLS                                  CONFIRMÉ : TLS1.2 PSK-AES128-GCM-SHA256
+lecture PMK via F2                   FERMÉE / NON APPLICABLE
+chemin legacy /dev/isgx              PASS
+EINIT Intel Launch Enclave           PASS
+parser PE / metadata SGX WBDI        PASS
+reproduction MRENCLAVE WBDI          FRONTIÈRE ACTUELLE
 capture/enroll/verify                NON ATTEINT
 fprintd/PAM                          NON ATTEINT
 ```
@@ -114,45 +119,45 @@ Ne pas rejouer cette expérience active inchangée.
 - switch fingerprint LPSS caché
 - action DeviceInit intermédiaire comme I/O capteur manquante
 - adresse/clé PMK GXFP5187 réutilisée sans preuve cible
+- récupération PMK via F2
 - replay inchangé du common-init
 
 ## Encore non résolu
 
-- lecture/validation runtime de la PMK cible identifiée par l’analyse du firmware ST411
-- handshake TLS-PSK
+- reproduction hors ligne exacte du MRENCLAVE signé de WBDI
+- EINIT WBDI + chemin legacy du launch token
+- bridge ECALL/OCALL minimal pour l’unseal privé du secret hôte
+- handshake TLS 1.2 PSK-AES128-GCM-SHA256 réel avec le capteur
 - première capture et décodage image 80x64
 - enroll / verify
 - fprintd / PAM / desktop
 
 ## Frontière suivante
 
-Le premier contact et la configuration cible n’étant plus les blocages, la
-frontière suivante est la PMK/TLS. Le prochain test actif est une lecture F2
-bornée de l’état PMK identifié dans le firmware ST411, sans publication de la
-clé brute.
+Le chemin F2 est fermé. Le stack Windows correspondant passe par une enclave
+Intel SGX legacy pour unseal le secret hôte spécifique à la machine.
 
-Pour l’observabilité Linux passive :
-
-```bash
-make -C fingerprint passive-audit
-```
-
-Le script collecte uniquement des informations ACPI/SPI/PCI/runtime-PM/IRQ/
-pinctrl en lecture seule.
-
-Un contributeur avec un GXFP51A0 fonctionnel sous Windows peut utiliser
-[scripts/windows/gxfp51a0_windows_observability.ps1](scripts/windows/gxfp51a0_windows_observability.ps1).
-
-Si ces observations software ne discriminent pas le problème, la preuve la plus
-utile devient une comparaison avec analyseur logique/oscilloscope de :
+La séquence fail-closed actuelle est :
 
 ```text
-CS / SCLK / MOSI / MISO / GPIO48
+parse PE / metadata SGX strict      PASS
+chemin matériel legacy /dev/isgx    PASS
+EINIT Intel Launch Enclave          PASS
+gate structure exacte WBDI          PASS
+MRENCLAVE signé exact               EN COURS
+EINIT WBDI / launch token           SUIVANT
+unseal privé type 13 / 48 octets    BLOQUÉ PAR LE GATE
+handshake TLS capteur               BLOQUÉ PAR LE GATE
+frame 80x64                         BLOQUÉ PAR LE GATE
 ```
+
+Voir [docs/sgx-host-secret-path-2026-09-16.md](docs/sgx-host-secret-path-2026-09-16.md)
+pour les preuves non sensibles et la frontière exacte du loader.
 
 ## Carte du dépôt
 
 - [Handoff actuel](HANDOFF_CURRENT.md)
+- [Chemin SGX du secret hôte — 2026-09-16](docs/sgx-host-secret-path-2026-09-16.md)
 - [Handoff détaillé 2026-09-08](FINAL_HANDOFF_2026-09-08.md)
 - [Candidat driver](driver/goodix51a0/)
 - [Scripts contributeur](scripts/)
@@ -173,7 +178,8 @@ CS / SCLK / MOSI / MISO / GPIO48
 premier ACK [CONFIRMÉ]
 -> A8/EVK [CONFIRMÉ]
 -> config cible exacte [CONFIRMÉE]
--> PMK/TLS exact
+-> unseal SGX du secret hôte
+-> TLS PSK-GCM
 -> capture image
 -> enroll
 -> verify
