@@ -47,6 +47,12 @@ That same investigation completed a live hardware TLS 1.2
 a prerequisite for Linux operation. Pegasus still needs an independent local
 reproduction before this repository may claim local TLS success.
 
+A follow-up from the working 5187 path also confirms the oversized-record trap:
+a post-handshake image record must be authenticated/decrypted outside the stock
+TLS record reader, using the sensor/client write material and the implicit TLS
+record sequence number. The GXFP51A0 branch now carries that GCM path with the
+first application-data sequence set to 1 and a 22,176-byte regression vector.
+
 F2 remains useful for read-only flash access, but upstream testing found two
 possible dump artifacts: an echoed request prefix and corruption of the first
 data byte of a read. Pegasus also showed that an unaligned `base+3` header read

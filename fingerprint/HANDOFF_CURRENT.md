@@ -30,10 +30,13 @@ GDIX51C0 same-die Linux path              CONFIRMED REFERENCE
 E4 14115 AAAA/32-byte variant             CONFIRMED ON PEGASUS
 E0 Linux-owned PSK provisioning           CLOSED_NO_HANDLER
 factory flash PMK decrypt                 IMPLEMENTED + TESTED OFFLINE
-factory 256-byte redundant loader          SOFTWARE BUILD PASS
+factory redundant-prefix loader           SOFTWARE BUILD PASS
 TLS EMS disabled                           REGRESSION PASS
 oversized ~22 kB AES-GCM record decrypt    REGRESSION PASS
+manual GCM sequence handling               CONFIRMED + REGRESSION PASS
 live TLS on GXFP51A0/14115                CONFIRMED EXTERNAL
+Pegasus kernel / spidev module match        PASS (7.2.5)
+Pegasus factory-read hardware probe         ROOT ACTION PENDING
 Pegasus PMK + live TLS                     CURRENT BOUNDARY
 WBDI MRENCLAVE reproduction               FALLBACK RESEARCH
 image/capture hardware                     NOT REACHED
@@ -105,16 +108,23 @@ sensor I/O, GPIO/MMIO write or firmware action.
 
 ## Next boundary
 
+Pegasus is now booted on kernel 7.2.5 with a matching in-tree `spidev` module.
+The remote connector cannot perform the required privileged module load/bind, so
+the next active step is the already-reviewed read-only factory-header probe under
+local root. It performs A8/E4/F2 reads only and restores GPIO264 LOW.
+
 Work in this order:
 
-1. run the read-only factory→PMK-in-RAM→config→D0→TLS probe on Pegasus;
-2. require 2-of-3 redundant factory-copy PMK consensus and successful TLS 1.2
+1. run the echo-aware read-only factory-header probe on Pegasus;
+2. if the factory record shape is confirmed, run the private in-memory
+   factory→PMK→config→D0→TLS validation;
+3. require 2-of-3 redundant factory-copy PMK consensus and successful TLS 1.2
    `PSK-AES128-GCM-SHA256` handshake with EMS disabled;
-3. verify a small encrypted FDT `0x36` exchange before asking for an image;
-4. reach the first ChicagoHS image record and validate the oversized-record GCM
+4. verify a small encrypted FDT `0x36` exchange before asking for an image;
+5. reach the first ChicagoHS image record and validate the oversized-record GCM
    path already covered by the 22,176-byte software regression;
-5. reach the first decoded 80x64 frame, then enrol/verify and fprintd/PAM;
-6. resume WBDI/SGX only if the factory-secret path fails exact-target validation.
+6. reach the first decoded 80x64 frame, then enrol/verify and fprintd/PAM;
+7. resume WBDI/SGX only if the factory-secret path fails exact-target validation.
 
 ## Do not reopen without new evidence
 
