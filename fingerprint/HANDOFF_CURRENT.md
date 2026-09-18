@@ -151,3 +151,24 @@ private machine identifiers, local user paths or bulk proprietary disassembly.
 
 No firmware write, speculative MMIO/pinmux write or GPIO112 write without new
 exact-target evidence. Every active sensor experiment must leave GPIO264 LOW.
+
+## Update 2026-09-18 — stale staging + real image format
+
+The exact-target community result resolves the apparent F2 contradiction:
+the successful 14115 PMK extraction did not read private flash. A rejected F2
+request returned an address-independent stale copy/staging buffer; on that unit
+it still held the encrypted boot-staged blob. The 14115 range gate proven on
+Pegasus therefore remains correct.
+
+Public code added in this update:
+- fail-closed parser for rejected 14115 staging responses, excluding app-flash;
+- regression-tested decoder for 10,573-byte image plaintext records;
+- packed 12-bit 88x80 wire raster -> 64x80 crop -> 80x64 output.
+
+Runtime PMK loading stays disabled until Pegasus reproduces that stale boot
+staging response under a read-only immediate-post-reset probe. Do not return to
+private-flash/RAM F2 reads.
+
+External szlukabence/goodix-fingerprint-spi-linux commit 53c180d (2026-09-17)
+reports real GXFP51A0 images on Linux and documents 14-byte FDT payloads,
+per-frame FDT re-arm and the same image geometry. SGX/WBDI is fallback only.

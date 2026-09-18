@@ -51,6 +51,7 @@
 #include "gx51_transport.h"
 #include "gx51_target.h"
 #include "gx51_factory_pmk.h"
+#include "gx51_image.h"
 
 G_STATIC_ASSERT (GOODIX_PSK_LEN == GXFP_FACTORY_PMK_LEN);
 
@@ -398,20 +399,6 @@ gx_mem_read (FpiDeviceGoodix51A0 *self, guint32 mem, guint32 len, guint8 *out)
 /*  Image decoding: six bytes carry four pixels, in interleaved order  */
 /* ------------------------------------------------------------------ */
 
-static void
-gx_decode_12bit (const guint8 *data, gsize len, guint16 *out, gsize n)
-{
-  gsize i, o = 0;
-
-  for (i = 0; i + 6 <= len && o + 4 <= n; i += 6)
-    {
-      const guint8 *c = data + i;
-      out[o++] = ((c[0] & 0xf) << 8) | c[1];
-      out[o++] = (c[3] << 4) | (c[0] >> 4);
-      out[o++] = ((c[5] & 0xf) << 8) | c[2];
-      out[o++] = (c[4] << 4) | (c[5] >> 4);
-    }
-}
 
 /* ------------------------------------------------------------------ */
 /*  Init, handshake and frame capture                                  */
@@ -751,14 +738,17 @@ gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px)
   }
   fp_dbg ("timing: whole capture %ld us (image %d bytes)",
            (long) (g_get_monotonic_time () - tA), total);
-  if (total < 22176)
+  if (total != (int) GXFP_IMAGE_PLAINTEXT_LEN)
     {
-      fp_warn ("incomplete image: %d bytes", total);
+      fp_warn ("unexpected GXFP51A0 image plaintext: %d bytes (expected %u)",
+               total, (unsigned) GXFP_IMAGE_PLAINTEXT_LEN);
       return FALSE;
     }
-  /* Header is a tag, a 16-bit length and five zero bytes, then the 12-bit
-   * samples: skip 8 bytes. */
-  gx_decode_12bit (img + 8, total - 8, px, GOODIX_IMG_PIXELS);
+  if (!gxfp_decode_image_plaintext (img, (gsize) total, px))
+    {
+      fp_warn ("cannot decode GXFP51A0 88x80 transport raster");
+      return FALSE;
+    }
   return TRUE;
 }
 

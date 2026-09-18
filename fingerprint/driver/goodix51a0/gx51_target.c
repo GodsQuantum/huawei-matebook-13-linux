@@ -318,6 +318,49 @@ bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
            GXFP_MEM_READ_DATA;
 }
 
+
+bool gxfp_14115_parse_rejected_staging_response(
+    const uint8_t *body, size_t len, uint32_t address, uint32_t requested_len,
+    uint8_t *out, size_t out_cap, size_t *out_len)
+{
+    uint64_t end;
+    uint32_t wire_address;
+    uint8_t echo[8];
+    size_t stale_len;
+
+    if (body == NULL || out == NULL || out_len == NULL ||
+        address < 0x08000000u || requested_len == 0u ||
+        requested_len > GXFP_MEM_READ_MAX)
+        return false;
+
+    end = (uint64_t)address + (uint64_t)requested_len;
+    if (address >= 0x08020000u && end <= 0x08040000u)
+        return false; /* This is a legitimate 14115 app-flash read. */
+
+    if (len <= 12u)
+        return false; /* Echo-only has no stale staging payload. */
+    stale_len = len - 12u;
+    if (stale_len > out_cap ||
+        !body_matches(body, len, 0xf2u, stale_len + 8u))
+        return false;
+
+    wire_address = address - 0x08000000u;
+    echo[0] = (uint8_t)wire_address;
+    echo[1] = (uint8_t)(wire_address >> 8);
+    echo[2] = (uint8_t)(wire_address >> 16);
+    echo[3] = (uint8_t)(wire_address >> 24);
+    echo[4] = (uint8_t)requested_len;
+    echo[5] = (uint8_t)(requested_len >> 8);
+    echo[6] = (uint8_t)(requested_len >> 16);
+    echo[7] = (uint8_t)(requested_len >> 24);
+    if (memcmp(body + 3u, echo, sizeof echo) != 0)
+        return false;
+
+    memcpy(out, body + 11u, stale_len);
+    *out_len = stale_len;
+    return true;
+}
+
 static uint8_t crc8_goodix(const uint8_t *data, size_t len)
 {
     uint8_t crc = 0u;

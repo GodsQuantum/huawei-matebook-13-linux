@@ -67,6 +67,9 @@ gxfp_classify_mem_read_response(const uint8_t *body, size_t len,
 bool gxfp_parse_mem_read_response(const uint8_t *body, size_t len,
                                   uint32_t address, uint32_t requested_len,
                                   uint8_t *out);
+bool gxfp_14115_parse_rejected_staging_response(
+    const uint8_t *body, size_t len, uint32_t address, uint32_t requested_len,
+    uint8_t *out, size_t out_cap, size_t *out_len);
 bool gxfp_parse_factory_hash_response(const uint8_t *body, size_t len,
                                       uint32_t *dtype, uint8_t hash[32]);
 

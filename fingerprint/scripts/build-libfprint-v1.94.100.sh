@@ -116,7 +116,13 @@ say "PKG_CONFIG_DEPENDENCIES=PASS"
 
 say ""
 say "===== 3. PINNED MESON / NINJA TOOL ENV ====="
-if [[ ! -x "$TOOLS_VENV/bin/python3" ]]; then
+venv_stale=0
+if [[ -x "$TOOLS_VENV/bin/meson" ]]; then
+  expected_shebang="#!$TOOLS_VENV/bin/python3"
+  actual_shebang="$(head -n 1 "$TOOLS_VENV/bin/meson" 2>/dev/null || true)"
+  [[ "$actual_shebang" == "$expected_shebang" ]] || venv_stale=1
+fi
+if [[ ! -x "$TOOLS_VENV/bin/python3" || "$venv_stale" -eq 1 ]]; then
   rm -rf -- "$TOOLS_VENV"
   python3 -m venv "$TOOLS_VENV"
 fi
@@ -166,6 +172,8 @@ sources=(
   gx51_target.h
   gx51_factory_pmk.c
   gx51_factory_pmk.h
+  gx51_image.c
+  gx51_image.h
 )
 for file in "${sources[@]}"; do
   [[ -f "$DRIVER_DIR/$file" ]] || die "CANDIDATE_SOURCE_MISSING:$file"

@@ -217,6 +217,40 @@ int main(void)
         assert(gxfp_config_checksum_valid(c));
     }
 
+    {
+        uint8_t rsp[96] = {0};
+        uint8_t stale[80] = {0};
+        size_t stale_len = 0;
+        uint32_t wire = 0x00004000u;
+        rsp[0] = 0xf2u;
+        rsp[1] = 0x59u; /* 8-byte echo + 80 stale bytes + command byte */
+        rsp[2] = 0x00u;
+        rsp[3] = (uint8_t)wire;
+        rsp[4] = (uint8_t)(wire >> 8);
+        rsp[5] = (uint8_t)(wire >> 16);
+        rsp[6] = (uint8_t)(wire >> 24);
+        rsp[7] = 0x00u; rsp[8] = 0x01u; rsp[9] = 0x00u; rsp[10] = 0x00u;
+        for (size_t i = 0; i < sizeof stale; i++)
+            rsp[11 + i] = (uint8_t)(0x80u + i);
+        rsp[91] = gxfp_body_checksum(rsp, 91);
+        assert(gxfp_14115_parse_rejected_staging_response(
+            rsp, 92u, 0x08004000u, 256u, stale, sizeof stale, &stale_len));
+        assert(stale_len == sizeof stale);
+        for (size_t i = 0; i < sizeof stale; i++)
+            assert(stale[i] == (uint8_t)(0x80u + i));
+
+        /* App flash is an accepted F2 range, so it must never be accepted as
+         * a stale/rejected provider even if the packet shape is identical. */
+        assert(!gxfp_14115_parse_rejected_staging_response(
+            rsp, 92u, 0x08020000u, 256u, stale, sizeof stale, &stale_len));
+
+        /* Echo-only responses carry no staging bytes. */
+        rsp[1] = 0x09u;
+        rsp[11] = gxfp_body_checksum(rsp, 11);
+        assert(!gxfp_14115_parse_rejected_staging_response(
+            rsp, 12u, 0x08004000u, 256u, stale, sizeof stale, &stale_len));
+    }
+
     puts("test_target_init: OK");
     return 0;
 }
