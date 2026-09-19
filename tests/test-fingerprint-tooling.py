@@ -45,8 +45,11 @@ require('strings "$driver_obj" >"$object_strings_dump"' in build, "object string
 require('nm "$archive" >"$archive_nm_dump"' in build, "archive nm gate missing")
 require('ar t "$archive" >"$archive_members_dump"' in build, "archive membership gate missing")
 require('strings "$archive"' not in build, "archive-level strings gate must not be used")
-require("GOODIX51A0_ACPI_ID_IN_OBJECT=YES" in build, "compiled-object ACPI-ID success marker missing")
+require("GOODIX51A0_ACPI_ID_IN_BUILD=YES" in build, "final-build ACPI-ID success marker missing")
+require("GOODIX51A0_ACPI_ID_GATE=" in build, "LTO-safe ACPI-ID gate marker missing")
 require("GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES" in build, "archive-membership success marker missing")
+require("GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES" in build, "identify final-library gate missing")
+require("RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT" in build, "release biometric-dump exclusion gate missing")
 
 require("test-goodix51a0-first-contact.py" in verify, "first-contact regression missing")
 require('make -C "$FP_DIR/research" test' in verify, "research suite missing")
