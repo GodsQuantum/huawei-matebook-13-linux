@@ -37,7 +37,7 @@ jobs:
 
       - name: Guided diagnostic syntax
         run: |
-          python3 -c "compile(open('fingerprint/tools/gxfp51a0-verify-diagnostic.py', encoding='utf-8').read(), 'gxfp51a0-verify-diagnostic.py', 'exec')"
+          python3 -m py_compile fingerprint/tools/*.py
 
       - name: Bash syntax
         run: |

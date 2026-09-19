@@ -75,9 +75,19 @@ synchronisées par le chat :
 
 Il attend les états fprintd standards `finger-needed` / `finger-present`,
 affiche localement un compte à rebours 3-2-1 puis les ordres explicites
-`POSE`, `GARDE` et `RETIRE`. Les logs driver ne servent qu’aux détails
-optionnels de score/timing ; le guidage dépend uniquement de l’état D-Bus
-standard de fprintd.
+`POSE`, `GARDE` et `RETIRE`. Le nom du doigt physique est affiché en MAJUSCULES.
+Les logs driver ne servent qu’aux détails optionnels de score/timing ; le
+guidage dépend uniquement de l’état D-Bus standard de fprintd.
+
+Pour comparer plusieurs doigts contre un template enregistré :
+
+```bash
+./fingerprint/tools/gxfp51a0-compare-fingers.py
+```
+
+La séquence par défaut effectue trois scans `INDEX DROIT` puis trois contrôles
+négatifs : `INDEX GAUCHE`, `MAJEUR GAUCHE`, `MAJEUR DROIT`. Un rapport JSON
+agrégé contient scores, seuils, verdicts et temps de capture.
 
 ## Validation contributeur
 

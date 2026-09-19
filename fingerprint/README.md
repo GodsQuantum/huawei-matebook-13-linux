@@ -75,8 +75,19 @@ For interactive testing, use the local harness rather than chat-timed commands:
 
 It waits for fprintd's standard `finger-needed` / `finger-present` state,
 prints a local 3-2-1 countdown, then gives explicit `POSE`, `GARDE` and
-`RETIRE` instructions. Driver logs are used only for optional score/timing
-details; the guidance itself relies on the standard fprintd D-Bus state.
+`RETIRE` instructions. The requested physical finger is shown in uppercase.
+Driver logs are used only for optional score/timing details; the guidance
+itself relies on the standard fprintd D-Bus state.
+
+For a multi-finger comparison against one enrolled template:
+
+```bash
+./fingerprint/tools/gxfp51a0-compare-fingers.py
+```
+
+The default sequence performs three genuine `RIGHT INDEX` scans, then three
+negative controls (`LEFT INDEX`, `LEFT MIDDLE`, `RIGHT MIDDLE`) and writes an
+aggregate JSON report containing scores, thresholds, verdicts and capture time.
 
 ## Contributor validation
 

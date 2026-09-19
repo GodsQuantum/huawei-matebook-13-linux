@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import re
 import selectors
@@ -64,6 +65,8 @@ def main():
         description="Guided GXFP51A0/fprintd verify diagnostic")
     ap.add_argument("-f", "--finger", default="right-index-finger")
     ap.add_argument("-u", "--user", default=os.environ.get("USER", ""))
+    ap.add_argument("--physical-label", default="INDEX DROIT")
+    ap.add_argument("--summary-json")
     ap.add_argument("--timeout", type=int, default=60)
     args = ap.parse_args()
 
@@ -80,10 +83,12 @@ def main():
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = log_dir / f"verify-{run_id}.log"
 
-    print("=" * 64)
+    physical_label = args.physical_label.upper()
+    print("!" * 72)
+    print(f"!!! DOIGT À UTILISER : {physical_label} !!")
+    print("!" * 72)
     print(" GXFP51A0 — VERIFY GUIDÉ")
-    print("=" * 64)
-    print(f"Doigt attendu : {args.finger}")
+    print(f"Template comparé : {args.finger}")
     print("RÈGLE : ne touche pas le capteur avant « POSE ».")
     print("RÈGLE : garde le doigt jusqu'à « RETIRE ».")
     print()
@@ -114,6 +119,7 @@ def main():
     remove_announced = False
     score = threshold = capture_ms = None
     final_result = None
+    final_result_at = None
     start = time.monotonic()
 
     with log_path.open("w", encoding="utf-8") as log:
@@ -130,11 +136,11 @@ def main():
                     print("CAPTEUR PRÊT. POSE dans :")
                     countdown()
                     beep()
-                    print(">>> POSE LE DOIGT ET GARDE-LE <<<", flush=True)
+                    print(f">>> POSE : {physical_label} !! — ET GARDE-LE <<<", flush=True)
 
                 if present and not present_prev:
                     beep()
-                    print(">>> DOIGT DÉTECTÉ — GARDE-LE <<<", flush=True)
+                    print(f">>> {physical_label} DÉTECTÉ — GARDE-LE <<<", flush=True)
 
                 if present_prev and not present and not remove_announced:
                     print("!!! DOIGT RETIRÉ AVANT LE VERDICT — ATTENDS LE PROCHAIN « POSE »",
@@ -163,11 +169,14 @@ def main():
                             score = int(m.group(1))
                             remove_announced = True
                             beep()
-                            print(">>> VERDICT CALCULÉ — RETIRE LE DOIGT MAINTENANT <<<",
+                            print(f">>> VERDICT CALCULÉ — RETIRE {physical_label} MAINTENANT <<<",
                                   flush=True)
                         continue
 
-                    print(f"[fprintd] {line}", flush=True)
+                    if line.startswith("Verifying:"):
+                        print(f"[fprintd] Template comparé : {args.finger}", flush=True)
+                    else:
+                        print(f"[fprintd] {line}", flush=True)
                     m = RESULT_RE.search(line)
                     if not m:
                         continue
@@ -181,15 +190,21 @@ def main():
                         continue
 
                     final_result = result
+                    final_result_at = time.monotonic()
 
                     if not remove_announced:
                         remove_announced = True
                         beep()
-                        print(">>> RETIRE LE DOIGT MAINTENANT <<<", flush=True)
-                    break
+                        print(f">>> RETIRE {physical_label} MAINTENANT <<<", flush=True)
 
                 if final_result:
-                    break
+                    score_ready = score is not None and threshold is not None
+                    journal_grace_elapsed = (
+                        final_result_at is not None and
+                        time.monotonic() - final_result_at >= 1.5
+                    )
+                    if score_ready or journal_grace_elapsed:
+                        break
                 if verify.poll() is not None and not final_result:
                     break
 
@@ -203,12 +218,28 @@ def main():
     print("=" * 64)
     print(" RÉSULTAT")
     print("=" * 64)
+    print(f"Doigt   : {physical_label}")
     print(f"Verdict : {final_result or 'UNKNOWN'}")
     if score is not None and threshold is not None:
         print(f"Score   : {score} / seuil {threshold}")
     if capture_ms is not None:
         print(f"Capture : {capture_ms:.1f} ms")
     print(f"Log     : {log_path}")
+
+    if args.summary_json:
+        summary = {
+            "physical_label": physical_label,
+            "template_finger": args.finger,
+            "verdict": final_result or "UNKNOWN",
+            "score": score,
+            "threshold": threshold,
+            "capture_ms": capture_ms,
+            "log_path": str(log_path),
+        }
+        Path(args.summary_json).write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     if final_result == "verify-match":
         return 0
