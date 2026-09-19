@@ -19,10 +19,10 @@ factory=FACTORY.read_text(encoding="utf-8")
 factory_header=FACTORY_HEADER.read_text(encoding="utf-8")
 
 def fn(name):
-    pos=text.find(name+" (")
-    if pos<0: pos=text.find(name+"(")
-    assert pos>=0,name
-    brace=text.find("{",pos); depth=0
+    m=re.search(r"\b"+re.escape(name)+r"\s*\([^;{}]*\)\s*\n\{", text)
+    assert m is not None,name
+    pos=m.start()
+    brace=text.find("{",m.end()-1); depth=0
     for i in range(brace,len(text)):
         if text[i]=="{": depth+=1
         elif text[i]=="}":
@@ -34,6 +34,8 @@ ds=fn("gx_driverstate_install_windows")
 evk=fn("gx_read_fw_version_once")
 op=fn("gx_dev_open")
 gate=fn("gx_upload_config_and_reqtls")
+staging=fn("gx_factory_load_staging_pmk")
+staging_read=fn("gx_factory_staging_read_cb")
 
 assert "GX_AMORCE" in ds
 assert re.search(r"g_usleep\s*\(\s*5000\s*\)",ds)
@@ -53,11 +55,17 @@ assert "gx_target_configure" in text
 assert "gxfp_derive_calibration" in text
 assert "gxfp_patch_config" in text
 assert "GXFP_TARGET_BASE_CONFIG" in text
-assert "gx_target_configure (self)" not in gate
-assert "gx_factory_load_pmk (self)" not in gate
-assert "factory F2 path unavailable on Pegasus" in gate
-assert "GX_REQTLS" not in gate
-assert "return FALSE;" in gate
+assert "gx_gpio_reset (self)" in gate
+assert "gx_factory_acquire_staging_pmk (self, allow_cache)" in gate
+assert "gx_target_configure (self)" in gate
+assert "GX_REQTLS" in gate
+assert gate.find("gx_factory_acquire_staging_pmk (self, allow_cache)") < gate.find("gx_gpio_reset (self)")
+assert gate.find("gx_gpio_reset (self)") < gate.find("gx_target_configure (self)")
+assert gate.find("gx_target_configure (self)") < gate.find("GX_REQTLS")
+assert "gxfp_factory_load_pmk (gx_factory_mem_read_cb" not in text
+assert "gxfp_factory_load_pmk_from_single_staging" in staging
+assert staging.find("gxfp_factory_load_pmk_from_single_staging") < staging.find("gx_factory_e4_sanity")
+assert "gxfp_14115_parse_rejected_staging_response" in staging_read
 assert "gxfp_factory_load_pmk" in factory
 assert "gxfp_factory_pmk_recover_first_byte" in factory
 assert "CRYPTO_memcmp" in factory and "OPENSSL_cleanse" in factory
@@ -67,8 +75,9 @@ assert "GXFP_FACTORY_READ_LEN 80u" in factory_header
 assert "gx_factory_e4_sanity" in text
 assert "CRYPTO_memcmp (candidates[i], candidates[j]" in factory
 assert "gxfp_parse_mem_read_response" in target
-assert "GXFP_MEM_READ_ECHO_ONLY" in text
-assert "drained standalone request echo" in text
+assert "GXFP_MEM_READ_ECHO_ONLY" in target
+assert "gxfp_14115_parse_rejected_staging_response" in target
+assert "This is a legitimate 14115 app-flash read" in target
 assert "gxfp_parse_factory_hash_response" in target
 assert "#define GOODIX_IMG_WIDTH   80" in header
 assert "#define GOODIX_IMG_HEIGHT  64" in header
@@ -80,7 +89,12 @@ assert 10 + 4*6 == 34
 assert "gx_read_psk" not in text
 assert "SPI_MODE_0 | SPI_CS_HIGH" in op
 assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", op)
-assert "OPENSSL_cleanse (self->psk" in fn("gx_dev_close")
+assert "gx_pmk_clear (self);" in fn("gx_dev_close")
+assert "OPENSSL_cleanse (self->psk" in fn("gx_pmk_clear")
+assert "self->psk_ready = FALSE;" in fn("gx_pmk_clear")
+assert "self->timing_scale = gx_timing_load ();" in op
+assert "self->timing_saved = self->timing_scale;" in op
+assert "gx_adapt_sweep ();" in op
 
 assert "gx51_sleep_us(300000)" in transport
 assert "gx51_sleep_us(600000)" in transport

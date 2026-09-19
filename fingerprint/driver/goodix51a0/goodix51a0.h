@@ -39,7 +39,9 @@
  * 0x9 chip, 0xA MCU, 0xD TLS connection, 0xF firmware update / memory.
  */
 #define GOODIX_CMD_IMAGE       0x20
-#define GOODIX_CMD_FDT_DOWN    0x36
+#define GOODIX_CMD_FDT_DOWN    0x32
+#define GOODIX_CMD_FDT_UP      0x34
+#define GOODIX_CMD_FDT_MODE    0x36
 #define GOODIX_CMD_NAV         0x50
 #define GOODIX_CMD_REG         0x82
 #define GOODIX_CMD_ENABLE_CHIP 0x96
@@ -48,13 +50,14 @@
 #define GOODIX_CMD_REQUEST_TLS 0xD0
 #define GOODIX_CMD_TLS_OK      0xD4
 #define GOODIX_CMD_FW_VERSION  0xA8
-#define GOODIX_CMD_MEM_READ    0xF2   /* arbitrary memory read: [addr32][len32] */
+#define GOODIX_CMD_MEM_READ    0xF2   /* 14115 app-window read / rejected-staging artifact */
 
 /*
  * Same-device Windows logs establish a 48-byte PMK. Exact ST411-14115 firmware
- * analysis identifies RAM globals used by its TLS setup, but Linux retrieval
- * through command 0xF2 is still being hardware-validated before those addresses
- * are enabled in the public driver. No PMK write/provision path is used.
+ * analysis closes direct F2 access to the private slots/RAM. The Linux path
+ * instead validates the rejected-F2 staging artifact produced immediately after
+ * reset and decrypts the sensor's own factory record in memory. No PMK
+ * write/provision path is used.
  *
  * TLS identity is "Client_identity". The exact target Windows ServerHello
  * selects TLS 1.2 suite 0x00A8, TLS_PSK_WITH_AES_128_GCM_SHA256. The SENSOR is
@@ -64,7 +67,7 @@
 #define GOODIX_PSK_LEN    48
 #define GOODIX_TLS_IDENTITY "Client_identity"
 
-/* Finger detection reads twelve 16-bit values, which a finger pulls DOWN.
+/* Finger detection reads six 16-bit zone values, which a finger pulls DOWN.
  *
  * Measured in use, logging every poll: idle sits at a mean of 363 with a drop
  * of 0, while a finger gives a mean of 266 to 314 and a drop of 48 to 86. The
@@ -78,7 +81,7 @@
  * check then rejects, whereas a missed detection is a visible failure. */
 #define GOODIX_FDT_DROP 30
 
-/* Absolute threshold on the mean of those twelve values. Needed because the
+/* Absolute threshold on the mean of those six values. Needed because the
  * relative threshold above is useless when the baseline itself was taken with
  * a finger resting on the sensor — exactly when detection would otherwise fail
  * silently.

@@ -14,6 +14,7 @@ BUILD_ROOT="${GXFP51A0_BUILD_ROOT:-$REPO_ROOT/../temp/gxfp51a0-public-build}"
 TOOLS_VENV="$BUILD_ROOT/build-tools-venv"
 SRC_DIR="$BUILD_ROOT/libfprint-$LIBFPRINT_TAG"
 BUILD_DIR="$BUILD_ROOT/libfprint-build"
+MESON_PREFIX="${GXFP51A0_MESON_PREFIX:-/usr/local}"
 
 KEEP_BUILD=1
 CLEAN_FIRST=1
@@ -174,6 +175,8 @@ sources=(
   gx51_factory_pmk.h
   gx51_image.c
   gx51_image.h
+  gx51_capture_recipe.c
+  gx51_capture_recipe.h
 )
 for file in "${sources[@]}"; do
   [[ -f "$DRIVER_DIR/$file" ]] || die "CANDIDATE_SOURCE_MISSING:$file"
@@ -184,6 +187,7 @@ say "CANDIDATE_SOURCE_INJECTION=PASS"
 say ""
 say "===== 7. MESON CONFIGURE ====="
 "$MESON" setup "$BUILD_DIR" "$SRC_DIR" \
+  --prefix="$MESON_PREFIX" \
   -Ddrivers=goodix51a0 \
   -Dintrospection=false \
   -Ddoc=false \
@@ -214,8 +218,40 @@ grep -Fq 'fpi_device_goodix51a0_get_type' "$object_nm_dump" \
   || die "GOODIX51A0_TYPE_SYMBOL_NOT_FOUND_IN_OBJECT"
 
 strings "$driver_obj" >"$object_strings_dump"
-grep -Fq 'GXFP51A0' "$object_strings_dump" \
-  || die "GOODIX51A0_ACPI_ID_NOT_FOUND_IN_OBJECT"
+shared_lib="$BUILD_DIR/libfprint/libfprint-2.so.2.0.0"
+[[ -f "$shared_lib" ]] || die "LIBFPRINT_SHARED_LIBRARY_NOT_FOUND"
+shared_strings_dump="$BUILD_ROOT/libfprint-shared.strings.txt"
+strings "$shared_lib" >"$shared_strings_dump"
+
+# Public/release builds must not contain the biometric capture dumping hook.
+# Check the final linked shared object: under LTO, the intermediate object may
+# only contain compiler IR and strings(1) is not authoritative.
+if grep -Fq '/run/goodix51a0/dump' "$shared_strings_dump" ||    grep -Fq 'capture saved:' "$shared_strings_dump"; then
+  die "BIOMETRIC_DUMP_HOOK_PRESENT_IN_RELEASE_LIBRARY"
+fi
+say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
+
+# Multiple enrolled fingers require the standard libfprint identify vfunc.
+# Prove both the API references in the compiled object and the final linked
+# behavior marker. This remains valid with Arch/CachyOS LTO builds.
+grep -Fq 'fpi_device_get_identify_data' "$object_nm_dump"   || die "GOODIX51A0_IDENTIFY_API_NOT_FOUND_IN_OBJECT"
+grep -Fq 'fpi_device_identify_report' "$object_nm_dump"   || die "GOODIX51A0_IDENTIFY_REPORT_NOT_FOUND_IN_OBJECT"
+grep -Fq 'identify: early result reported' "$shared_strings_dump"   || die "GOODIX51A0_IDENTIFY_PATH_NOT_FOUND_IN_LIBRARY"
+say "GOODIX51A0_IDENTIFY_PATH_IN_OBJECT=YES"
+say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
+
+if grep -Fq 'GXFP51A0' "$object_strings_dump"; then
+  acpi_gate="OBJECT"
+elif [[ -f "$BUILD_DIR/libfprint/70-libfprint-2.rules" ]] && \
+     grep -Fq 'acpi:GXFP51A0:' "$BUILD_DIR/libfprint/70-libfprint-2.rules"; then
+  # LTO builds may keep the ID only in compiler IR, so strings(1) on the
+  # intermediate object is not authoritative. The generated udev rule is
+  # produced from the linked driver's ID table and is a stronger final-build
+  # proof that the ACPI target is registered.
+  acpi_gate="GENERATED_UDEV_RULE"
+else
+  die "GOODIX51A0_ACPI_ID_NOT_FOUND_IN_BUILD"
+fi
 
 # Then prove the same driver is integrated into libfprint-drivers.a.
 # Do not use strings(1) on the archive itself: archive formats (especially
@@ -230,9 +266,13 @@ grep -Fq 'drivers_goodix51a0_goodix51a0.c.o' "$archive_members_dump" \
 
 say "GOODIX51A0_OBJECT_COMPILED=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_OBJECT=YES"
-say "GOODIX51A0_ACPI_ID_IN_OBJECT=YES"
+say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
+say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
+say "GOODIX51A0_IDENTIFY_PATH_IN_OBJECT=YES"
+say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
+say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
 say "SOFTWARE_BUILD_READY=YES"
 
 say ""
@@ -245,9 +285,12 @@ say "LIBFPRINT_PATCH=PASS"
 say "MESON_CONFIGURE=PASS"
 say "LIBFPRINT_BUILD=PASS"
 say "GOODIX51A0_OBJECT_COMPILED=YES"
-say "GOODIX51A0_ACPI_ID_IN_OBJECT=YES"
+say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
+say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
+say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
+say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
 say "SOFTWARE_BUILD_READY=YES"
 say "ACTIVE_SENSOR_IO=NONE"
 say "GPIO_WRITES=NONE"

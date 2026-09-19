@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #include "gx51_target.h"
 
 #include <string.h>
@@ -53,6 +54,12 @@ static bool build_fixed(const uint8_t *body, size_t body_len,
     return true;
 }
 
+bool gxfp_build_nop(struct gxfp_target_packet *packet)
+{
+    static const uint8_t body[] = {0x00,0x05,0x00,0x00,0x00,0x00,0x00,0xa5};
+    return build_fixed(body, sizeof(body), packet);
+}
+
 bool gxfp_build_soft_reset(struct gxfp_target_packet *packet)
 {
     static const uint8_t body[] = {0xa2,0x03,0x00,0x01,0x14,0xf0};
@@ -90,6 +97,84 @@ bool gxfp_build_reg_write(uint16_t address, uint16_t value,
     body[7] = (uint8_t)(value >> 8);
     body[8] = gxfp_body_checksum(body, 8u);
     return build_fixed(body, sizeof(body), packet);
+}
+
+static bool build_payload_command(uint8_t command,
+                                  const uint8_t *payload, size_t payload_len,
+                                  struct gxfp_target_packet *packet)
+{
+    uint8_t body[18];
+
+    if (packet == NULL || payload == NULL || payload_len == 0u ||
+        payload_len > 14u)
+        return false;
+
+    body[0] = command;
+    body[1] = (uint8_t)(payload_len + 1u);
+    body[2] = 0u;
+    memcpy(body + 3u, payload, payload_len);
+    body[3u + payload_len] = gxfp_body_checksum(body, 3u + payload_len);
+    return build_fixed(body, payload_len + 4u, packet);
+}
+
+bool gxfp_build_reg_read(uint16_t address, uint16_t len,
+                         struct gxfp_target_packet *packet)
+{
+    uint8_t payload[5] = {
+        0u, (uint8_t)address, (uint8_t)(address >> 8),
+        (uint8_t)len, (uint8_t)(len >> 8)
+    };
+
+    return len != 0u && build_payload_command(0x82u, payload, sizeof payload,
+                                              packet);
+}
+
+bool gxfp_build_query_mcu_state(uint8_t state,
+                                struct gxfp_target_packet *packet)
+{
+    return state == 0x55u &&
+           build_payload_command(0xaeu, &state, 1u, packet);
+}
+
+bool gxfp_build_fdt_command(uint8_t state, const uint8_t zones[12],
+                            struct gxfp_target_packet *packet)
+{
+    uint8_t payload[14];
+    uint8_t command;
+
+    if (zones == NULL)
+        return false;
+
+    switch (state) {
+    case 0x0cu:
+        command = 0x32u; /* FDT down */
+        break;
+    case 0x0du:
+        command = 0x36u; /* FDT manual/mode */
+        break;
+    case 0x0eu:
+        command = 0x34u; /* FDT up */
+        break;
+    default:
+        return false;
+    }
+
+    payload[0] = state;
+    payload[1] = 0x01u;
+    memcpy(payload + 2u, zones, 12u);
+    return build_payload_command(command, payload, sizeof payload, packet);
+}
+
+bool gxfp_build_nav(struct gxfp_target_packet *packet)
+{
+    static const uint8_t payload[] = {0x01u, 0x00u};
+    return build_payload_command(0x50u, payload, sizeof payload, packet);
+}
+
+bool gxfp_build_get_image(struct gxfp_target_packet *packet)
+{
+    static const uint8_t payload[] = {0x01u, 0x00u};
+    return build_payload_command(0x20u, payload, sizeof payload, packet);
 }
 
 bool gxfp_build_factory_hash_read(struct gxfp_target_packet *packet)
@@ -241,6 +326,27 @@ bool gxfp_parse_config_response(const uint8_t *body, size_t len, uint8_t *status
     if (status == NULL || !body_matches(body, len, 0x90u, 2u))
         return false;
     *status = body[3];
+    return true;
+}
+
+bool gxfp_parse_fdt_response(const uint8_t *body, size_t len, uint8_t *touchflag,
+                             uint16_t out[GXFP_FDT_ZONE_COUNT])
+{
+    uint16_t wire_len;
+    size_t i;
+
+    if (body == NULL || touchflag == NULL || out == NULL || len < 20u)
+        return false;
+
+    wire_len = (uint16_t)body[1] | ((uint16_t)body[2] << 8);
+    if (body[0] != 0x36u || (size_t)wire_len + 3u != len ||
+        wire_len < 17u || body[len - 1u] != gxfp_body_checksum(body, len - 1u))
+        return false;
+
+    *touchflag = body[5];
+    for (i = 0; i < GXFP_FDT_ZONE_COUNT; i++)
+        out[i] = (uint16_t)body[7u + 2u * i] |
+                 ((uint16_t)body[8u + 2u * i] << 8);
     return true;
 }
 

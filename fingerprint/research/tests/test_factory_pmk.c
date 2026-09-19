@@ -44,6 +44,24 @@ static bool fake_mem(void *user,uint32_t address,uint32_t len,uint8_t *out) {
   return false;
 }
 
+typedef struct {
+  uint8_t staging[GXFP_FACTORY_STAGING_LEN];
+  unsigned calls;
+  bool corrupt_tail;
+} FakeStaging;
+
+static bool fake_staging(void *user,uint32_t selector,uint32_t request_len,
+                         uint8_t *out,size_t out_cap,size_t *out_len) {
+  FakeStaging *f=user;
+  if (!out || !out_len || request_len!=GXFP_FACTORY_BODY_LEN ||
+      out_cap<GXFP_FACTORY_STAGING_LEN ||
+      (selector!=0x08004000u && selector!=0x20000000u)) return false;
+  memcpy(out,f->staging,GXFP_FACTORY_STAGING_LEN);
+  out[0]^=(selector==0x08004000u)?0x31u:0x71u;
+  if (f->corrupt_tail && selector==0x20000000u) out[79]^=1u;
+  *out_len=GXFP_FACTORY_STAGING_LEN; f->calls++; return true;
+}
+
 int main(void) {
   uint8_t pmk[48],got[48],body[256];
   for(size_t i=0;i<48;i++) pmk[i]=(uint8_t)(0x20+i);
@@ -74,6 +92,31 @@ int main(void) {
     FakeFactory f={0}; uint8_t loaded[48];
     memcpy(f.body[0],body,n); f.valid_mask=1;
     assert(!gxfp_factory_load_pmk(fake_mem,&f,loaded)); /* one copy is not enough */
+  }
+  {
+    uint8_t a[248], b[248], loaded[48];
+    memcpy(a,body,sizeof a); memcpy(b,body,sizeof b);
+    a[0]^=0x31; b[0]^=0x71; /* address-dependent first-byte corruption */
+    assert(gxfp_factory_pmk_from_staging_pair(a,sizeof a,b,sizeof b,loaded));
+    assert(memcmp(loaded,pmk,48)==0);
+
+    b[79]^=1; /* any tail difference means the staging is not address-independent */
+    assert(!gxfp_factory_pmk_from_staging_pair(a,sizeof a,b,sizeof b,loaded));
+    b[79]^=1;
+    assert(!gxfp_factory_pmk_from_staging_pair(a,79,b,79,loaded));
+  }
+  {
+    FakeStaging f={0}; uint8_t loaded[48];
+    memcpy(f.staging,body,sizeof f.staging);
+    assert(gxfp_factory_load_pmk_from_single_staging(fake_staging,&f,loaded));
+    assert(memcmp(loaded,pmk,48)==0); assert(f.calls==1);
+
+    f.calls=0;
+    assert(gxfp_factory_load_pmk_from_staging(fake_staging,&f,loaded));
+    assert(memcmp(loaded,pmk,48)==0); assert(f.calls==2);
+    f.calls=0; f.corrupt_tail=true;
+    assert(!gxfp_factory_load_pmk_from_staging(fake_staging,&f,loaded));
+    assert(f.calls==2);
   }
   body[16]^=1;
   assert(!gxfp_factory_pmk_decrypt(body,n,got));

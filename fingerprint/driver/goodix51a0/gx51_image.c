@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #include "gx51_image.h"
 
 static void decode4(const uint8_t b[6], uint16_t p[4])

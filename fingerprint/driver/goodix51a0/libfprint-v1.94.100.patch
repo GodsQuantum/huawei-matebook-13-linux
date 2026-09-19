@@ -2,7 +2,7 @@ diff --git a/libfprint/meson.build b/libfprint/meson.build
 index f11533ca..993e7e16 100644
 --- a/libfprint/meson.build
 +++ b/libfprint/meson.build
-@@ -88,6 +88,16 @@ nbis_sources = [
+@@ -88,6 +88,17 @@ nbis_sources = [
  ]
  
  driver_sources = {
@@ -14,6 +14,7 @@ index f11533ca..993e7e16 100644
 +        'drivers/goodix51a0/gx51_target.c',
 +        'drivers/goodix51a0/gx51_factory_pmk.c',
 +        'drivers/goodix51a0/gx51_image.c',
++        'drivers/goodix51a0/gx51_capture_recipe.c',
 +    ),
 +
      'upekts' : files(

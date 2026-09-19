@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <linux/spi/spidev.h>
 #include <linux/gpio.h>
 #include <openssl/crypto.h>
@@ -52,16 +53,9 @@
 #include "gx51_target.h"
 #include "gx51_factory_pmk.h"
 #include "gx51_image.h"
+#include "gx51_capture_recipe.h"
 
 G_STATIC_ASSERT (GOODIX_PSK_LEN == GXFP_FACTORY_PMK_LEN);
-
-#define GX51_IRQ_DEV "/dev/gxfp_irq_wait"
-#define GXFP_IRQ_WAIT_IOC_MAGIC 0xF5
-struct gx51_irq_wait_request {
-  guint32 timeout_ms;
-  guint32 sequence;
-};
-#define GX51_IRQ_WAIT _IOWR(GXFP_IRQ_WAIT_IOC_MAGIC, 0x02, struct gx51_irq_wait_request)
 
 
 /* Frames averaged for background and finger: a noise/latency trade-off. */
@@ -70,8 +64,13 @@ struct gx51_irq_wait_request {
 /* Finger detection threshold on the standard deviation of the
  * background-minus-frame difference. */
 #define GOODIX_FINGER_STD    150.0
-/* Headroom above the ~22 kB oversized ChicagoHS image TLS record. */
+/* Headroom above the ~10.6 kB target image record and the 22 kB regression case. */
 #define GOODIX_RX_MAX        24000
+#define GXFP_PMK_ACQUIRE_ATTEMPTS 4
+#define GX_TARGET_ACK_ATTEMPTS 2
+#define GX_TARGET_ACK_IRQ_TIMEOUT_MS 100
+#define GX_PMK_CACHE_DIR  "/var/lib/fprint"
+#define GX_PMK_CACHE_FILE "/var/lib/fprint/.goodix51a0-pmk"
 
 struct _FpiDeviceGoodix51A0
 {
@@ -87,6 +86,9 @@ struct _FpiDeviceGoodix51A0
 
   guint8        psk[GOODIX_PSK_LEN];
   gboolean      psk_ready;
+  gboolean      psk_from_cache;
+  struct gxfp_target_calibration target_cal;
+  gboolean      have_target_cal;
 
   /* Reassembly buffer for TLS records, drained by the BIO recv callback. */
   guint8        tls_rx[GOODIX_RX_MAX];
@@ -96,12 +98,13 @@ struct _FpiDeviceGoodix51A0
   guint         poll_id;     /* finger-detection timeout source */
   int           poll_count;  /* poll iterations, bounded to avoid hanging */
   GPtrArray    *enroll_feats;/* descriptor sets accumulated during enrolment */
-  int           fdt_base[12];/* FDT baseline (finger absent) */
+  int           fdt_base[GXFP_FDT_ZONE_COUNT]; /* FDT baseline (finger absent) */
   gboolean      have_fdt;    /* is fdt_base populated? */
   int           fdt_abs;     /* per-unit absolute floor, derived from baseline */
   int           timing_scale;/* protocol-delay multiplier in %, grows on desync */
   int           timing_saved;/* last value persisted to disk, to avoid rewrites */
   gboolean      bg_dirty;    /* background taken with a finger down */
+  gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -117,6 +120,18 @@ static const FpIdEntry goodix51a0_id_table[] = {
 static const guint8 GX_AMORCE[] = { 0, 5, 0, 0, 0, 0, 0, 0xA5 };
 static const guint8 GX_ENABLE[] = { 0x96, 0x03, 0x00, 0x01, 0x00, 0x10 };
 static const guint8 GX_REQTLS[] = { 0xd0, 0x03, 0x00, 0x00, 0x00, 0xd7 };
+static const guint8 GX_TLS_OK[] = { 0xd4, 0x03, 0x00, 0x00, 0x00, 0xd3 };
+
+#define GX_TLS_IRQ_POLL_MS 20
+#define GX_TLS_IRQ_POLLS 200
+
+static gboolean gx_read_fw_version_once (FpiDeviceGoodix51A0 *self,
+                                           gchar *out,
+                                           gsize cap);
+#ifdef GXFP51A0_DEVELOPER
+static void gx_dump_capture (FpiDeviceGoodix51A0 *self,
+                             const guint16 *px);
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  SPI transport: one frame is exactly one transfer                   */
@@ -155,11 +170,10 @@ gx_read_frame (FpiDeviceGoodix51A0 *self, guint8 *out_type,
 {
   guint8 hdr[4] = { 0 };
   struct spi_ioc_transfer xfer = { 0 };
-  struct gx51_irq_wait_request req = { .timeout_ms = 1000, .sequence = 0 };
   guint16 n;
 
   if (self->irq_fd < 0 ||
-      ioctl (self->irq_fd, GX51_IRQ_WAIT, &req) < 0)
+      gx51_wait_irq_gpio48 (self->irq_fd, 1200) < 0)
     return -1;
 
   xfer.rx_buf = (unsigned long) hdr;
@@ -182,11 +196,17 @@ gx_read_frame (FpiDeviceGoodix51A0 *self, guint8 *out_type,
   if (n == 0 || n > rx_cap)
     return -1;
 
-  memset (&xfer, 0, sizeof xfer);
-  xfer.rx_buf = (unsigned long) rx;
-  xfer.len = n;
-  if (ioctl (self->spi_fd, SPI_IOC_MESSAGE (1), &xfer) < 1)
-    return -1;
+  for (gsize off = 0; off < n; )
+    {
+      gsize chunk = gx51_read_chunk_size ((gsize) n - off);
+
+      memset (&xfer, 0, sizeof xfer);
+      xfer.rx_buf = (unsigned long) (rx + off);
+      xfer.len = (guint32) chunk;
+      if (ioctl (self->spi_fd, SPI_IOC_MESSAGE (1), &xfer) < 1)
+        return -1;
+      off += chunk;
+    }
 
   return n;
 }
@@ -204,11 +224,12 @@ gx_send_plain_raw (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n)
 
 /* Sends a cleartext command and drains every plain response. A TLS record
  * arriving instead is stashed for the BIO layer to pick up. */
-static void
-gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n)
+static gboolean
+gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
+                     gboolean *out_ack_seen, gboolean *out_tls_seen)
 {
-/* Empty reads, 10 ms apart, that count as silence after a response. This is
- * the dominant cost of a capture: each of the nine commands in the sequence
+/* IRQ-silence polls, 10 ms apart, that count as silence after a response.
+ * This is the dominant cost of a capture: each command in the sequence
  * pays it. Cut it too short and frame boundaries desynchronise, leaving the
  * sensor wedged in a state only a hard reset plus an spidev rebind recovers.
  *
@@ -222,42 +243,113 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n)
 #ifndef GX_DRAIN_SILENCE
 #define GX_DRAIN_SILENCE 4
 #endif
+#ifndef GX_DRAIN_IRQ_POLL_MS
+#define GX_DRAIN_IRQ_POLL_MS 10
+#endif
+#ifndef GX_GET_IMAGE_ATTEMPTS
+#define GX_GET_IMAGE_ATTEMPTS 2
+#endif
 
   static guint8 scratch[GOODIX_RX_MAX];
-  guint8 ty;
-  int r, got = 0, i, misses = 0;
+  int attempts = body[0] == 0x20u ? GX_GET_IMAGE_ATTEMPTS : 1;
+  int attempt;
 
-  gx_send_plain_raw (self, body, n);
-  g_usleep (15000);
-  /* Read until a sustained silence. Some responses — the 4765-byte navigation
-   * payload, the image — arrive after a delay, and giving up early leaves the
-   * next read misaligned. */
-  for (i = 0; i < 120; i++)
+  if (out_ack_seen)
+    *out_ack_seen = FALSE;
+  if (out_tls_seen)
+    *out_tls_seen = FALSE;
+
+  for (attempt = 1; attempt <= attempts; attempt++)
     {
-      r = gx_read_frame (self, &ty, scratch, sizeof scratch);
-      if (r > 0 && ty == GOODIX_PKT_PLAIN)   /* cleartext reply: keep draining */
+      guint8 ty;
+      gboolean ack_seen = FALSE;
+      gboolean tls_seen = FALSE;
+      int r, got = 0, i, misses = 0;
+
+      /* Capture commands are sent directly. The recipe carries explicit NOPs
+       * at the positions observed on GXFP51A0; do not prepend one here. */
+      if (!gx_write_frame (self, GOODIX_PKT_PLAIN, body, n))
+        return FALSE;
+      g_usleep (15000);
+
+      for (i = 0; i < 120; i++)
         {
-          got++;
-          misses = 0;
-          g_usleep (5000);
-          continue;
+          errno = 0;
+          if (gx51_wait_irq_gpio48 (self->irq_fd, GX_DRAIN_IRQ_POLL_MS) < 0)
+            {
+              if (errno != ETIMEDOUT)
+                return FALSE;
+
+              misses++;
+              if (got && misses >= GX_DRAIN_SILENCE)
+                break;
+              if (!got && misses >= 25)
+                break;
+              continue;
+            }
+
+          r = gx_read_frame (self, &ty, scratch, sizeof scratch);
+          if (r > 0 && ty == GOODIX_PKT_PLAIN)
+            {
+              guint8 ack_status = 0;
+
+              got++;
+              misses = 0;
+              if (gxfp_parse_ack (scratch, r, body[0], &ack_status) &&
+                  gxfp_ack_status_success (ack_status))
+                ack_seen = TRUE;
+              g_usleep (5000);
+              continue;
+            }
+          if (r > 0 && ty == GOODIX_PKT_TLS)
+            {
+              memcpy (self->tls_rx, scratch, r);
+              self->tls_rxlen = r;
+              self->tls_rxpos = 0;
+              tls_seen = TRUE;
+              fp_dbg ("drain cmd=%02x -> stashed TLS record, %d bytes",
+                      body[0], r);
+              break;
+            }
+
+          misses++;
+          if (got && misses >= GX_DRAIN_SILENCE)
+            break;
+          if (!got && misses >= 25)
+            break;
         }
-      if (r > 0 && ty == GOODIX_PKT_TLS)     /* record TLS : stocke pour le BIO */
+
+      fp_dbg ("drain cmd=%02x: %d cleartext reply/replies ack=%d tls=%d attempt=%d/%d",
+              body[0], got, ack_seen, tls_seen, attempt, attempts);
+
+      if (out_ack_seen && ack_seen)
+        *out_ack_seen = TRUE;
+      if (out_tls_seen && tls_seen)
+        *out_tls_seen = TRUE;
+
+      if (body[0] != 0x20u)
+        return TRUE;
+
+      /* Windows and the validated Linux background path both receive a
+       * cleartext ACK for GET_IMAGE before the oversized TLS record. If neither
+       * ACK nor TLS arrived, the command was swallowed. Replaying the identical
+       * GET_IMAGE once is safe because FDT remains armed. Never replay once a
+       * TLS record is already present: that would advance the client record
+       * stream twice and desynchronise AES-GCM sequence numbers. */
+      if (tls_seen || ack_seen)
+        return TRUE;
+
+      if (attempt < attempts)
         {
-          memcpy (self->tls_rx, scratch, r);
-          self->tls_rxlen = r;
-          self->tls_rxpos = 0;
-          fp_dbg ("drain cmd=%02x -> stashed TLS record, %d bytes", body[0], r);
-          break;
+          fp_warn ("GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=%d/%d",
+                   attempt + 1, attempts);
+          g_usleep (8000 * self->timing_scale / 100);
         }
-      misses++;
-      g_usleep (10000);
-      if (got && misses >= GX_DRAIN_SILENCE)  /* silence after a reply */
-        break;
-      if (!got && misses >= 25)              /* nothing at all after ~250 ms */
-        break;
     }
-  fp_dbg ("drain cmd=%02x: %d cleartext reply/replies", body[0], got);
+
+  fp_warn ("GXFP51A0 GET_IMAGE failed: no ACK/TLS after %d attempts",
+           attempts);
+  return FALSE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -302,8 +394,21 @@ gx_bio_recv (gpointer ctx, guint8 *b, gsize l)
        * sensor takes a while to produce the image, hence the generous poll. */
       int r = -1;
       self->tls_rxlen = self->tls_rxpos = 0;
-      for (i = 0; i < 200; i++)
+      for (i = 0; i < GX_TLS_IRQ_POLLS; i++)
         {
+          /* Do not call gx_read_frame() while the line is quiet: its generic
+           * 1200 ms wait would turn this intended 20 ms poll loop into a
+           * multi-minute block.  TLS handshake records observed on reference MateBook
+           * normally arrive in ~10-20 ms, while 4 s remains generous for a
+           * genuinely delayed record. */
+          errno = 0;
+          if (gx51_wait_irq_gpio48 (self->irq_fd, GX_TLS_IRQ_POLL_MS) < 0)
+            {
+              if (errno != ETIMEDOUT)
+                return -1;
+              continue;
+            }
+
           r = gx_read_frame (self, &ty, self->tls_rx, GOODIX_RX_MAX);
           if (r > 0 && ty == GOODIX_PKT_TLS)
             {
@@ -311,7 +416,6 @@ gx_bio_recv (gpointer ctx, guint8 *b, gsize l)
               break;
             }
           r = -1;
-          g_usleep (20000);
         }
       if (r <= 0)
         {
@@ -327,73 +431,6 @@ gx_bio_recv (gpointer ctx, guint8 *b, gsize l)
   self->tls_rxpos += take;
   return take;
 }
-
-/* Sends a command over the encrypted channel. */
-static int
-gx_tls_cmd (FpiDeviceGoodix51A0 *self, guint8 cmd, const guint8 *data, int dl)
-{
-  guint8 b[64];
-  int n = dl + 1;
-
-  b[0] = cmd;
-  b[1] = n & 0xFF;
-  b[2] = (n >> 8) & 0xFF;
-  if (dl)
-    memcpy (b + 3, data, dl);
-  b[3 + dl] = goodix_body_cksum (b, 3 + dl);
-  return gx_tls_write (self->tls, b, 4 + dl) ? 4 + dl : -1;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Arbitrary memory read: this is how the pre-shared key is obtained  */
-/* ------------------------------------------------------------------ */
-
-static int
-gx_mem_read (FpiDeviceGoodix51A0 *self, guint32 mem, guint32 len, guint8 *out)
-{
-  struct gxfp_target_packet packet;
-  guint8 ack[128], rsp[GXFP_MEM_READ_MAX + 16];
-  guint8 type = 0, status = 0;
-  int n;
-
-  if (!out || len == 0 || len > GXFP_MEM_READ_MAX ||
-      !gxfp_build_mem_read (mem, len, &packet))
-    return -1;
-
-  /* 14115 needs the standard Goodix preamble before F2. */
-  if (!gx_send_plain_raw (self, packet.inner, packet.inner_len))
-    return -1;
-
-  n = gx_read_frame (self, &type, ack, sizeof ack);
-  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
-      !gxfp_parse_ack (ack, n, 0xf2, &status) ||
-      !gxfp_ack_status_success (status))
-    return -1;
-
-  /* 14115 may emit an exact addr32||len32 echo as a standalone F2
-   * packet before the memory data.  Drain that packet rather than exposing
-   * it as data; this matters especially for 8-byte reads, where echo-only
-   * and direct-data frames have the same total length. */
-  for (unsigned int i = 0; i < 3; i++)
-    {
-      enum gxfp_mem_read_result result;
-
-      g_usleep ((i == 0 ? 8000 : 5000) * self->timing_scale / 100);
-      n = gx_read_frame (self, &type, rsp, sizeof rsp);
-      if (n <= 0 || type != GOODIX_PKT_PLAIN)
-        return -1;
-
-      result = gxfp_classify_mem_read_response (rsp, n, mem, len, out);
-      if (result == GXFP_MEM_READ_DATA)
-        return (int) len;
-      if (result != GXFP_MEM_READ_ECHO_ONLY)
-        return -1;
-      fp_dbg ("F2: drained standalone request echo, awaiting data");
-    }
-
-  return -1;
-}
-
 
 /* ------------------------------------------------------------------ */
 /*  Image decoding: six bytes carry four pixels, in interleaved order  */
@@ -435,34 +472,146 @@ gx_target_read_body (FpiDeviceGoodix51A0 *self,
 }
 
 static gboolean
+gx_target_read_response (FpiDeviceGoodix51A0 *self,
+                         guint8               *body,
+                         gsize                 cap,
+                         int                  *out_len)
+{
+  /* Proven on reference MateBook: response-bearing commands need the ACK IRQ cycle to
+   * deassert before the response is armed. The validated probes use 8 ms. */
+  g_usleep (8000 * self->timing_scale / 100);
+  return gx_target_read_body (self, body, cap, out_len);
+}
+
+static gboolean
 gx_target_send_ack (FpiDeviceGoodix51A0       *self,
                     const struct gxfp_target_packet *packet,
                     guint8                           command,
                     guint8                          *status)
 {
   guint8 rx[128];
+  guint8 type = 0;
   guint8 ack_status = 0;
-  int n = 0;
+  int attempt;
 
-  if (!gx_write_frame (self, GOODIX_PKT_PLAIN,
-                       packet->inner, packet->inner_len) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
-      !gxfp_parse_ack (rx, n, command, &ack_status) ||
-      !gxfp_ack_status_success (ack_status))
-    return FALSE;
+  for (attempt = 1; attempt <= GX_TARGET_ACK_ATTEMPTS; attempt++)
+    {
+      int n;
 
-  if (status)
-    *status = ack_status;
-  return TRUE;
+      /* GPIO48 is level-high.  Never start a new command while a previous
+       * response still owns the line. */
+      if (gx51_wait_irq_gpio48_low (self->irq_fd, 50) < 0)
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: pre-write-irq-high cmd=0x%02x",
+                   command);
+          return FALSE;
+        }
+
+      if (!gx_write_frame (self, GOODIX_PKT_PLAIN,
+                           packet->inner, packet->inner_len))
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: write-failed cmd=0x%02x",
+                   command);
+          return FALSE;
+        }
+
+      /* Distinguish a completely swallowed command (no IRQ edge/level at all)
+       * from a protocol error.  Only the former is safe to retry: register
+       * writes and idle/config commands are idempotent when replayed with the
+       * same bytes.  If any packet arrives, parsing/status errors are final. */
+      errno = 0;
+      if (gx51_wait_irq_gpio48 (self->irq_fd, GX_TARGET_ACK_IRQ_TIMEOUT_MS) < 0)
+        {
+          if (errno == ETIMEDOUT && attempt < GX_TARGET_ACK_ATTEMPTS)
+            {
+              fp_warn ("GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x%02x attempt=%d/%d",
+                       command, attempt, GX_TARGET_ACK_ATTEMPTS);
+              g_usleep (8000 * self->timing_scale / 100);
+              continue;
+            }
+
+          fp_warn ("GXFP51A0 target ACK diagnostic: ack-read-failed cmd=0x%02x",
+                   command);
+          return FALSE;
+        }
+
+      n = gx_read_frame (self, &type, rx, sizeof rx);
+      if (n <= 0)
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: ack-read-failed cmd=0x%02x",
+                   command);
+          return FALSE;
+        }
+      if (type != GOODIX_PKT_PLAIN)
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: ack-type-failed cmd=0x%02x type=0x%02x",
+                   command, type);
+          return FALSE;
+        }
+      if (!gxfp_parse_ack (rx, n, command, &ack_status))
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: ack-parse-failed cmd=0x%02x len=%d first=0x%02x",
+                   command, n, n > 0 ? rx[0] : 0);
+          return FALSE;
+        }
+      if (!gxfp_ack_status_success (ack_status))
+        {
+          fp_warn ("GXFP51A0 target ACK diagnostic: status-failed cmd=0x%02x status=0x%02x",
+                   command, ack_status);
+          return FALSE;
+        }
+
+      if (status)
+        *status = ack_status;
+      return TRUE;
+    }
+
+  return FALSE;
 }
 
 static bool
-gx_factory_mem_read_cb (void *user, uint32_t address,
-                        uint32_t len, uint8_t *out)
+gx_factory_staging_read_cb (void *user, uint32_t selector,
+                            uint32_t request_len, uint8_t *out,
+                            size_t out_cap, size_t *out_len)
 {
   FpiDeviceGoodix51A0 *self = user;
+  struct gxfp_target_packet packet;
+  guint8 rx[GXFP_MEM_READ_MAX + 16];
+  guint8 discard[GXFP_MEM_READ_MAX];
+  guint8 type = 0, status = 0;
+  int n;
 
-  return gx_mem_read (self, address, len, out) == (int) len;
+  if (!out || !out_len || request_len != GXFP_FACTORY_BODY_LEN ||
+      out_cap < GXFP_FACTORY_STAGING_LEN ||
+      !gxfp_build_mem_read (selector, request_len, &packet) ||
+      !gx_write_frame (self, GOODIX_PKT_PLAIN,
+                       packet.inner, packet.inner_len))
+    return false;
+
+  n = gx_read_frame (self, &type, rx, sizeof rx);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (rx, n, 0xf2, &status) ||
+      !gxfp_ack_status_success (status))
+    return false;
+
+  for (unsigned int i = 0; i < 3; i++)
+    {
+      enum gxfp_mem_read_result result;
+
+      g_usleep ((i == 0 ? 8000 : 5000) * self->timing_scale / 100);
+      n = gx_read_frame (self, &type, rx, sizeof rx);
+      if (n <= 0 || type != GOODIX_PKT_PLAIN)
+        return false;
+      if (gxfp_14115_parse_rejected_staging_response (
+            rx, n, selector, request_len, out, out_cap, out_len))
+        return *out_len == GXFP_FACTORY_STAGING_LEN;
+
+      result = gxfp_classify_mem_read_response (
+        rx, n, selector, request_len, discard);
+      if (result != GXFP_MEM_READ_ECHO_ONLY)
+        return false;
+    }
+  return false;
 }
 
 static bool
@@ -476,36 +625,218 @@ gx_factory_e4_sanity (FpiDeviceGoodix51A0 *self)
 
   ok = gxfp_build_factory_hash_read (&packet) &&
        gx_target_send_ack (self, &packet, 0xe4, NULL) &&
-       gx_target_read_body (self, rx, sizeof rx, &n) &&
+       gx_target_read_response (self, rx, sizeof rx, &n) &&
        gxfp_parse_factory_hash_response (rx, n, &dtype, value) &&
        dtype == 0x0000aaaau;
   OPENSSL_cleanse (value, sizeof value);
   return ok;
 }
 
+static void
+gx_pmk_clear (FpiDeviceGoodix51A0 *self)
+{
+  OPENSSL_cleanse (self->psk, sizeof self->psk);
+  self->psk_ready = FALSE;
+  self->psk_from_cache = FALSE;
+}
+
+
 static gboolean
-gx_factory_load_pmk (FpiDeviceGoodix51A0 *self)
+gx_pmk_cache_load (FpiDeviceGoodix51A0 *self)
+{
+  struct stat st;
+  g_autofree gchar *data = NULL;
+  gsize len = 0;
+  g_autoptr(GError) error = NULL;
+
+  if (g_stat (GX_PMK_CACHE_FILE, &st) != 0)
+    return FALSE;
+
+  if (!S_ISREG (st.st_mode) ||
+      st.st_uid != geteuid () ||
+      (st.st_mode & 0077) != 0)
+    {
+      fp_warn ("GXFP51A0 PMK cache rejected: owner/permissions are unsafe");
+      return FALSE;
+    }
+
+  if (!g_file_get_contents (GX_PMK_CACHE_FILE, &data, &len, &error))
+    {
+      fp_warn ("GXFP51A0 PMK cache read failed: %s", error->message);
+      return FALSE;
+    }
+
+  if (len != GOODIX_PSK_LEN)
+    {
+      fp_warn ("GXFP51A0 PMK cache rejected: invalid length");
+      OPENSSL_cleanse (data, len);
+      return FALSE;
+    }
+
+  memcpy (self->psk, data, GOODIX_PSK_LEN);
+  OPENSSL_cleanse (data, len);
+  self->psk_ready = TRUE;
+  self->psk_from_cache = TRUE;
+  fp_info ("GXFP51A0 PMK cache candidate loaded; TLS validation pending");
+  return TRUE;
+}
+
+
+static gboolean
+gx_pmk_cache_save (FpiDeviceGoodix51A0 *self)
+{
+  g_autoptr(GError) error = NULL;
+
+  if (!self->psk_ready || !self->tls_up)
+    return FALSE;
+
+  if (!g_file_test (GX_PMK_CACHE_DIR, G_FILE_TEST_IS_DIR) &&
+      g_mkdir_with_parents (GX_PMK_CACHE_DIR, 0700) != 0)
+    {
+      fp_warn ("GXFP51A0 PMK cache directory creation failed: %s",
+               g_strerror (errno));
+      return FALSE;
+    }
+
+  if (!g_file_set_contents_full (
+        GX_PMK_CACHE_FILE,
+        (const gchar *) self->psk,
+        GOODIX_PSK_LEN,
+        G_FILE_SET_CONTENTS_CONSISTENT | G_FILE_SET_CONTENTS_DURABLE,
+        0600,
+        &error))
+    {
+      fp_warn ("GXFP51A0 PMK cache save failed: %s", error->message);
+      return FALSE;
+    }
+
+  if (g_chmod (GX_PMK_CACHE_FILE, 0600) != 0)
+    {
+      fp_warn ("GXFP51A0 PMK cache chmod failed: %s", g_strerror (errno));
+      (void) g_unlink (GX_PMK_CACHE_FILE);
+      return FALSE;
+    }
+
+  fp_info ("GXFP51A0 PMK cache saved after live TLS validation");
+  return TRUE;
+}
+
+
+static gboolean
+gx_factory_load_staging_pmk (FpiDeviceGoodix51A0 *self)
 {
   guint8 pmk[GXFP_FACTORY_PMK_LEN];
-  gboolean ok;
+  gboolean ok = FALSE;
 
-  ok = gx_factory_e4_sanity (self) &&
-       gxfp_factory_load_pmk (gx_factory_mem_read_cb, self, pmk);
-  if (ok)
+  /* On 14115 the rejected F2 path can expose one boot-staged factory record.
+   * A second selector is not required at runtime: the first-byte brute force
+   * must produce exactly one marker=0x000d,len=0x30 candidate, and that
+   * candidate is then validated by the real TLS handshake.  Keeping the
+   * two-selector consensus code as offline research avoids coupling runtime
+   * success to the IRQ/reply behavior of a second rejected F2 command. */
+  if (!gxfp_factory_load_pmk_from_single_staging (
+        gx_factory_staging_read_cb, self, pmk))
     {
-      memcpy (self->psk, pmk, sizeof pmk);
-      self->psk_ready = TRUE;
-      fp_info ("GXFP51A0 factory PMK validated by redundant-record consensus");
+      fp_warn ("GXFP51A0 PMK single-staging candidate invalid for this boot session");
+      goto out;
     }
-  else
+
+  /* Run E4 only after extraction: any earlier command can reuse staging. */
+  if (!gx_factory_e4_sanity (self))
     {
-      OPENSSL_cleanse (self->psk, sizeof self->psk);
-      self->psk_ready = FALSE;
-      fp_warn ("GXFP51A0 factory PMK validation failed");
+      fp_warn ("GXFP51A0 PMK candidate recovered but E4 sanity failed");
+      goto out;
+    }
+
+  memcpy (self->psk, pmk, sizeof pmk);
+  self->psk_ready = TRUE;
+  self->psk_from_cache = FALSE;
+  fp_info ("GXFP51A0 PMK recovered from single rejected-read boot staging; TLS validation pending");
+  ok = TRUE;
+
+out:
+  if (!ok)
+    {
+      gx_pmk_clear (self);
     }
   OPENSSL_cleanse (pmk, sizeof pmk);
   return ok;
 }
+
+
+static gboolean
+gx_factory_acquire_staging_pmk (FpiDeviceGoodix51A0 *self, gboolean allow_cache)
+{
+  int attempt;
+
+  if (allow_cache && gx_pmk_cache_load (self))
+    return TRUE;
+
+  for (attempt = 1; attempt <= GXFP_PMK_ACQUIRE_ATTEMPTS; attempt++)
+    {
+      gx_gpio_reset (self);
+      fp_info ("GXFP51A0 PMK staging attempt %d/%d after hardware reset",
+               attempt, GXFP_PMK_ACQUIRE_ATTEMPTS);
+
+      if (gx_factory_load_staging_pmk (self))
+        {
+          if (attempt > 1)
+            fp_info ("GXFP51A0 PMK staging recovered on attempt %d", attempt);
+          return TRUE;
+        }
+
+      if (attempt < GXFP_PMK_ACQUIRE_ATTEMPTS)
+        g_usleep (50000);
+    }
+
+  fp_warn ("GXFP51A0 PMK staging acquisition exhausted after %d boot sessions",
+           GXFP_PMK_ACQUIRE_ATTEMPTS);
+  return FALSE;
+}
+
+static gboolean
+gx_read_fw_version_stage2e (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
+{
+  static const guint8 a8[] = {
+    GOODIX_CMD_FW_VERSION, 0x03, 0x00, 0x00, 0x00, 0xFF
+  };
+  guint8 rx[128], type = 0, status = 0;
+  int n = 0;
+
+  /* Exact post-reset boundary proven by reference MateBook Stage2E:
+   * A8 -> ACK -> 8 ms -> A8 response.  No preceding NOP here. */
+  if (!gx_write_frame (self, GOODIX_PKT_PLAIN, a8, sizeof a8))
+    {
+      fp_warn ("GXFP51A0 Stage2E A8 write failed");
+      return FALSE;
+    }
+
+  n = gx_read_frame (self, &type, rx, sizeof rx);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (rx, n, GOODIX_CMD_FW_VERSION, &status) ||
+      !gxfp_ack_status_success (status))
+    {
+      fp_warn ("GXFP51A0 Stage2E A8 ACK failed");
+      return FALSE;
+    }
+  fp_info ("GXFP51A0 Stage2E A8 ACK accepted");
+
+  g_usleep (8000 * self->timing_scale / 100);
+
+  n = gx_read_frame (self, &type, rx, sizeof rx);
+  if (n <= 3 || type != GOODIX_PKT_PLAIN ||
+      rx[0] != GOODIX_CMD_FW_VERSION)
+    {
+      fp_warn ("GXFP51A0 Stage2E A8 response failed");
+      return FALSE;
+    }
+
+  g_strlcpy (out, (const gchar *) rx + 3,
+             MIN ((gsize) (n - 3) + 1, cap));
+  fp_info ("GXFP51A0 Stage2E A8 response accepted");
+  return TRUE;
+}
+
 
 static gboolean
 gx_target_soft_reset (FpiDeviceGoodix51A0 *self)
@@ -515,13 +846,36 @@ gx_target_soft_reset (FpiDeviceGoodix51A0 *self)
   uint32_t code = 0;
   int n = 0;
 
-  if (!gxfp_build_soft_reset (&packet) ||
-      !gx_target_send_ack (self, &packet, 0xa2, NULL) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
-      !gxfp_parse_soft_reset_response (rx, n, &code))
-    return FALSE;
+  if (!gxfp_build_soft_reset (&packet))
+    {
+      fp_warn ("GXFP51A0 A2 diagnostic: build-failed");
+      return FALSE;
+    }
+  if (!gx_target_send_ack (self, &packet, 0xa2, NULL))
+    {
+      fp_warn ("GXFP51A0 A2 diagnostic: ack-failed");
+      return FALSE;
+    }
+  fp_info ("GXFP51A0 A2 ACK accepted");
 
-  return code == 0x010008u;
+  if (!gx_target_read_response (self, rx, sizeof rx, &n))
+    {
+      fp_warn ("GXFP51A0 A2 diagnostic: response-read-failed");
+      return FALSE;
+    }
+  if (!gxfp_parse_soft_reset_response (rx, n, &code))
+    {
+      fp_warn ("GXFP51A0 A2 diagnostic: response-parse-failed len=%d", n);
+      return FALSE;
+    }
+  if (code != 0x010008u)
+    {
+      fp_warn ("GXFP51A0 A2 diagnostic: unexpected-code=0x%06x", code);
+      return FALSE;
+    }
+
+  fp_info ("GXFP51A0 A2 reset code accepted: 0x%06x", code);
+  return TRUE;
 }
 
 static gboolean
@@ -537,50 +891,112 @@ gx_target_configure (FpiDeviceGoodix51A0 *self)
   int n = 0;
 
   if (!gx_target_soft_reset (self))
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: soft-reset-1");
+      return FALSE;
+    }
 
   if (!gxfp_build_chip_id (&packet) ||
       !gx_target_send_ack (self, &packet, 0x82, NULL) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gx_target_read_response (self, rx, sizeof rx, &n) ||
       !gxfp_parse_chip_id_response (rx, n, &chip_id) ||
       chip_id != 0x2504u)
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: chip-id");
+      return FALSE;
+    }
+  fp_info ("GXFP51A0 chip-id accepted: 0x%04x", chip_id);
 
-  if (!gxfp_build_read_otp (&packet) ||
-      !gx_target_send_ack (self, &packet, 0xa6, NULL) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
-      !gxfp_parse_otp_response (rx, n, otp) ||
-      !gxfp_derive_calibration (otp, &cal))
-    return FALSE;
+  if (!gxfp_build_read_otp (&packet))
+    {
+      fp_warn ("GXFP51A0 target init failed: otp-build");
+      return FALSE;
+    }
+  if (!gx_target_send_ack (self, &packet, 0xa6, NULL))
+    {
+      fp_warn ("GXFP51A0 target init failed: otp-ack");
+      return FALSE;
+    }
+  fp_info ("GXFP51A0 OTP ACK accepted");
+  if (!gx_target_read_response (self, rx, sizeof rx, &n))
+    {
+      fp_warn ("GXFP51A0 target init failed: otp-response-read");
+      return FALSE;
+    }
+  if (!gxfp_parse_otp_response (rx, n, otp))
+    {
+      fp_warn ("GXFP51A0 target init failed: otp-response-parse len=%d", n);
+      return FALSE;
+    }
+  if (!gxfp_derive_calibration (otp, &cal))
+    {
+      fp_warn ("GXFP51A0 target init failed: otp-validation");
+      return FALSE;
+    }
+  fp_info ("GXFP51A0 OTP validated: len=%d tcode=%u fdt_delta=%u",
+           n, cal.tcode, cal.fdt_delta);
 
   memcpy (config, GXFP_TARGET_BASE_CONFIG, sizeof config);
   if (!gxfp_patch_config (config, &cal) ||
       !gxfp_config_checksum_valid (config))
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: config-patch");
+      return FALSE;
+    }
 
   if (!gx_target_soft_reset (self))
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: soft-reset-2");
+      return FALSE;
+    }
 
   if (!gxfp_build_idle (&packet) ||
       !gx_target_send_ack (self, &packet, 0x70, &status))
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: idle");
+      return FALSE;
+    }
 
   if (!gxfp_build_reg_write (0x0220u, cal.dac_main, &packet) ||
-      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
-      !gxfp_build_reg_write (0x0236u, cal.dac1, &packet) ||
-      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
-      !gxfp_build_reg_write (0x0238u, cal.dac2, &packet) ||
-      !gx_target_send_ack (self, &packet, 0x80, NULL) ||
-      !gxfp_build_reg_write (0x023au, cal.dac3, &packet) ||
       !gx_target_send_ack (self, &packet, 0x80, NULL))
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: dac-main");
+      return FALSE;
+    }
+  if (!gxfp_build_reg_write (0x0236u, cal.dac1, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL))
+    {
+      fp_warn ("GXFP51A0 target init failed: dac1");
+      return FALSE;
+    }
+  if (!gxfp_build_reg_write (0x0238u, cal.dac2, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL))
+    {
+      fp_warn ("GXFP51A0 target init failed: dac2");
+      return FALSE;
+    }
+  if (!gxfp_build_reg_write (0x023au, cal.dac3, &packet) ||
+      !gx_target_send_ack (self, &packet, 0x80, NULL))
+    {
+      fp_warn ("GXFP51A0 target init failed: dac3");
+      return FALSE;
+    }
 
   if (!gxfp_build_upload_config (config, &packet) ||
-      !gx_target_send_ack (self, &packet, 0x90, NULL) ||
-      !gx_target_read_body (self, rx, sizeof rx, &n) ||
+      !gx_target_send_ack (self, &packet, 0x90, NULL))
+    {
+      fp_warn ("GXFP51A0 target init failed: config-ack");
+      return FALSE;
+    }
+  if (!gx_target_read_response (self, rx, sizeof rx, &n) ||
       !gxfp_parse_config_response (rx, n, &status) || status != 0x01u)
-    return FALSE;
+    {
+      fp_warn ("GXFP51A0 target init failed: config-response");
+      return FALSE;
+    }
 
+  self->target_cal = cal;
+  self->have_target_cal = TRUE;
   fp_info ("GXFP51A0 target config accepted: chip=0x%04x tcode=%u "
            "fdt_delta=%u dac=0x%03x/%02x/%02x/%02x",
            chip_id, cal.tcode, cal.fdt_delta, cal.dac_main,
@@ -588,16 +1004,57 @@ gx_target_configure (FpiDeviceGoodix51A0 *self)
   return TRUE;
 }
 
-/* Same-device Pegasus validation confirmed A2 -> chip ID -> OTP -> DAC ->
- * 0x90, but lower factory-flash F2 reads return request echo only and no data.
- * Keep TLS fail-closed until an exact-target PMK provider is validated. */
+
+/* reference MateBook now validates the 14115 rejected-read staging provider. Genuine
+ * private-flash/RAM F2 remains closed; the reset is required so extraction
+ * happens before another command can reuse the boot staging area. */
 static gboolean
-gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self)
+gx_upload_config_and_reqtls (FpiDeviceGoodix51A0 *self, gboolean allow_cache)
 {
-  (void) self;
-  fp_warn ("GXFP51A0: factory F2 path unavailable on Pegasus; "
-           "validated PMK provider required before TLS");
-  return FALSE;
+  guint8 ack[128], status = 0, type = 0;
+  int n;
+
+  if (!self->psk_ready)
+    {
+      gchar fw[64] = { 0 };
+
+      if (!gx_factory_acquire_staging_pmk (self, allow_cache))
+        return FALSE;
+
+      /* Rejected F2 staging reads are intentionally outside the normal 14115
+       * command flow. Keep the recovered PMK host-side, but return the MCU to a
+       * pristine boot state before target init. The exact reference MateBook config probe
+       * that passed starts a fresh hardware reset with A8 -> A2 -> chip-id ->
+       * OTP, so reproduce that boundary here instead of continuing after F2/E4. */
+      fp_info ("GXFP51A0 PMK retained; performing post-PMK reset before target init");
+      gx_gpio_reset (self);
+      if (!gx_read_fw_version_stage2e (self, fw, sizeof fw) ||
+          g_strcmp0 (fw, "GF_ST411SEC_APP_14115") != 0)
+        {
+          fp_warn ("GXFP51A0 target init failed: post-PMK reset/A8");
+          return FALSE;
+        }
+      fp_info ("GXFP51A0 post-PMK reset/A8 confirmed: %s", fw);
+    }
+
+  if (!gx_target_configure (self))
+    {
+      fp_warn ("GXFP51A0: target initialization/configuration failed");
+      return FALSE;
+    }
+
+  if (!gx_send_plain_raw (self, GX_REQTLS, sizeof GX_REQTLS))
+    return FALSE;
+  n = gx_read_frame (self, &type, ack, sizeof ack);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (ack, n, 0xd0, &status) ||
+      !gxfp_ack_status_success (status))
+    {
+      fp_warn ("GXFP51A0: D0 TLS request was not accepted");
+      return FALSE;
+    }
+
+  return TRUE;
 }
 
 
@@ -606,6 +1063,8 @@ static gboolean
 gx_tls_handshake (FpiDeviceGoodix51A0 *self)
 {
   g_autoptr(GError) err = NULL;
+  guint8 ack[128], status = 0, type = 0;
+  int n;
 
   if (!self->psk_ready)
     return FALSE;
@@ -623,10 +1082,34 @@ gx_tls_handshake (FpiDeviceGoodix51A0 *self)
       fp_warn ("%s", err->message);
       return FALSE;
     }
+
+  /* Windows and the validated Stage3C path both confirm the completed
+   * handshake back to the MCU with NOP -> D4. */
+  if (!gx_send_plain_raw (self, GX_TLS_OK, sizeof GX_TLS_OK))
+    {
+      fp_warn ("GXFP51A0: failed to send TLS established D4");
+      return FALSE;
+    }
+  n = gx_read_frame (self, &type, ack, sizeof ack);
+  if (n <= 0 || type != GOODIX_PKT_PLAIN ||
+      !gxfp_parse_ack (ack, n, 0xd4, &status) ||
+      !gxfp_ack_status_success (status))
+    {
+      fp_warn ("GXFP51A0: TLS established D4 was not accepted");
+      return FALSE;
+    }
+
+  fp_info ("GXFP51A0 TLS established ACK D4 accepted");
+  fp_info ("GXFP51A0 PMK candidate validated by live TLS handshake");
   fp_info ("TLS-PSK session up (%s)", gx_tls_ciphersuite (self->tls));
   self->tls_up = TRUE;
+  if (self->psk_from_cache)
+    fp_info ("GXFP51A0 cached PMK validated by live TLS handshake");
+  else
+    (void) gx_pmk_cache_save (self);
   return TRUE;
 }
+
 
 static void
 gx_tls_teardown (FpiDeviceGoodix51A0 *self)
@@ -639,95 +1122,180 @@ gx_tls_teardown (FpiDeviceGoodix51A0 *self)
   g_clear_pointer (&self->tls, gx_tls_free);
 }
 
-/* Exact image capture sequence, as observed on the wire. */
-static void
-gx_send_capture_sequence (FpiDeviceGoodix51A0 *self)
+/* Exact 14115/51x7 capture recipes, as validated by the Linux imaging path. */
+static gboolean
+gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
 {
-/* Pause after each command in the sequence, ON TOP of the drain. It looks
- * redundant — the drain already waits for silence — but it is not: at 10 ms
- * every capture fails and the sensor wedges (measured, 19 failures out of 19).
- * Do not shorten it. */
 #ifndef GX_SEQ_GAP_US
 #define GX_SEQ_GAP_US 30000
 #endif
+  struct gxfp_capture_recipe recipe;
+  gboolean ok;
+  gsize i;
 
-  static const char *seq[] = {
-    "ae0b000600ffff0008ff01001acb",
-    "3623000d01a6a6b9b9bcbcb7b7a8a8babab7b7b8b8a8a8c1c1babab5b500000000000000004d",
-    "362500000100004e0175017a01710152017501700172015201830177016c01000000000000000033",
-    "500300010056",
-    "3623000d01a7a7bababdbdb8b8a9a9babab8b8b9b9a9a9c1c1bbbbb6b6000000000000000039",
-    "362500000100004d01740179017001510174016f0171015101830176016b0100000000000000003e",
-    "82060000820002009e",
-    "820300148091",
-    "200300010086",
-    NULL
-  };
-  guint8 body[80];
-  int i, j;
+  if (background)
+    ok = self->have_target_cal &&
+         gxfp_build_background_capture_recipe (&self->target_cal, &recipe);
+  else
+    ok = gxfp_build_finger_capture_recipe (&recipe);
+  if (!ok)
+    return FALSE;
 
-  for (i = 0; seq[i]; i++)
+  for (i = 0; i < recipe.count; i++)
     {
-      int n = strlen (seq[i]) / 2;
-      for (j = 0; j < n; j++)
-        sscanf (seq[i] + 2 * j, "%2hhx", &body[j]);
-      {
-        gint64 t0 = g_get_monotonic_time ();
-        gx_send_plain_drain (self, body, n);
-        fp_dbg ("chrono cmd=%02x drain=%ld us", body[0],
-                 (long) (g_get_monotonic_time () - t0));
-      }
+      const struct gxfp_target_packet *packet = &recipe.steps[i];
+      gint64 t0 = g_get_monotonic_time ();
+
+      if (!gx_send_plain_drain (self, packet->inner, packet->inner_len, NULL, NULL))
+        return FALSE;
+      fp_dbg ("chrono cmd=%02x drain=%ld us", packet->inner[0],
+              (long) (g_get_monotonic_time () - t0));
       g_usleep (GX_SEQ_GAP_US * self->timing_scale / 100);
     }
+  return TRUE;
 }
+
+
+/* Takes exactly one complete sensor->host TLS transport frame. A frame may
+ * already have been stashed by gx_send_plain_drain(); otherwise wait for it. */
+static int
+gx_take_tls_frame (FpiDeviceGoodix51A0 *self, guint8 *rec, gsize cap)
+{
+  int raw, k;
+
+  if (self->tls_rxlen > self->tls_rxpos)
+    {
+      raw = self->tls_rxlen - self->tls_rxpos;
+      if ((gsize) raw > cap)
+        return -1;
+      memcpy (rec, self->tls_rx + self->tls_rxpos, raw);
+      self->tls_rxlen = self->tls_rxpos = 0;
+      return raw;
+    }
+
+  for (k = 0; k < GX_TLS_IRQ_POLLS; k++)
+    {
+      guint8 ty;
+
+      errno = 0;
+      if (gx51_wait_irq_gpio48 (self->irq_fd, GX_TLS_IRQ_POLL_MS) < 0)
+        {
+          if (errno != ETIMEDOUT)
+            return -1;
+          continue;
+        }
+
+      raw = gx_read_frame (self, &ty, rec, cap);
+      if (raw > 0 && ty == GOODIX_PKT_TLS)
+        return raw;
+    }
+  return -1;
+}
+
+
+static int
+gx_retry_get_image_after_tls_timeout (FpiDeviceGoodix51A0 *self,
+                                      guint8 *rec,
+                                      gsize cap)
+{
+  struct gxfp_target_packet packet;
+  gboolean ack_seen = FALSE;
+  gboolean tls_seen = FALSE;
+
+  if (!gxfp_build_get_image (&packet))
+    return -1;
+
+  fp_warn ("GXFP51A0 GET_IMAGE ACK arrived but TLS image timed out; retrying once");
+  if (!gx_send_plain_drain (self, packet.inner, packet.inner_len,
+                            &ack_seen, &tls_seen))
+    return -1;
+
+  return gx_take_tls_frame (self, rec, cap);
+}
+
+
+/* The 51x7 reference requires an FDT-up image, NAV and final FDT-down after a
+ * finger frame. The intermediate image record must be AUTHENTICATED/decrypted,
+ * not merely discarded: AES-GCM record sequence numbers advance for every
+ * sensor record, and skipping it would desynchronise the following capture. */
+static gboolean
+gx_send_capture_cleanup (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_capture_recipe recipe;
+  g_autofree guint8 *rec = g_malloc0 (GOODIX_RX_MAX);
+  g_autofree guint8 *plain = g_malloc0 (GOODIX_RX_MAX);
+  gboolean ok = FALSE;
+  gsize i;
+
+  if (!gxfp_build_capture_cleanup_recipe (&recipe))
+    goto out;
+
+  for (i = 0; i < recipe.count; i++)
+    {
+      const struct gxfp_target_packet *packet = &recipe.steps[i];
+
+      if (!gx_send_plain_drain (self, packet->inner, packet->inner_len, NULL, NULL))
+        goto out;
+
+      if (packet->inner[0] == 0x20u)
+        {
+          int raw = gx_take_tls_frame (self, rec, GOODIX_RX_MAX);
+          gssize got;
+
+          if (raw < 0)
+            raw = gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX);
+
+          got = raw > 0
+                  ? gx_tls_decrypt_record (self->tls, rec, (gsize) raw,
+                                           plain, GOODIX_RX_MAX)
+                  : -1;
+          if (got != (gssize) GXFP_IMAGE_PLAINTEXT_LEN)
+            {
+              fp_warn ("capture cleanup image record failed (%d raw, %ld plain)",
+                       raw, (long) got);
+              goto out;
+            }
+        }
+
+      g_usleep (GX_SEQ_GAP_US * self->timing_scale / 100);
+    }
+
+  ok = TRUE;
+out:
+  OPENSSL_cleanse (rec, GOODIX_RX_MAX);
+  OPENSSL_cleanse (plain, GOODIX_RX_MAX);
+  return ok;
+}
+
 
 /* Captures one full image, assuming a TLS session is already up, and fills
  * px[GOODIX_IMG_PIXELS] with 12-bit samples. */
 static gboolean
-gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px)
+gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px, gboolean background)
 {
   g_autofree guint8 *img = g_malloc (GOODIX_RX_MAX);
-  guint8 st = 0x55;
-  int total = 0, k;
+  int total = 0;
 
   gint64 tA = g_get_monotonic_time ();
-  gx_tls_cmd (self, GOODIX_CMD_MCU_STATE, &st, 1);   /* mcu_state sur TLS */
-  g_usleep (80000);
-  gx_send_capture_sequence (self);
+  if (!gx_send_capture_recipe (self, background))
+    return FALSE;
   fp_dbg ("timing: capture sequence %ld us",
            (long) (g_get_monotonic_time () - tA));
 
-  /* The image arrives as ONE record larger than TLS allows, so it is decrypted
-   * here rather than handed to OpenSSL, which would reject it outright.
-   *
+  /* The image arrives as one complete sensor application-data record. Keep
+   * explicit record decryption here because capture drains/stashes the already
+   * framed transport record and the client-read sequence is tracked explicitly.
    * The record has usually already been picked up while draining the capture
    * sequence; otherwise wait for it. */
   {
     g_autofree guint8 *rec = g_malloc (GOODIX_RX_MAX);
-    int raw = 0;
+    int raw = gx_take_tls_frame (self, rec, GOODIX_RX_MAX);
     gssize got;
 
-    if (self->tls_rxlen > self->tls_rxpos)
-      {
-        raw = self->tls_rxlen - self->tls_rxpos;
-        memcpy (rec, self->tls_rx + self->tls_rxpos, raw);
-        self->tls_rxlen = self->tls_rxpos = 0;
-      }
-    else
-      {
-        guint8 ty;
+    if (raw < 0)
+      raw = gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX);
 
-        for (k = 0; k < 200; k++)
-          {
-            raw = gx_read_frame (self, &ty, rec, GOODIX_RX_MAX);
-            if (raw > 0 && ty == GOODIX_PKT_TLS)
-              break;
-            raw = 0;
-            g_usleep (20000);
-          }
-      }
-
-    got = raw > 0 ? gx_tls_decrypt_record (self->tls, rec, raw,
+    got = raw > 0 ? gx_tls_decrypt_record (self->tls, rec, (gsize) raw,
                                            img, GOODIX_RX_MAX) : -1;
     if (got < 0)
       {
@@ -747,6 +1315,22 @@ gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px)
   if (!gxfp_decode_image_plaintext (img, (gsize) total, px))
     {
       fp_warn ("cannot decode GXFP51A0 88x80 transport raster");
+      return FALSE;
+    }
+
+  /* Preserve a successfully decoded finger frame before cleanup.  The cleanup
+   * is required to keep TLS record sequencing healthy for subsequent captures,
+   * but a cleanup failure must not destroy the diagnostic evidence from the
+   * frame we already authenticated and decoded.  gx_dump_capture() is inert
+   * unless the private dump directory exists. */
+#ifdef GXFP51A0_DEVELOPER
+  if (!background)
+    gx_dump_capture (self, px);
+#endif
+
+  if (!background && !gx_send_capture_cleanup (self))
+    {
+      fp_warn ("GXFP51A0 post-capture cleanup failed");
       return FALSE;
     }
   return TRUE;
@@ -775,7 +1359,7 @@ gx_capture_avg (FpiDeviceGoodix51A0 *self, int nframes, guint16 *avg)
 
   for (f = 0; f < nframes; f++)
     {
-      if (!gx_capture_frame (self, px))
+      if (!gx_capture_frame (self, px, TRUE))
         continue;
       for (i = 0; i < GOODIX_IMG_PIXELS; i++)
         acc[i] += px[i];
@@ -794,45 +1378,86 @@ gx_capture_avg (FpiDeviceGoodix51A0 *self, int nframes, guint16 *avg)
 
 
 
-/* Native finger detection: twelve 16-bit values, one per sensor zone, in about
+/* Native finger detection: six 16-bit values, one per sensor zone, in about
  * 33 ms — some 70 times faster than capturing an image. A finger pulls those
  * values DOWN by roughly 100 counts (around 335/371/361 idle against
  * 229/269/275 with a finger), which is what makes cheap polling possible. */
-static int
-gx_fdt_probe (FpiDeviceGoodix51A0 *self, int *out12)
-{
-  static const guint8 fdt[] = {
-    0x36,0x23,0x00,0x0d,0x01,0xa6,0xa6,0xb9,0xb9,0xbc,0xbc,0xb7,
-    0xb7,0xa8,0xa8,0xba,0xba,0xb7,0xb7,0xb8,0xb8,0xa8,0xa8,0xc1,
-    0xc1,0xba,0xba,0xb5,0xb5,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x4d };
-  guint8 rx[256], ty;
-  int n, k;
+#define GX_FDT_PROBE_ATTEMPTS 3
+#define GX_FDT_IRQ_TIMEOUT_MS 100
 
-  /* Do NOT shorten these delays. Tested in isolation they passed 20 times out
-   * of 20 at a third of the value, but in real conditions — right after an
-   * image capture — session setup then failed. The responsiveness gained is
-   * not worth it; the polling period already bounds the latency. */
-  gx_send_plain_raw (self, fdt, sizeof fdt);
-  g_usleep (15000 * self->timing_scale / 100);
-  gx_read_frame (self, &ty, rx, sizeof rx);          /* ACK */
-  g_usleep (8000 * self->timing_scale / 100);
-  n = gx_read_frame (self, &ty, rx, sizeof rx);      /* payload */
-  if (n < 31)
+static int
+gx_fdt_probe (FpiDeviceGoodix51A0 *self, int *out_zones)
+{
+  struct gxfp_target_packet packet;
+  guint8 rx[256], ty, ack_status, touchflag;
+  guint16 zones[GXFP_FDT_ZONE_COUNT];
+  int attempt, n, k;
+
+  if (!gxfp_build_fdt_probe (&packet))
     return -1;
-  for (k = 0; k < 12; k++)
-    out12[k] = rx[7 + 2 * k] | (rx[8 + 2 * k] << 8);
-  return 0;
+
+  for (attempt = 1; attempt <= GX_FDT_PROBE_ATTEMPTS; attempt++)
+    {
+      const gchar *stage = "send";
+
+      /* FDT manual is idempotent and Windows reissues it repeatedly while
+       * building the baseline. A missing IRQ here is therefore recoverable:
+       * retry the complete command, but never spin indefinitely. */
+      if (!gx_send_plain_raw (self, packet.inner, packet.inner_len))
+        return -1;
+
+      g_usleep (15000 * self->timing_scale / 100);
+
+      stage = "ack";
+      errno = 0;
+      if (gx51_wait_irq_gpio48 (self->irq_fd, GX_FDT_IRQ_TIMEOUT_MS) < 0)
+        goto retry;
+
+      n = gx_read_frame (self, &ty, rx, sizeof rx);
+      if (n <= 0 || ty != GOODIX_PKT_PLAIN ||
+          !gxfp_parse_ack (rx, (size_t) n, 0x36u, &ack_status) ||
+          !gxfp_ack_status_success (ack_status))
+        goto retry;
+
+      g_usleep (8000 * self->timing_scale / 100);
+
+      stage = "response";
+      errno = 0;
+      if (gx51_wait_irq_gpio48 (self->irq_fd, GX_FDT_IRQ_TIMEOUT_MS) < 0)
+        goto retry;
+
+      n = gx_read_frame (self, &ty, rx, sizeof rx);
+      if (n <= 0 || ty != GOODIX_PKT_PLAIN ||
+          !gxfp_parse_fdt_response (rx, (size_t) n, &touchflag, zones))
+        goto retry;
+
+      for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
+        out_zones[k] = (int) zones[k];
+
+      return 0;
+
+retry:
+      fp_warn ("GXFP51A0 FDT probe retry: stage=%s attempt=%d/%d",
+               stage, attempt, GX_FDT_PROBE_ATTEMPTS);
+      if (attempt < GX_FDT_PROBE_ATTEMPTS)
+        {
+          /* Give a late/stale transaction a small quiesce window before
+           * reissuing the same idempotent FDT-manual command. */
+          g_usleep (10000 * self->timing_scale / 100);
+        }
+    }
+
+  return -1;
 }
 
-/* Mean of the twelve detection values: an absolute test needing no baseline. */
+/* Mean of the six exact-target FDT zones: an absolute test needing no baseline. */
 static int
 gx_fdt_mean (const int *v)
 {
   int k, s = 0;
-  for (k = 0; k < 12; k++)
+  for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
     s += v[k];
-  return s / 12;
+  return s / (int) GXFP_FDT_ZONE_COUNT;
 }
 
 /* Total drop against the baseline; above the threshold means a finger. */
@@ -840,9 +1465,9 @@ static int
 gx_fdt_drop (const int *base, const int *cur)
 {
   int k, d = 0;
-  for (k = 0; k < 12; k++)
+  for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
     d += base[k] - cur[k];
-  return d / 12;
+  return d / (int) GXFP_FDT_ZONE_COUNT;
 }
 
 /* ------------------------------------------------------------------ */
@@ -850,7 +1475,7 @@ gx_fdt_drop (const int *base, const int *cur)
 /*  NBIS pipeline.                                                     */
 /*                                                                     */
 /*  FpImageDevice mandates NBIS (minutiae plus bozorth3), which this    */
-/*  sensor cannot feed: 6x5 mm yields about 6 minutiae per capture,     */
+/*  tiny active area cannot reliably feed the stock NBIS pipeline.     */
 /*  far below what reliable matching needs, and bozorth3 scored zero    */
 /*  every time. Hence deriving straight from FpDevice and implementing  */
 /*  enrol and verify against the descriptor matcher in goodix_sift.c.   */
@@ -1057,28 +1682,45 @@ static gboolean
 gx_tls_session (FpiDeviceGoodix51A0 *self)
 {
   int att;
+  gboolean diagnostic = g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") != NULL;
+  gboolean capture_diagnostic = g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
+  int max_attempts = capture_diagnostic ? 2 : (diagnostic ? 1 : 5);
 
   if (self->tls_up)
     return TRUE;
-  for (att = 1; att <= 5 && !self->tls_up; att++)
+
+  for (att = 1; att <= max_attempts && !self->tls_up; att++)
     {
       GCancellable *c = fpi_device_get_cancellable (FP_DEVICE (self));
+
       if (c && g_cancellable_is_cancelled (c))
         {
           fp_info ("TLS setup cancelled by the caller");
           break;
         }
-      if (gx_upload_config_and_reqtls (self) && gx_tls_handshake (self))
+
+      if (gx_upload_config_and_reqtls (self, TRUE) &&
+          gx_tls_handshake (self))
         break;
+
       gx_tls_teardown (self);
+
+      /* A PMK that reached D4 in an earlier session is durable trusted state.
+       * A transport/configuration/handshake failure later does NOT prove that
+       * the key changed, so never unlink the cache on a transient failure. */
+      if (self->psk_from_cache && diagnostic)
+        {
+          if (att >= max_attempts)
+            {
+              fp_warn ("GXFP51A0 cached PMK retained after failed session; diagnostic mode will not fall back to staging");
+              break;
+            }
+          fp_warn ("GXFP51A0 cached PMK retained after failed diagnostic TLS attempt; retrying clean target init");
+        }
 
       /* Self-healing on desync. The protocol delays are tuned to the author's
        * unit and sit right at the edge; a different SPI controller can be
-       * slower and lose sync, which shows up here as a failed handshake. Each
-       * failure loosens every scaled delay for the next attempt and for the
-       * rest of this device's lifetime, so a flaky unit converges on timings
-       * that hold instead of failing at the author's values. Capped so a
-       * genuinely dead sensor still gives up rather than crawling. */
+       * slower and lose sync. Only successful timing values are persisted. */
       if (self->timing_scale < 300)
         {
           self->timing_scale = MIN (self->timing_scale + 50, 300);
@@ -1086,26 +1728,52 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
                    self->timing_scale);
         }
 
-      /* A plain reset between attempts. Holding the reset line down for a
-       * long time was tried and is actively counter-productive: recovery
-       * fails where a short pulse succeeds. Deep lock-ups are not a sensor
-       * state at all — they sit in the kernel's spidev driver, and only
-       * rebinding it clears them, which a userspace driver cannot do. */
-      gx_gpio_reset (self);
+      {
+        gchar fw[64] = { 0 };
+
+        gx_gpio_reset (self);
+        if (!gx_read_fw_version_stage2e (self, fw, sizeof fw) ||
+            g_strcmp0 (fw, "GF_ST411SEC_APP_14115") != 0)
+          {
+            fp_warn ("GXFP51A0 TLS retry reset/A8 failed");
+            break;
+          }
+        fp_info ("GXFP51A0 TLS retry reset/A8 confirmed: %s", fw);
+      }
     }
+
+  /* Production-only stale-cache recovery. Keep the validated cache file on
+   * disk while probing fresh boot staging. If the newly recovered candidate
+   * reaches D4, gx_pmk_cache_save() atomically replaces the old file. If it
+   * does not, the last-known-good cache remains available for a later boot. */
+  if (!self->tls_up && !diagnostic && self->psk_from_cache)
+    {
+      fp_warn ("GXFP51A0 cached PMK could not establish TLS; trying fresh staging without deleting validated cache");
+      gx_pmk_clear (self);
+
+      if (gx_upload_config_and_reqtls (self, FALSE) &&
+          gx_tls_handshake (self))
+        {
+          fp_info ("GXFP51A0 fresh staging replaced stale cache after live TLS validation");
+        }
+      else
+        {
+          gx_tls_teardown (self);
+          fp_warn ("GXFP51A0 fresh staging fallback failed; validated cache file retained");
+        }
+    }
+
   if (!self->tls_up)
-    fp_warn ("no TLS session after %d attempts; if this persists the sensor "
+    fp_warn ("no TLS session after %d/%d attempts; if this persists the sensor "
              "needs a full recovery (long reset plus an spidev rebind)",
-             att - 1);
+             att - 1, max_attempts);
   else if (self->timing_scale > self->timing_saved)
     {
-      /* Only ever raise the persisted value, and only on success: a scale
-       * reached while failing (a deep lock-up climbs to the cap and never
-       * connects) must not be written, or every unit would drift to 300%. */
       gx_timing_save (self->timing_scale);
       self->timing_saved = self->timing_scale;
       fp_info ("learned timing scale %d%% persisted", self->timing_scale);
     }
+
   return self->tls_up;
 }
 
@@ -1120,13 +1788,158 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
 /* How long to wait for the finger to be lifted before taking the background. */
 #define GX_BG_WAIT_MS 2000
 
+/* One-shot diagnostic UX: give the operator time to react to the explicit
+ * "sensor clear" prompt before measuring anything. Then reject a calibration
+ * whose mean moved too far from the just-observed no-finger anchor. */
+#define GX_DIAG_CLEAR_GRACE_SEC 3
+#define GX_DIAG_BASELINE_MAX_DRIFT 20
+#define GX_DIAG_BASELINE_ATTEMPTS 4
+#define GX_CLEAR_WAIT_MS 15000
+
 static gboolean
-gx_session_start (FpiDeviceGoodix51A0 *self)
+gx_wait_clean_anchor (FpiDeviceGoodix51A0 *self, int *out_mean)
+{
+  int cur[GXFP_FDT_ZONE_COUNT];
+  int waited = 0;
+  gboolean warned = FALSE;
+
+  while (waited <= GX_CLEAR_WAIT_MS)
+    {
+      GCancellable *c = fpi_device_get_cancellable (FP_DEVICE (self));
+
+      if (c && g_cancellable_is_cancelled (c))
+        return FALSE;
+
+      if (gx_fdt_probe (self, cur) == 0)
+        {
+          int mean = gx_fdt_mean (cur);
+
+          if (mean >= GOODIX_FDT_ABS)
+            {
+              *out_mean = mean;
+              fp_info ("GXFP51A0 clean calibration anchor: mean=%d", mean);
+              return TRUE;
+            }
+
+          if (!warned)
+            {
+              fp_warn ("GXFP51A0 calibration waiting for sensor clear: mean=%d floor=%d",
+                       mean, GOODIX_FDT_ABS);
+              warned = TRUE;
+            }
+        }
+
+      g_usleep (200 * 1000);
+      waited += 200;
+    }
+
+  fp_warn ("GXFP51A0 calibration could not find a clean sensor within %d ms",
+           GX_CLEAR_WAIT_MS);
+  return FALSE;
+}
+
+static gboolean
+gx_wait_sensor_clear (FpiDeviceGoodix51A0 *self,
+                      int off_anchor_mean,
+                      int *out_mean)
+{
+  int cur[GXFP_FDT_ZONE_COUNT];
+  int waited = 0;
+  gboolean warned = FALSE;
+
+  while (waited <= GX_CLEAR_WAIT_MS)
+    {
+      if (gx_fdt_probe (self, cur) == 0)
+        {
+          int mean = gx_fdt_mean (cur);
+
+          if (off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
+            {
+              if (out_mean)
+                *out_mean = mean;
+              if (warned)
+                fp_info ("GXFP51A0 sensor clear again: mean=%d anchor=%d",
+                         mean, off_anchor_mean);
+              return TRUE;
+            }
+
+          if (!warned)
+            {
+              fp_warn ("GXFP51A0 calibration waiting for sensor clear: mean=%d anchor=%d",
+                       mean, off_anchor_mean);
+              warned = TRUE;
+            }
+        }
+
+      g_usleep (200 * 1000);
+      waited += 200;
+    }
+
+  fp_warn ("GXFP51A0 sensor still not clear after %d ms",
+           GX_CLEAR_WAIT_MS);
+  return FALSE;
+}
+
+static gboolean
+gx_diag_press_countdown (FpiDeviceGoodix51A0 *self, int off_anchor_mean)
+{
+  int cur[GXFP_FDT_ZONE_COUNT];
+  int q;
+
+  for (;;)
+    {
+      gboolean restart = FALSE;
+
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_GET_READY: keep finger OFF until zero");
+      for (q = 3; q > 0; q--)
+        {
+          fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PRESS_IN_%d", q);
+          g_usleep (G_USEC_PER_SEC);
+
+          if (gx_fdt_probe (self, cur) == 0)
+            {
+              int mean = gx_fdt_mean (cur);
+
+              if (off_anchor_mean - mean > GX_DIAG_BASELINE_MAX_DRIFT)
+                {
+                  fp_warn ("GXFP51A0 CAPTURE_DIAGNOSTIC_COUNTDOWN_RESTART: REMOVE_FINGER mean=%d anchor=%d",
+                           mean, off_anchor_mean);
+                  if (!gx_wait_sensor_clear (self, off_anchor_mean, NULL))
+                    return FALSE;
+                  restart = TRUE;
+                  break;
+                }
+            }
+        }
+
+      if (restart)
+        continue;
+
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PRESS_NOW: PRESS_AND_HOLD_NOW");
+      return TRUE;
+    }
+}
+
+static gboolean
+gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
+                                 gboolean capture_diagnostic)
 {
   int q, k;
+  int off_anchor_mean = -1;
 
   if (!gx_tls_session (self))
     return FALSE;
+
+  if (capture_diagnostic)
+    {
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PREPARING_BACKGROUND: KEEP_FINGER_OFF_SENSOR");
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_CLEAR_SENSOR: REMOVE_FINGER_NOW");
+      for (q = GX_DIAG_CLEAR_GRACE_SEC; q > 0; q--)
+        {
+          fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_CALIBRATION_STARTS_IN_%d", q);
+          g_usleep (G_USEC_PER_SEC);
+        }
+    }
 
   self->bg_dirty = FALSE;
 
@@ -1146,73 +1959,217 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
     self->bg_frame = g_malloc (sizeof (guint16) * GOODIX_IMG_PIXELS);
 
   {
-    int cur[12], waited = 0;
-    gboolean timeout = FALSE;
+    int cur[GXFP_FDT_ZONE_COUNT];
     gint64 t0 = g_get_monotonic_time ();
+
+    /* Production and diagnostics use the same invariant: calibration starts
+     * only from a proven finger-off sample. The previous production path used
+     * a 2 s timeout and then accepted a contaminated background anyway; on
+     * reference MateBook that learned idle≈211 while the true finger-off level is≈353,
+     * making every subsequent press invisible. Never do that. */
+    if (!gx_wait_clean_anchor (self, &off_anchor_mean))
+      return FALSE;
+
+    if (capture_diagnostic)
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_CLEAR_SENSOR_ANCHOR: mean=%d",
+               off_anchor_mean);
 
     for (;;)
       {
-        /* Wait for the finger to be lifted BEFORE spending a capture on the
-         * background, not after. Probing costs about 33 ms, a background
-         * capture about 1.5 s, and taking the background first paid that
-         * second on every round: four rounds of a finger still down meant
-         * four discarded captures, which is how the wait before the prompt
-         * reached 7 s. Probing first makes those rounds cost 200 ms each. */
-        while (!timeout && gx_fdt_probe (self, cur) == 0 &&
-               gx_fdt_mean (cur) < self->fdt_abs)
-          {
-            if (waited >= GX_BG_WAIT_MS)
-              timeout = TRUE;
-            else
-              {
-                g_usleep (200 * 1000);
-                waited += 200;
-              }
-          }
+        int clear_mean = off_anchor_mean;
+        int mean;
+
+        if (!gx_wait_sensor_clear (self, off_anchor_mean, &clear_mean))
+          return FALSE;
+        if (clear_mean > off_anchor_mean)
+          off_anchor_mean = clear_mean;
 
         if (!gx_capture_avg (self, GOODIX_BG_FRAMES, self->bg_frame))
           return FALSE;
 
-        /* The capture itself lasts about 1.5 s, so a finger can land while it
-         * runs and end up baked into the background. Check once more, and
-         * redo it if that happened. */
-        if (gx_fdt_probe (self, cur) != 0 || gx_fdt_mean (cur) >= self->fdt_abs)
-          break;                                   /* no finger: background good */
-        if (timeout)
-          {
-            fp_warn ("finger still down after %d ms: taking the background "
-                     "anyway, capture will be degraded", GX_BG_WAIT_MS);
-            self->bg_dirty = TRUE;
-            break;
-          }
+        /* A finger may land during the ~2 s background capture. Reject that
+         * frame and wait for release rather than baking the finger into the
+         * reference image. */
+        if (gx_fdt_probe (self, cur) != 0)
+          return FALSE;
+
+        mean = gx_fdt_mean (cur);
+        if (mean > off_anchor_mean)
+          off_anchor_mean = mean;
+
+        if (off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
+          break;
+
+        fp_warn ("GXFP51A0 background contaminated by touch: mean=%d anchor=%d; discarding",
+                 mean, off_anchor_mean);
+        if (!gx_wait_sensor_clear (self, off_anchor_mean, NULL))
+          return FALSE;
       }
-    if (waited)
-      fp_info ("background delayed %d ms (finger was down)", waited);
+
     fp_info ("session ready in %d ms",
              (int) ((g_get_monotonic_time () - t0) / 1000));
   }
 
-  /* Detection baseline; the wait above guarantees no finger is present. */
+  /* Detection baseline. In one-shot diagnostic mode, validate it against the
+   * no-finger anchor. If the user touched while those four probes were being
+   * collected, discard them and retry instead of learning the finger as idle. */
   {
-    int t[12], acc[12] = { 0 }, nb = 0;
-    for (q = 0; q < 4; q++)
-      if (gx_fdt_probe (self, t) == 0)
-        { for (k = 0; k < 12; k++) acc[k] += t[k]; nb++; }
-    if (nb)
+    int attempt;
+
+    self->have_fdt = FALSE;
+    for (attempt = 1; attempt <= GX_DIAG_BASELINE_ATTEMPTS; attempt++)
       {
-        for (k = 0; k < 12; k++) self->fdt_base[k] = acc[k] / nb;
+        int t[GXFP_FDT_ZONE_COUNT];
+        int acc[GXFP_FDT_ZONE_COUNT] = { 0 };
+        int nb = 0;
+        int baseline_mean;
+
+        for (q = 0; q < 4; q++)
+          if (gx_fdt_probe (self, t) == 0)
+            {
+              for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
+                acc[k] += t[k];
+              nb++;
+            }
+
+        if (!nb)
+          continue;
+
+        for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
+          self->fdt_base[k] = acc[k] / nb;
+        baseline_mean = gx_fdt_mean (self->fdt_base);
+
+        if (off_anchor_mean >= 0 &&
+            off_anchor_mean - baseline_mean > GX_DIAG_BASELINE_MAX_DRIFT)
+          {
+              fp_warn ("GXFP51A0 FDT baseline contaminated by touch: mean=%d anchor=%d attempt=%d/%d",
+                     baseline_mean, off_anchor_mean, attempt,
+                     GX_DIAG_BASELINE_ATTEMPTS);
+            if (!gx_wait_sensor_clear (self, off_anchor_mean, NULL))
+              return FALSE;
+            continue;
+          }
+
+        if (baseline_mean > off_anchor_mean)
+          off_anchor_mean = baseline_mean;
+
         self->have_fdt = TRUE;
-        /* Derive the absolute floor from THIS unit's idle level instead of a
-         * fixed number. A finger only ever pulls the mean down, so the floor
-         * sits a fixed margin below idle; where idle actually is no longer
-         * matters, which is what makes detection work on a sensor other than
-         * the author's. */
-        self->fdt_abs = gx_fdt_mean (self->fdt_base) - GOODIX_FDT_ABS_MARGIN;
+        self->fdt_abs = baseline_mean - GOODIX_FDT_ABS_MARGIN;
         fp_info ("FDT auto-calibrated: idle mean=%d -> floor=%d (drop>%d)",
-                 gx_fdt_mean (self->fdt_base), self->fdt_abs, GOODIX_FDT_DROP);
+                 baseline_mean, self->fdt_abs, GOODIX_FDT_DROP);
+        if (capture_diagnostic)
+          fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_BASELINE_STABLE: mean=%d anchor=%d",
+                   baseline_mean, off_anchor_mean);
+        break;
       }
   }
+
+  if (capture_diagnostic && self->have_fdt &&
+      !gx_diag_press_countdown (self, off_anchor_mean))
+    return FALSE;
+
   return self->have_fdt;
+}
+
+#define GX_PREPARE_ATTEMPTS 2
+
+static void
+gx_invalidate_capture_context (FpiDeviceGoodix51A0 *self)
+{
+  self->production_ready = FALSE;
+  self->have_fdt = FALSE;
+  self->bg_dirty = FALSE;
+  self->tls_rxlen = 0;
+  self->tls_rxpos = 0;
+}
+
+static gboolean
+gx_recover_capture_context (FpiDeviceGoodix51A0 *self)
+{
+  gchar fw[64] = { 0 };
+
+  gx_invalidate_capture_context (self);
+  gx_tls_teardown (self);
+
+  /* A timed-out image record leaves the TLS sequence and MCU transaction
+   * boundary uncertain.  Recovery is therefore a full hardware reset, not a
+   * blind replay on the same session.  The validated PMK cache is deliberately
+   * retained: a transport timeout does not prove that the key changed. */
+  gx_gpio_reset (self);
+  if (!gx_read_fw_version_stage2e (self, fw, sizeof fw) ||
+      g_strcmp0 (fw, "GF_ST411SEC_APP_14115") != 0)
+    {
+      fp_warn ("GXFP51A0 capture-context recovery could not re-establish the firmware boundary");
+      return FALSE;
+    }
+
+  fp_info ("GXFP51A0 capture-context recovery reset/A8 confirmed: %s", fw);
+  return TRUE;
+}
+
+static gboolean
+gx_prepare_capture_context (FpiDeviceGoodix51A0 *self,
+                            gboolean capture_diagnostic)
+{
+  int attempt;
+
+  /* Diagnostics are intentionally single-shot so protocol failures remain
+   * visible to the research harness.  Production operations get a bounded
+   * whole-session retry; each retry starts after a hard reset because a
+   * missing TLS image after ACK may have advanced unknown sensor state. */
+  if (capture_diagnostic ||
+      g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") ||
+      g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    return gx_prepare_capture_context_once (self, capture_diagnostic);
+
+  for (attempt = 1; attempt <= GX_PREPARE_ATTEMPTS; attempt++)
+    {
+      GCancellable *c = fpi_device_get_cancellable (FP_DEVICE (self));
+
+      if (c && g_cancellable_is_cancelled (c))
+        return FALSE;
+
+      if (gx_prepare_capture_context_once (self, FALSE))
+        return TRUE;
+
+      fp_warn ("GXFP51A0 capture-context preparation failed attempt=%d/%d",
+               attempt, GX_PREPARE_ATTEMPTS);
+
+      if (!gx_recover_capture_context (self))
+        break;
+    }
+
+  return FALSE;
+}
+
+static gboolean
+gx_session_start (FpiDeviceGoodix51A0 *self)
+{
+  gboolean capture_diagnostic =
+    g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
+
+  /* Diagnostics deliberately retain their interactive preparation so the
+   * research harness can observe each boundary. Normal fprintd clients are
+   * prepared during device open/Claim, before EnrollStart or VerifyStart is
+   * returned to the desktop. */
+  if (capture_diagnostic || g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") ||
+      g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    return gx_prepare_capture_context (self, capture_diagnostic);
+
+  if (self->production_ready && self->tls_up && self->have_fdt &&
+      self->bg_frame)
+    {
+      fp_info ("GXFP51A0 reusing capture context prepared during device open");
+      return TRUE;
+    }
+
+  /* Defensive fallback for non-fprintd clients that may reach an operation
+   * without a normal Claim/Open lifecycle. */
+  if (!gx_prepare_capture_context (self, FALSE))
+    return FALSE;
+
+  self->production_ready = TRUE;
+  return TRUE;
 }
 
 
@@ -1249,7 +2206,7 @@ gx_preprocess (FpiDeviceGoodix51A0 *self, const guint16 *px)
 static gboolean
 gx_finger_present (FpiDeviceGoodix51A0 *self)
 {
-  int cur[12];
+  int cur[GXFP_FDT_ZONE_COUNT];
 
   if (gx_fdt_probe (self, cur) != 0)
     return FALSE;
@@ -1258,6 +2215,7 @@ gx_finger_present (FpiDeviceGoodix51A0 *self)
 }
 
 
+#ifdef GXFP51A0_DEVELOPER
 /* Dumps captures for offline evaluation. Enabled simply by the dump directory
  * existing, rather than by an environment variable, which cannot conveniently
  * be set on an already-running systemd service.
@@ -1286,12 +2244,18 @@ gx_dump_capture (FpiDeviceGoodix51A0 *self, const guint16 *px)
   while (g_file_test (p, G_FILE_TEST_EXISTS) && seq < 9999);
 
   b = g_strdup_printf ("%s.bg", p);
-  if (g_file_set_contents (p, (const gchar *) px,
-                           sizeof (guint16) * GOODIX_IMG_PIXELS, NULL) &&
-      g_file_set_contents (b, (const gchar *) self->bg_frame,
-                           sizeof (guint16) * GOODIX_IMG_PIXELS, NULL))
+  if (g_file_set_contents_full (
+        p, (const gchar *) px,
+        sizeof (guint16) * GOODIX_IMG_PIXELS,
+        G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL) &&
+      g_file_set_contents_full (
+        b, (const gchar *) self->bg_frame,
+        sizeof (guint16) * GOODIX_IMG_PIXELS,
+        G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL))
     fp_info ("capture saved: %s", p);
 }
+
+#endif
 
 /* Captures one press and extracts its descriptors. */
 static GxSiftFeatures *
@@ -1302,9 +2266,8 @@ gx_capture_features (FpiDeviceGoodix51A0 *self)
   double m = 0, v = 0;
   int i;
 
-  if (!gx_capture_frame (self, px))
+  if (!gx_capture_frame (self, px, FALSE))
     return NULL;
-  gx_dump_capture (self, px);
   img = gx_preprocess (self, px);
 
   /* This quality gate is ESSENTIAL. The keypoint detector always returns
@@ -1331,10 +2294,20 @@ gx_capture_features (FpiDeviceGoodix51A0 *self)
 /*  Serialising a set of views into an FpPrint                         */
 /* ------------------------------------------------------------------ */
 
+/* Driver-private template schema. Increment this whenever the serialized
+ * descriptor representation or matching semantics become incompatible.
+ *
+ * Versioned templates make future driver upgrades explicit: a newer driver
+ * can request re-enrollment instead of silently interpreting stale biometric
+ * data with changed semantics. Legacy aay templates from the development
+ * harness remain readable so current research data does not get stranded. */
+#define GX_TEMPLATE_VERSION 1u
+
 static GVariant *
 gx_views_to_variant (GPtrArray *views)
 {
   GVariantBuilder b;
+  GVariant *payload;
   guint i;
 
   g_variant_builder_init (&b, G_VARIANT_TYPE ("aay"));
@@ -1344,21 +2317,50 @@ gx_views_to_variant (GPtrArray *views)
       g_variant_builder_add_value (
         &b, g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, ba->data, ba->len, 1));
     }
-  return g_variant_new ("aay", &b);
+
+  payload = g_variant_builder_end (&b);
+  return g_variant_new ("(u@aay)", GX_TEMPLATE_VERSION, payload);
 }
 
 static GPtrArray *
 gx_views_from_print (FpPrint *print)
 {
   g_autoptr(GVariant) data = NULL;
+  g_autoptr(GVariant) payload = NULL;
   GPtrArray *views = g_ptr_array_new_with_free_func ((GDestroyNotify) gx_sift_free);
   GVariantIter it;
   GVariant *child;
+  guint32 version = 0;
 
   g_object_get (print, "fpi-data", &data, NULL);
-  if (!data || !g_variant_is_of_type (data, G_VARIANT_TYPE ("aay")))
+  if (!data)
     return views;
-  g_variant_iter_init (&it, data);
+
+  if (g_variant_is_of_type (data, G_VARIANT_TYPE ("(uaay)")))
+    {
+      g_variant_get (data, "(u@aay)", &version, &payload);
+      if (version != GX_TEMPLATE_VERSION)
+        {
+          fp_warn ("unsupported template version %u (driver expects %u); re-enrollment required",
+                   version, GX_TEMPLATE_VERSION);
+          return views;
+        }
+    }
+  else if (g_variant_is_of_type (data, G_VARIANT_TYPE ("aay")))
+    {
+      /* Compatibility with pre-installation research templates only. New
+       * enrollments are always written in the versioned format above. */
+      fp_info ("legacy unversioned template accepted");
+      payload = g_variant_ref (data);
+    }
+  else
+    {
+      fp_warn ("unsupported template payload type %s",
+               g_variant_get_type_string (data));
+      return views;
+    }
+
+  g_variant_iter_init (&it, payload);
   while ((child = g_variant_iter_next_value (&it)))
     {
       gsize len = 0;
@@ -1580,8 +2582,11 @@ typedef struct
   int        tries;        /* captures attempted for this verification */
   int        stage;        /* vue en cours */
   int        polls;        /* polls done in the current state */
-  gboolean   verifying;
-  GxSiftIsland *island;    /* coverage accumulated, for enrolment guidance */
+  gboolean   verifying;       /* verify or identify: capture exactly one usable press */
+  gboolean   identifying;     /* one-to-many gallery match */
+  gboolean   match_reported;  /* terminal match/no-match already sent early */
+  FpPrint   *identify_match;  /* matched gallery print, owned while the task lives */
+  GxSiftIsland *island;       /* coverage accumulated, for enrolment guidance */
 } GxTask;
 
 enum {
@@ -1639,8 +2644,12 @@ static void
 gx_session_thread (GTask *task, gpointer src, gpointer data, GCancellable *c)
 {
   GxWork *w = data;
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (w->dev);
 
-  w->ok = gx_session_start (FPI_DEVICE_GOODIX51A0 (w->dev));
+  if (g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    w->ok = gx_tls_session (self);
+  else
+    w->ok = gx_session_start (self);
   g_task_return_boolean (task, TRUE);
 }
 
@@ -1658,7 +2667,8 @@ gx_capture_thread (GTask *task, gpointer src, gpointer data, GCancellable *c)
    * enriches the template without asking the user for more gestures. They are
    * captured here but handed to the main loop for merging — the state
    * machine's data must only be mutated there. */
-  if (w->ok && w->feat->n >= 8 && !t->verifying)
+  if (w->ok && w->feat->n >= 8 && !t->verifying &&
+      !g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
     {
       int extra;
 
@@ -1691,6 +2701,13 @@ gx_session_done (GObject *src, GAsyncResult *res, gpointer user_data)
         FP_DEVICE_ERROR_PROTO, "sensor initialisation failed"));
       return;
     }
+  if (g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    {
+      fp_info ("GXFP51A0 TLS-only diagnostic complete");
+      fpi_ssm_mark_failed (w->ssm, fpi_device_error_new_msg (
+        FP_DEVICE_ERROR_GENERAL, "TLS-only diagnostic complete"));
+      return;
+    }
   if (self->bg_dirty)
     {
       /* Better to ask for the finger to be removed than to return a collapsed
@@ -1699,6 +2716,9 @@ gx_session_done (GObject *src, GAsyncResult *res, gpointer user_data)
         fpi_device_retry_new (FP_DEVICE_RETRY_REMOVE_FINGER));
       return;
     }
+
+  if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
+    fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_READY: PRESS_AND_HOLD_FINGER");
   fpi_ssm_next_state (w->ssm);
 }
 
@@ -1725,6 +2745,7 @@ gx_task_free (GxTask *t)
   if (t->views)
     g_ptr_array_free (t->views, TRUE);
   g_clear_pointer (&t->probe, gx_sift_free);
+  g_clear_object (&t->identify_match);
   g_clear_pointer (&t->island, gx_sift_island_free);
   g_free (t);
 }
@@ -1756,7 +2777,7 @@ gx_poll_on (gpointer user_data)
   FpDevice *dev = fpi_ssm_get_device (ssm);
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
-  int cur[12];
+  int cur[GXFP_FDT_ZONE_COUNT];
 
   if (gx_cancelled (dev, ssm))
     { self->poll_id = 0; return G_SOURCE_REMOVE; }
@@ -1769,9 +2790,13 @@ gx_poll_on (gpointer user_data)
 
   /* Reuse the values just read; probing twice per poll perturbs the sensor. */
   if (t->polls % 5 == 0)
-    fp_info ("wait-on: mean=%d drop=%d (thresholds %d / %d)",
-             gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur),
-             self->fdt_abs, GOODIX_FDT_DROP);
+    {
+      fp_info ("wait-on: mean=%d drop=%d (thresholds %d / %d)",
+               gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur),
+               self->fdt_abs, GOODIX_FDT_DROP);
+      if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
+        fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_WAITING_FOR_FINGER: PRESS_AND_HOLD_NOW");
+    }
 
   if (gx_fdt_drop (self->fdt_base, cur) > GOODIX_FDT_DROP ||
       gx_fdt_mean (cur) < self->fdt_abs)
@@ -1782,6 +2807,7 @@ gx_poll_on (gpointer user_data)
        * early, and spoil the capture. */
       fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NEEDED |
                                             FP_FINGER_STATUS_PRESENT);
+      fp_info ("finger status: needed=1 present=1; capture starting");
       self->poll_id = 0;
       fpi_ssm_jump_to_state (ssm, GX_ST_CAPTURE);
       return G_SOURCE_REMOVE;
@@ -1803,7 +2829,7 @@ gx_poll_off (gpointer user_data)
   FpDevice *dev = fpi_ssm_get_device (ssm);
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
-  int cur[12];
+  int cur[GXFP_FDT_ZONE_COUNT];
   gboolean off = FALSE;
 
   if (gx_cancelled (dev, ssm))
@@ -1828,6 +2854,54 @@ gx_poll_off (gpointer user_data)
   return G_SOURCE_CONTINUE;
 }
 
+static int
+gx_score_probe_against_print (FpPrint *tmpl,
+                              const GxSiftFeatures *probe,
+                              guint *out_base_views,
+                              guint *out_adapt_views)
+{
+  g_autoptr(GPtrArray) views = gx_views_from_print (tmpl);
+  g_autofree gchar *apath = gx_adapt_path (tmpl);
+  g_autoptr(GPtrArray) extra = gx_adapt_load (apath);
+  g_autofree guint8 *seen = g_new0 (guint8, probe && probe->n ? probe->n : 1);
+  int fused = 0;
+  guint i;
+
+  if (out_base_views)
+    *out_base_views = views ? views->len : 0;
+  if (out_adapt_views)
+    *out_adapt_views = extra ? extra->len : 0;
+  if (!probe)
+    return 0;
+
+  for (i = 0; views && i < views->len; i++)
+    gx_sift_match_mask (g_ptr_array_index (views, i), probe, seen);
+  for (i = 0; extra && i < extra->len; i++)
+    gx_sift_match_mask (g_ptr_array_index (extra, i), probe, seen);
+  for (i = 0; i < probe->n; i++)
+    fused += seen[i];
+
+  return fused;
+}
+
+static void
+gx_maybe_adapt_print (FpPrint *tmpl,
+                      const GxSiftFeatures *probe,
+                      int score)
+{
+  g_autofree gchar *apath = gx_adapt_path (tmpl);
+  g_autoptr(GPtrArray) extra = gx_adapt_load (apath);
+
+  if (!probe || score < GX_ADAPT_MIN ||
+      score > (int) (GX_ADAPT_MAX_FRAC * probe->n) ||
+      extra->len >= GX_ADAPT_VIEWS)
+    return;
+
+  if (gx_adapt_append (apath, probe))
+    fp_info ("adaptive store: view acquired (%u/%d)",
+             extra->len + 1, GX_ADAPT_VIEWS);
+}
+
 static void
 gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
 {
@@ -1837,6 +2911,20 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
   GxSiftFeatures *f = g_steal_pointer (&w->feat);
+
+  if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
+    {
+      guint nfeatures = f ? f->n : 0;
+
+      fp_info ("GXFP51A0 capture-only diagnostic complete: features=%u",
+               nfeatures);
+      fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_DONE: REMOVE_FINGER");
+      g_clear_pointer (&f, gx_sift_free);
+      fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
+      fpi_ssm_mark_failed (ssm, fpi_device_error_new_msg (
+        FP_DEVICE_ERROR_GENERAL, "capture-only diagnostic complete"));
+      return;
+    }
 
       for (guint e = 0; w->extra && e < w->extra->len; e++)
         g_ptr_array_add (t->views, g_ptr_array_index (w->extra, e));
@@ -1870,60 +2958,81 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
         }
       else if (t->verifying)
         {
-          /* Score the capture, once.
-           *
-           * This used to re-capture while the finger was still down whenever
-           * the score came out below the threshold, keeping the BEST score of
-           * up to three captures. That is a security defect, not a comfort
-           * feature: retrying until the score passes turns one decision into
-           * the maximum of several draws, and pam_fprintd multiplies it again
-           * with max-tries=3 — up to nine draws to clear a single threshold.
-           * Measured: a foreign finger (middle, not enrolled) scored 3 on the
-           * first capture and 20 on the second, and was accepted at a
-           * threshold of 15, where the documented impostor ceiling is 8.
-           *
-           * A weak capture is now simply a weak result. Unusable captures are
-           * still retried above, but on IMAGE QUALITY (too few points), never
-           * on the score — a retry must never be conditioned on how close the
-           * previous attempt came to authenticating. */
-          FpPrint *tmpl = NULL;
-          g_autoptr(GPtrArray) views = NULL;
-          g_autoptr(GPtrArray) extra = NULL;
-          g_autofree gchar *apath = NULL;
-          guint i;
-
-          fpi_device_get_verify_data (dev, &tmpl);
-          views = gx_views_from_print (tmpl);
-          apath = gx_adapt_path (tmpl);
-          extra = gx_adapt_load (apath);
-
-          /* Fusion des vues : on cumule les points de la capture qu'AU MOINS
-           * at least one template view explains, instead of keeping only
-           * the best per-view score. A press often overlaps several views
-           * without covering any of them decisively, and taking the maximum
-           * threw that distributed evidence away. Spurious matches from a
-           * foreign finger do not accumulate the same way: they fail the
-           * geometric check. Measured, borderline poses go from 5 to 18
-           * matches while the impostor drops from 3 to 0. */
-          {
-            g_autofree guint8 *seen = g_new0 (guint8, f->n ? f->n : 1);
-            int fused = 0;
-
-            for (i = 0; i < views->len; i++)
-              gx_sift_match_mask (g_ptr_array_index (views, i), f, seen);
-            for (i = 0; i < extra->len; i++)
-              gx_sift_match_mask (g_ptr_array_index (extra, i), f, seen);
-            for (i = 0; i < f->n; i++)
-              fused += seen[i];
-            if (fused > t->best)
-              t->best = fused;
-          }
-
+          /* One usable press is one authentication decision. Never condition a
+           * recapture on how close the biometric score came to the threshold:
+           * doing so amplifies false accepts. Quality failures are retryable,
+           * scores are terminal. */
           t->tries++;
           g_clear_pointer (&t->probe, gx_sift_free);
           t->probe = f;
-          fp_info ("verify: attempt %d -> %d matches (threshold %d)",
-                   t->tries, t->best, GX_MATCH_THRESHOLD);
+
+          if (t->identifying)
+            {
+              GPtrArray *gallery = NULL;
+              FpPrint *best_print = NULL;
+              int best = 0;
+
+              fpi_device_get_identify_data (dev, &gallery);
+              for (guint i = 0; gallery && i < gallery->len; i++)
+                {
+                  FpPrint *candidate = g_ptr_array_index (gallery, i);
+                  guint base_views = 0, adapt_views = 0;
+                  int score = gx_score_probe_against_print (candidate, t->probe,
+                                                            &base_views,
+                                                            &adapt_views);
+
+                  fp_info ("identify: candidate=%u score=%d threshold=%d views=%u+%u",
+                           i, score, GX_MATCH_THRESHOLD,
+                           base_views, adapt_views);
+                  if (!best_print || score > best)
+                    {
+                      best = score;
+                      best_print = candidate;
+                    }
+                }
+
+              t->best = best;
+              if (best_print && best >= GX_MATCH_THRESHOLD)
+                {
+                  t->identify_match = g_object_ref (best_print);
+                  gx_maybe_adapt_print (best_print, t->probe, best);
+                }
+
+              fpi_device_identify_report (dev,
+                                          t->identify_match,
+                                          NULL,
+                                          NULL);
+              t->match_reported = TRUE;
+              fp_info ("identify: early result reported best=%d threshold=%d gallery=%u",
+                       best, GX_MATCH_THRESHOLD, gallery ? gallery->len : 0);
+            }
+          else
+            {
+              FpPrint *tmpl = NULL;
+              guint base_views = 0, adapt_views = 0;
+
+              fpi_device_get_verify_data (dev, &tmpl);
+              t->best = gx_score_probe_against_print (tmpl, t->probe,
+                                                      &base_views,
+                                                      &adapt_views);
+
+              fp_info ("verify: attempt %d -> %d matches (threshold %d, %u views + %u acquired)",
+                       t->tries, t->best, GX_MATCH_THRESHOLD,
+                       base_views, adapt_views);
+
+              gx_maybe_adapt_print (tmpl, t->probe, t->best);
+
+              /* Report immediately after scoring; WAIT_OFF is hardware cleanup
+               * and must not delay PAM or a desktop login transaction. */
+              fpi_device_verify_report (dev,
+                                        t->best >= GX_MATCH_THRESHOLD
+                                          ? FPI_MATCH_SUCCESS
+                                          : FPI_MATCH_FAIL,
+                                        NULL, NULL);
+              t->match_reported = TRUE;
+              fp_info ("verify: early result reported at %d matches (threshold %d)",
+                       t->best, GX_MATCH_THRESHOLD);
+            }
 
         }
       else
@@ -1976,10 +3085,16 @@ gx_run_state (FpiSsm *ssm, FpDevice *dev)
       break;
 
     case GX_ST_WAIT_ON:
-      t->polls = 0;
-      fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NEEDED);
-      self->poll_id = g_timeout_add (GX_POLL_MS, gx_poll_on, ssm);
-      break;                       /* the poll drives the next state */
+      {
+        gboolean changed;
+
+        t->polls = 0;
+        changed = fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NEEDED);
+        fp_info ("finger status: needed=1 present=0 changed=%d",
+                 changed ? 1 : 0);
+        self->poll_id = g_timeout_add (GX_POLL_MS, gx_poll_on, ssm);
+        break;                     /* the poll drives the next state */
+      }
 
     case GX_ST_CAPTURE:
       gx_run_async (ssm, dev, gx_capture_thread, gx_capture_done);
@@ -2065,19 +3180,21 @@ gx_dev_open (FpDevice *dev)
     ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
   }
 
-  self->irq_fd = open (GX51_IRQ_DEV, O_RDWR | O_CLOEXEC);
+  self->irq_fd = gx51_open_irq_gpio48 ();
   if (self->irq_fd < 0)
     {
       close (self->spi_fd);
       self->spi_fd = -1;
       fpi_device_open_complete (dev, fpi_device_error_new_msg (
-        FP_DEVICE_ERROR_PROTO, "GXFP51A0 IRQ bridge is not available"));
+        FP_DEVICE_ERROR_PROTO, "GXFP51A0 GPIO48 IRQ input is not available"));
       return;
     }
+  fp_info ("GXFP51A0 IRQ source: direct GPIO48 level polling");
 
   self->fdt_abs = GOODIX_FDT_ABS;
-  self->timing_scale = 100;
-  self->timing_saved = 100;
+  self->timing_scale = gx_timing_load ();
+  self->timing_saved = self->timing_scale;
+  gx_adapt_sweep ();
 
   /*
    * First-contact sequence only. Windows does not perform an unconditional
@@ -2106,7 +3223,30 @@ gx_dev_open (FpDevice *dev)
         fp_warn ("GXFP51A0: no A8 firmware response after final fallback");
     }
 
-  fp_info ("GXFP51A0 opened in first-contact mode; TLS/enroll remains target-gated");
+  fp_info ("GXFP51A0 opened; experimental PMK/TLS/capture path enabled");
+
+  if (!g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") &&
+      !g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") &&
+      !g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    {
+      /* Opportunistic preclaim preparation keeps the normal fast path used by
+       * desktop clients, but it is not part of the semantic meaning of
+       * FpDevice::open.  A transient TLS/background-image timeout must not make
+       * the device disappear from fprintd/KDE.  Leave the handles open and let
+       * the actual enroll/verify/identify action perform the bounded retry. */
+      if (!gx_prepare_capture_context_once (self, FALSE))
+        {
+          fp_warn ("GXFP51A0 preclaim preparation failed; deferring clean preparation to the biometric action");
+          if (!gx_recover_capture_context (self))
+            fp_warn ("GXFP51A0 preclaim recovery reset was incomplete; action startup will retry from a fresh boundary");
+        }
+      else
+        {
+          self->production_ready = TRUE;
+          fp_info ("GXFP51A0 production capture context ready before EnrollStart/VerifyStart");
+        }
+    }
+
   fpi_device_open_complete (dev, NULL);
 }
 
@@ -2117,9 +3257,10 @@ gx_dev_close (FpDevice *dev)
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
 
   g_clear_handle_id (&self->poll_id, g_source_remove);
+  self->production_ready = FALSE;
+  self->have_fdt = FALSE;
   gx_tls_teardown (self);
-  OPENSSL_cleanse (self->psk, sizeof self->psk);
-  self->psk_ready = FALSE;
+  gx_pmk_clear (self);
 
   if (self->irq_fd >= 0)
     {
@@ -2149,6 +3290,16 @@ gx_verify_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 
   if (error)
     {
+      /* fprintd/PAM may cancel immediately after receiving an early terminal
+       * result. That cancellation is cleanup, not a failed authentication. */
+      if (t->match_reported &&
+          g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        {
+          fp_info ("verify: caller stopped operation after early result");
+          g_clear_error (&error);
+          fpi_device_verify_complete (dev, NULL);
+          return;
+        }
       if (error->domain == FP_DEVICE_RETRY)
         fpi_device_verify_report (dev, FPI_MATCH_ERROR, NULL, g_steal_pointer (&error));
       fpi_device_verify_complete (dev, error);
@@ -2172,27 +3323,62 @@ gx_verify_done (FpiSsm *ssm, FpDevice *dev, GError *error)
     fp_info ("verify: %d matches in %d attempt(s) "
              "(threshold %d, %u views + %u acquired)", best, t->tries,
              GX_MATCH_THRESHOLD, views->len, extra->len);
-
-    /* Acquisition window. The lower bound means certain identity; the upper
-     * bound means the area is already well covered and would teach nothing.
-     * Weak poses — precisely the ones missing from the template — are excluded
-     * on purpose, being too uncertain to trust. They enter the window by
-     * themselves as the store fills out and lifts their score, so coverage
-     * grows step by step without ever relaxing the safety constraint. */
-    if (best >= GX_ADAPT_MIN &&
-        best <= (int) (GX_ADAPT_MAX_FRAC * t->probe->n) &&
-        extra->len < GX_ADAPT_VIEWS)
-      {
-        if (gx_adapt_append (apath, t->probe))
-          fp_info ("adaptive store: view acquired (%u/%d)",
-                   extra->len + 1, GX_ADAPT_VIEWS);
-      }
   }
-  fpi_device_verify_report (dev,
-                            best >= GX_MATCH_THRESHOLD ? FPI_MATCH_SUCCESS
-                                                       : FPI_MATCH_FAIL,
-                            NULL, NULL);
+
+  /* Defensive fallback for paths that reached completion without a usable
+   * capture-side report. The normal production path reports before WAIT_OFF. */
+  if (!t->match_reported)
+    fpi_device_verify_report (dev,
+                              best >= GX_MATCH_THRESHOLD ? FPI_MATCH_SUCCESS
+                                                         : FPI_MATCH_FAIL,
+                              NULL, NULL);
   fpi_device_verify_complete (dev, NULL);
+}
+
+static void
+gx_identify_done (FpiSsm *ssm, FpDevice *dev, GError *error)
+{
+  GxTask *t = fpi_ssm_get_data (ssm);
+
+  if (error)
+    {
+      if (t->match_reported &&
+          g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        {
+          fp_info ("identify: caller stopped operation after early result");
+          g_clear_error (&error);
+          fpi_device_identify_complete (dev, NULL);
+          return;
+        }
+
+      if (error->domain == FP_DEVICE_RETRY)
+        {
+          fpi_device_identify_report (dev, NULL, NULL,
+                                      g_steal_pointer (&error));
+          fpi_device_identify_complete (dev, NULL);
+          return;
+        }
+
+      fpi_device_identify_complete (dev, error);
+      return;
+    }
+
+  if (!t->probe)
+    {
+      fpi_device_identify_report (dev, NULL, NULL,
+                                  fpi_device_retry_new (FP_DEVICE_RETRY_GENERAL));
+      fpi_device_identify_complete (dev, NULL);
+      return;
+    }
+
+  if (!t->match_reported)
+    fpi_device_identify_report (dev,
+                                t->best >= GX_MATCH_THRESHOLD
+                                  ? t->identify_match
+                                  : NULL,
+                                NULL, NULL);
+
+  fpi_device_identify_complete (dev, NULL);
 }
 
 static void
@@ -2234,6 +3420,18 @@ gx_dev_verify (FpDevice *dev)
   t->verifying = TRUE;
   fpi_ssm_set_data (ssm, t, (GDestroyNotify) gx_task_free);
   fpi_ssm_start (ssm, gx_verify_done);
+}
+
+static void
+gx_dev_identify (FpDevice *dev)
+{
+  FpiSsm *ssm = fpi_ssm_new (dev, gx_run_state, GX_ST_NUM);
+  GxTask *t = g_new0 (GxTask, 1);
+
+  t->verifying = TRUE;
+  t->identifying = TRUE;
+  fpi_ssm_set_data (ssm, t, (GDestroyNotify) gx_task_free);
+  fpi_ssm_start (ssm, gx_identify_done);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2279,6 +3477,7 @@ fpi_device_goodix51a0_class_init (FpiDeviceGoodix51A0Class *klass)
   dev_class->close = gx_dev_close;
   dev_class->enroll = gx_dev_enroll;
   dev_class->verify = gx_dev_verify;
+  dev_class->identify = gx_dev_identify;
 
   G_OBJECT_CLASS (klass)->finalize = fpi_device_goodix51a0_finalize;
 

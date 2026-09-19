@@ -209,6 +209,26 @@ derive_record_keys (GxTls *t, GError **error)
 /*  Handshake                                                          */
 /* ------------------------------------------------------------------ */
 
+static void
+tls_msg_trace_cb (int write_p, int version, int content_type,
+                  const void *buf, size_t len, SSL *ssl, void *arg)
+{
+  const guint8 *p = buf;
+  int handshake_type = -1;
+
+  (void) version;
+  (void) ssl;
+  (void) arg;
+
+  if (content_type == SSL3_RT_HANDSHAKE && len > 0)
+    handshake_type = p[0];
+
+  g_debug ("GXFP51A0 TLS trace: %s content=%d handshake=%d len=%zu",
+           write_p ? "host->sensor" : "sensor->host",
+           content_type, handshake_type, len);
+}
+
+
 static unsigned int
 psk_server_cb (SSL *ssl, const char *identity, unsigned char *psk,
                unsigned int max_psk_len)
@@ -268,6 +288,7 @@ gx_tls_handshake_run (GxTls *t, GError **error)
       return FALSE;
     }
   SSL_CTX_set_psk_server_callback (t->ctx, psk_server_cb);
+  SSL_CTX_set_msg_callback (t->ctx, tls_msg_trace_cb);
   if (t->identity)
     SSL_CTX_use_psk_identity_hint (t->ctx, t->identity);
 

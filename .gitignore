@@ -44,3 +44,15 @@ research/.build/
 *psk*.bin
 *private*.bin
 temp/
+
+# fingerprint packaging outputs
+fingerprint/packaging/arch/pkg/
+fingerprint/packaging/arch/src/
+fingerprint/packaging/arch/*.pkg.tar.*
+
+# fingerprint private runtime/research data
+fingerprint/**/private-captures/
+fingerprint/**/*.raw
+fingerprint/**/*.pgm
+fingerprint/**/*.npy
+fingerprint/**/.goodix51a0-pmk

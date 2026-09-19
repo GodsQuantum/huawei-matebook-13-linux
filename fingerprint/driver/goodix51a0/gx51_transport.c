@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #define _GNU_SOURCE
 #include "gx51_transport.h"
 
@@ -12,16 +13,6 @@
 #include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
-
-#define GXFP_IRQ_WAIT_IOC_MAGIC 0xF5
-
-struct gx51_irq_wait_request {
-    uint32_t timeout_ms;
-    uint32_t sequence;
-};
-
-#define GX51_IRQ_WAIT \
-    _IOWR(GXFP_IRQ_WAIT_IOC_MAGIC, 0x02, struct gx51_irq_wait_request)
 
 static int gx51_sleep_us(long usec)
 {
@@ -59,6 +50,13 @@ uint8_t gx51_body_checksum(const uint8_t *data, size_t len)
     return (uint8_t)(0xAAu - sum);
 }
 
+size_t gx51_read_chunk_size(size_t remaining)
+{
+    return remaining > GX51_SPI_READ_CHUNK_MAX
+               ? GX51_SPI_READ_CHUNK_MAX
+               : remaining;
+}
+
 int gx51_write_frame_fd(int spi_fd, uint8_t type,
                         const uint8_t *body, size_t len)
 {
@@ -83,21 +81,17 @@ int gx51_write_frame_fd(int spi_fd, uint8_t type,
     return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &x) < 1 ? -1 : 0;
 }
 
-int gx51_read_frame_fd(int spi_fd, int irq_fd, uint8_t *type,
+int gx51_read_frame_fd(int spi_fd, int irq_gpio_fd, uint8_t *type,
                        uint8_t *body, size_t capacity, size_t *body_len)
 {
-    struct gx51_irq_wait_request req = {
-        .timeout_ms = 1000,
-        .sequence = 0,
-    };
     struct gx51_outer hdr;
     struct spi_ioc_transfer x = {0};
     size_t len;
 
-    if (spi_fd < 0 || irq_fd < 0 || !type || !body || !body_len)
+    if (spi_fd < 0 || irq_gpio_fd < 0 || !type || !body || !body_len)
         return -1;
 
-    if (ioctl(irq_fd, GX51_IRQ_WAIT, &req) < 0)
+    if (gx51_wait_irq_gpio48(irq_gpio_fd, 1200) < 0)
         return -1;
 
     memset(&hdr, 0, sizeof hdr);
@@ -119,11 +113,16 @@ int gx51_read_frame_fd(int spi_fd, int irq_fd, uint8_t *type,
     if (len == 0 || len > capacity)
         return -4;
 
-    memset(&x, 0, sizeof x);
-    x.rx_buf = (uintptr_t)body;
-    x.len = (uint32_t)len;
-    if (ioctl(spi_fd, SPI_IOC_MESSAGE(1), &x) < 1)
-        return -1;
+    for (size_t off = 0; off < len; ) {
+        size_t chunk = gx51_read_chunk_size(len - off);
+
+        memset(&x, 0, sizeof x);
+        x.rx_buf = (uintptr_t)(body + off);
+        x.len = (uint32_t)chunk;
+        if (ioctl(spi_fd, SPI_IOC_MESSAGE(1), &x) < 1)
+            return -1;
+        off += chunk;
+    }
 
     *type = hdr.type;
     *body_len = len;
@@ -155,6 +154,70 @@ static int gx51_open_int34bb(void)
     }
 
     return -1;
+}
+
+int gx51_open_irq_gpio48(void)
+{
+    struct gpio_v2_line_request req = {0};
+    int chip = gx51_open_int34bb();
+
+    if (chip < 0)
+        return -1;
+
+    req.num_lines = 1;
+    req.offsets[0] = GX51_EXPECTED_HWIRQ;
+    req.config.flags = GPIO_V2_LINE_FLAG_INPUT;
+    strncpy(req.consumer, "goodix51a0-irq", sizeof(req.consumer) - 1);
+
+    if (ioctl(chip, GPIO_V2_GET_LINE_IOCTL, &req) < 0 || req.fd < 0) {
+        close(chip);
+        return -1;
+    }
+
+    close(chip);
+    return req.fd;
+}
+
+static int
+gx51_wait_irq_gpio48_level(int line_fd, unsigned int timeout_ms, int want_high)
+{
+    struct gpio_v2_line_values val = {
+        .bits = 0,
+        .mask = 1,
+    };
+    unsigned int elapsed_ms;
+
+    if (line_fd < 0 || timeout_ms == 0)
+        return -1;
+
+    for (elapsed_ms = 0; elapsed_ms < timeout_ms; elapsed_ms++) {
+        val.bits = 0;
+        val.mask = 1;
+        if (ioctl(line_fd, GPIO_V2_LINE_GET_VALUES_IOCTL, &val) < 0)
+            return -1;
+        if (!!(val.bits & 1) == !!want_high)
+            return 0;
+        if (gx51_sleep_us(1000) < 0)
+            return -1;
+    }
+
+    errno = ETIMEDOUT;
+    return -1;
+}
+
+int gx51_wait_irq_gpio48(int line_fd, unsigned int timeout_ms)
+{
+    /* Match the proven Stage2E userspace path: sample GPIO48 every 1 ms and
+     * only clock the SPI response after the level-high IRQ is observable. */
+    return gx51_wait_irq_gpio48_level(line_fd, timeout_ms, 1);
+}
+
+int gx51_wait_irq_gpio48_low(int line_fd, unsigned int timeout_ms)
+{
+    /* A level-high IRQ can remain asserted briefly after a response body has
+     * been drained.  Do not launch the next target command until the MCU has
+     * visibly returned the line LOW. */
+    return gx51_wait_irq_gpio48_level(line_fd, timeout_ms, 0);
 }
 
 int gx51_reset_gpio264(void)
@@ -195,6 +258,12 @@ int gx51_reset_gpio264(void)
     return 0;
 
 fail:
+    /* Fail closed for the experiment, but fail LOW electrically: once the line
+     * has been acquired, every error path explicitly releases active-HIGH reset
+     * before closing the GPIO request. */
+    val.mask = 1;
+    val.bits = 0;
+    (void)ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &val);
     close(req.fd);
     close(chip);
     return -1;

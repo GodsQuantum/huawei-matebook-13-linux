@@ -1,239 +1,135 @@
 # Goodix GXFP51A0 / GF3658 Milan on Linux
 
-> Experimental reverse-engineering project. Linux first contact is now confirmed
-> on GXFP51A0, but enrol/verify are **not functional yet**. Do not flash firmware
-> or run unreviewed vendor flows.
+Experimental native libfprint driver for the SPI Goodix GXFP51A0 used in the
+Huawei MateBook 13 2021 family.
 
 > Français: [README.FR.md](README.FR.md)
 
-## Current status — 2026-09-16
+## Status — 2026-09-19
 
-The project has a reproducible **GXFP51A0 libfprint v1.94.100 candidate**.
-Software integration is no longer the blocker.
+Hardware-validated target:
 
-Validated software state:
+- ACPI HID: `GXFP51A0`
+- Goodix GF3658 / Milan, ST411
+- firmware: `GF_ST411SEC_APP_14115`
+- SPI mode 0 + `SPI_CS_HIGH`, 1 MHz validated
+- GPIO48 readiness/IRQ, GPIO264 MCU reset
+- TLS 1.2 `PSK-AES128-GCM-SHA256`
+- host-side 80x64 capture/matching through libfprint
+
+Current production path:
 
 ```text
-libfprint build/integration          PASS
-first-contact source regression     PASS
-research unit/safety suite          PASS
-Windows first-contact model         reconstructed
-Linux first-contact model           aligned
-SPI controller submissions          proven
-first sensor ACK                    CONFIRMED
-A8 ACK                              CONFIRMED
-EVK firmware response               CONFIRMED: GF_ST411SEC_APP_14115
-chip ID / OTP calibration            CONFIRMED
-target 256-byte config               CONFIRMED
-TLS cipher                           CONFIRMED: TLS1.2 PSK-AES128-GCM-SHA256
-runtime-RAM PMK hunting              CLOSED_NOT_APPLICABLE
-E4 14115 AAAA/32-byte variant        CONFIRMED ON PEGASUS
-E0 PSK provisioning                 CLOSED_NO_HANDLER
-factory PMK decrypt                 CONFIRMED SAME-FIRMWARE
-live TLS on GXFP51A0/14115          CONFIRMED EXTERNAL
-Pegasus PMK provider + live TLS     CURRENT BOUNDARY
-legacy /dev/isgx path               PASS (fallback)
-WBDI PE / SGX metadata gate         PASS (fallback)
-capture/enroll/verify               NOT REACHED
-fprintd/PAM                         NOT REACHED
+GXFP51A0 → libfprint → fprintd → KDE / GNOME / PAM / CLI
 ```
 
-The latest canonical handoff is [HANDOFF_CURRENT.md](HANDOFF_CURRENT.md).
-The detailed 2026-09-08 reverse-engineering checkpoint remains in
-[FINAL_HANDOFF_2026-09-08.md](FINAL_HANDOFF_2026-09-08.md).
+There is no device-specific desktop UI and no KDE/GNOME protocol patch.
 
-## One-command contributor validation
+Validated on the reference machine:
 
-Clone the repository and run:
+- standard fprintd enrollment completed;
+- genuine right-index verification matched;
+- two different non-enrolled fingers were rejected;
+- the driver requires 15 biometric enrollment captures; fprintd exposes 16
+  frontend stages when `identify` is available because it adds one internal
+  identify-related step; it also exposes `press`, `finger-needed` and
+  `finger-present`;
+- the current candidate implements standard libfprint `identify` for
+  multi-finger `VerifyStart("any")`;
+- verification/identification reports the biometric decision before finger-lift
+  cleanup, so login managers do not wait on the release timeout.
+
+The current candidate also treats a transient TLS/background prewarm failure as
+recoverable: hardware `open` remains successful and the biometric action gets a
+bounded whole-session retry from a reset boundary.
+
+## Install on Arch / CachyOS
+
+From the repository root:
+
+```bash
+./fingerprint/install-arch.sh
+```
+
+The installer builds locally, installs the package and fprintd, reloads udev and
+restarts fprintd. It does **not** modify PAM, KDE or GNOME configuration.
+
+After installation, use the normal fprintd tools:
+
+```bash
+fprintd-enroll -f right-index-finger
+fprintd-verify
+fprintd-list "$USER"
+```
+
+Desktop authentication policy remains distribution-specific. A desktop only
+needs to support the normal fprintd/PAM stack.
+
+## Guided verification diagnostic
+
+For interactive testing, use the local harness rather than chat-timed commands:
+
+```bash
+./fingerprint/tools/gxfp51a0-verify-diagnostic.py
+```
+
+It waits for fprintd's standard `finger-needed` / `finger-present` state,
+prints a local 3-2-1 countdown, then gives explicit `POSE`, `GARDE` and
+`RETIRE` instructions. Driver logs are used only for optional score/timing
+details; the guidance itself relies on the standard fprintd D-Bus state.
+
+## Contributor validation
 
 ```bash
 make -C fingerprint verify
 ```
 
-This is the recommended entry point for a new contributor. It:
+This runs the deterministic research/safety suite, verifies the source
+manifest, fetches exact libfprint `v1.94.100`, builds the candidate and checks
+the resulting artifacts.
 
-1. checks every public shell script for Bash syntax;
-2. runs the GXFP51A0 first-contact regression;
-3. runs the complete software-only research test/safety suite;
-4. verifies the candidate source SHA-256 manifest;
-5. creates an isolated build-tool venv;
-6. pins Meson 1.12.0 and Ninja 1.13.2;
-7. clones exact libfprint tag v1.94.100;
-8. applies the reviewed integration patch;
-9. injects only the reviewed GXFP51A0 sources;
-10. compiles and verifies the driver object/type/string.
-
-**No sensor SPI I/O, GPIO write, MMIO write or firmware action is performed.**
-
-Other entry points:
-
-```bash
-make -C fingerprint build
-make -C fingerprint research
-make -C fingerprint passive-audit
-```
-
-See [scripts/README.md](scripts/README.md) and
-[docs/contributor-validation-2026-09-08.md](docs/contributor-validation-2026-09-08.md).
-
-## Confirmed target facts
-
-- ACPI HID: `GXFP51A0`
-- Goodix GF3658 / Milan family
-- active parent: SPI1; fingerprint child on SPI2 disabled
-- SPI1 CS0, CPOL/CPHA mode 0, 8-bit, four-wire; Linux first contact requires `SPI_CS_HIGH`; 1 MHz is the currently proven Linux rate
-- GPIO48: level-triggered ActiveHigh readiness/IRQ
-- GPIO264 is active-HIGH MCU reset; confirmed sequence: HIGH 300 ms -> LOW -> 600 ms settle -> final LOW
-- Milan write: outer 4 bytes -> about 2 ms -> remaining bytes
-- DriverState Install: `(9,3)` / packed `0x96`
-- NOP checksum: `0xA5`
-- GetEvkVersion: NOP -> 5 ms -> A8, one identical A8 retry after first ACK timeout
-- exact target config: A2 reset -> chip ID 0x2504 -> 64-byte OTP -> OTP-derived tcode/FDT/DAC -> 0x90 config accepted
-- exact ST411 vector evidence:
-  - SP `0x20020000`
-  - Reset_Handler `0x08033198`
-  - application base `0x08020000`
-
-## Windows differential closure
-
-Reviewed Windows binaries:
+Release gates include:
 
 ```text
-Goodix FP 1.1.141.36 gfspi.dll
-SHA-256 4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59
-
-Goodix FP 1.1.141.40 gfspi.dll
-SHA-256 36033fbf507620776d9fb686ecfe7847ff41fcbdee6e2afad119e28c6f81ca04
+SOURCE_MANIFEST=PASS
+LIBFPRINT_BUILD=PASS
+GOODIX51A0_OBJECT_COMPILED=YES
+GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES
+RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT
+SOFTWARE_BUILD_READY=YES
 ```
 
-Important closures:
+The validation command performs no active sensor transfer, GPIO/MMIO write or
+firmware action.
 
-- both versions use the same effective WDF interrupt creation semantics;
-- GXFP51A0 selects the Milan split-write family;
-- the target first-contact write uses separate simple SPB writes, not
-  `SpbPeripheralExecuteSequence`;
-- `_DeviceInit` calls `device_action(0x0F, &zero, 4)` between DriverState and
-  `init_MCU`;
-- that selected action only sets the Windows-local `besdenable=0` and logs it;
-- no pre-ACK external consumer of `besdenable` is reachable in either reviewed
-  Windows build.
+## Safety and privacy
 
-See
-[docs/deviceinit-besd-spb-closure-2026-09-08.md](docs/deviceinit-besd-spb-closure-2026-09-08.md)
-and
-[docs/windows-14136-14140-differential-2026-09-08.md](docs/windows-14136-14140-differential-2026-09-08.md).
+Normal release builds do not compile the biometric capture-dump writer.
+Developer-only capture diagnostics are excluded from distributed artifacts.
 
-## Historical Linux silent boundary
+Never commit or publish:
 
-Before the CS-polarity discovery, the reconstructed common-init was executed under Linux with normal CS and remained silent:
+- biometric captures or templates;
+- PMK/PSK/key material or private per-unit fixtures;
+- proprietary Goodix/Huawei binaries or firmware;
+- serial numbers or private machine identifiers.
 
-```text
-SPI transfers             34
-TX bytes                  180
-IRQ waits                 12
-Goodix IRQ events         0
-retained RX bytes         180
-RX bytes equal to 0xFF    180
-controller completions    proven
-controller errors         none
-final GPIO264             LOW
-```
+The driver does not flash sensor firmware.
 
-The 34-transfer count is reconciled with DeviceInit/BESD and the corrected
-DriverState/GetEvkVersion state machine.
+## Scope
 
-Do **not** repeat this unchanged active experiment.
+The proven target is the GXFP51A0/ST411 firmware and hardware combination above.
+Other laptops carrying the same ACPI HID may use different GPIO wiring or
+firmware and must be validated before being marked supported.
 
-That result is now explained by the wrong Linux chip-select polarity. On
-2026-09-14 the same target returned a checksum-valid A8 ACK and firmware version
-when run with `SPI_CS_HIGH` and GPIO264 LOW. See
-[docs/first-contact-confirmed-2026-09-14.md](docs/first-contact-confirmed-2026-09-14.md).
+See:
 
-## Closed hypotheses
+- [native desktop integration](docs/native-desktop-integration.md)
+- [provenance](PROVENANCE.md)
+- [driver source](driver/goodix51a0/)
+- [current handoff](HANDOFF_CURRENT.md)
+- [research log](docs/research-log.md)
 
-Do not restart these branches without new exact-device evidence:
-
-- DMA versus deterministic PIO
-- runtime PM as primary explanation
-- Linux IRQ mapping
-- userspace GPIO polling versus native IRQ wait
-- mode-5 split timing / first-contact SPB transaction boundary
-- reviewed reset permutations
-- same-wire MISO retention
-- GPIO112 / GPP_D16 enable hypothesis
-- hidden LPSS fingerprint switch
-- DeviceInit intermediate action as missing sensor I/O
-- unverified GXFP5187 PMK address/key assumptions
-- untimed F2 runtime-RAM PMK hunting
-- unchanged common-init replay
-
-## Still unresolved
-
-- validated 48-byte PMK provider on Pegasus (factory-via-F2 is closed by the exact 14115 window)
-- live TLS 1.2 PSK-AES128-GCM-SHA256 handshake on Pegasus
-- first 80x64 image capture and decode
-- enroll / verify
-- fprintd / PAM / desktop integration
-
-## Current next boundary
-
-Same-firmware community work has now completed the path end to end on a real
-GXFP51A0: corrected F2 flash-record extraction -> private 48-byte PMK decrypt ->
-live TLS 1.2 `PSK-AES128-GCM-SHA256`. Pegasus must reproduce those gates
-independently before this repository claims local TLS success.
-
-Exact 14115 analysis also closes the GDIX51C0 Linux-owned-key shortcut: the E4
-AAAA/32-byte read operation exists and is confirmed on Pegasus, but it is not
-treated as a hash of the factory body or PMK. The corresponding E0
-write/provisioning operation is absent/no-op on this firmware. No E0 write should
-be attempted.
-
-The remaining implementation path is therefore: keep the rejected factory-F2
-path disabled, obtain the 48-byte PMK through a validated host-side provider (or
-a newly proven alternate path), open TLS, then reuse/adapt the tested ChicagoHS
-capture and matcher layers. The already-validated SGX/WBDI host work is again an
-active fallback while no shorter exact-target provider is demonstrated.
-
-## Repository map
-
-- [Current handoff](HANDOFF_CURRENT.md)
-- [SGX host-secret path — 2026-09-16](docs/sgx-host-secret-path-2026-09-16.md)
-- [Detailed final handoff — 2026-09-08](FINAL_HANDOFF_2026-09-08.md)
-- [Candidate driver](driver/goodix51a0/)
-- [Contributor scripts](scripts/)
-- [Contributor validation contract](docs/contributor-validation-2026-09-08.md)
-- [Current technical boundary](docs/current-boundary-2026-09-08.md)
-- [DeviceInit/BESD/SPB closure](docs/deviceinit-besd-spb-closure-2026-09-08.md)
-- [Windows .36 -> .40 differential](docs/windows-14136-14140-differential-2026-09-08.md)
-- [Hardware evidence](docs/hardware.md)
-- [Protocol evidence](docs/protocol.md)
-- [Research log](docs/research-log.md)
-- [Safety policy](docs/safety.md)
-- [Research implementation](research/README.md)
-- [Contributing](CONTRIBUTING.md)
-
-## Functional target
-
-```text
-first ACK [CONFIRMED]
--> A8/EVK [CONFIRMED]
--> exact target config [CONFIRMED]
--> redundant factory record decrypt (256-byte body)
--> TLS PSK-GCM
--> image capture
--> enroll
--> verify
--> fprintd
--> PAM/desktop
-```
-
-## Public-repository safety
-
-Never publish proprietary CAB/DLL/firmware, raw `_DSM` payloads, PSKs, derived
-keys, serial numbers, local usernames/paths, private IPs or unrelated hardware
-inventory.
-
-No firmware flash/upload/erase, speculative MMIO/pinmux write, GPIO112 write or
-borrowed generic wake command is authorized without new exact-target evidence.
-
-See [docs/safety.md](docs/safety.md).
+The driver source subtree is `LGPL-2.1-or-later`; historical research and other
+repository content may carry separate licensing. See per-file SPDX notices and
+[provenance](PROVENANCE.md).

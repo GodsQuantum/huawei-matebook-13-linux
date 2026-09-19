@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #ifndef GX51_IMAGE_H
 #define GX51_IMAGE_H
 

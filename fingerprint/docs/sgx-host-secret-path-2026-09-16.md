@@ -34,7 +34,7 @@ later F2 read therefore does not recover the boot-time plaintext PMK.
 
 Some F2 tooling also sees an 8-byte echo of the request (`addr32 + len32`) before
 returned memory. Future diagnostic readers must validate the complete response
-shape and a known target vector before trusting a dump. The historical Pegasus
+shape and a known target vector before trusting a dump. The historical reference MateBook
 vector read at `0x08020000` matched the known firmware vector exactly, so that
 successful calibration is retained; the old "F2 cannot read SRAM" conclusion is
 not.

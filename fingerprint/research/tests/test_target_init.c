@@ -251,6 +251,58 @@ int main(void)
             rsp, 12u, 0x08004000u, 256u, stale, sizeof stale, &stale_len));
     }
 
+    {
+        static const uint8_t zones[12] = {
+            0xb2,0xb2,0xc2,0xc2,0xa7,0xa7,0xb6,0xb6,0xa6,0xa6,0xb6,0xb6
+        };
+        static const uint8_t want_fdt[] = {
+            0x36,0x0f,0x00,0x0d,0x01,0xb2,0xb2,0xc2,0xc2,
+            0xa7,0xa7,0xb6,0xb6,0xa6,0xa6,0xb6,0xb6,0xfd
+        };
+        static const uint8_t want_nav[] = {0x50,0x03,0x00,0x01,0x00,0x56};
+        static const uint8_t want_image[] = {0x20,0x03,0x00,0x01,0x00,0x86};
+        static const uint8_t want_state[] = {0xae,0x02,0x00,0x55,0xa5};
+        static const uint8_t want_reg[] = {
+            0x82,0x06,0x00,0x00,0x82,0x00,0x02,0x00,0x9e
+        };
+
+        assert(gxfp_build_fdt_command(0x0du, zones, &p));
+        assert(p.inner_len == sizeof want_fdt);
+        expect_bytes(p.inner, want_fdt, sizeof want_fdt);
+        assert(gxfp_build_fdt_command(0x0cu, zones, &p));
+        assert(p.inner[0] == 0x32u);
+        assert(gxfp_build_fdt_command(0x0eu, zones, &p));
+        assert(p.inner[0] == 0x34u);
+        assert(!gxfp_build_fdt_command(0x00u, zones, &p));
+        assert(gxfp_build_nav(&p));
+        expect_bytes(p.inner, want_nav, sizeof want_nav);
+        assert(gxfp_build_get_image(&p));
+        expect_bytes(p.inner, want_image, sizeof want_image);
+        assert(gxfp_build_query_mcu_state(0x55u, &p));
+        expect_bytes(p.inner, want_state, sizeof want_state);
+        assert(gxfp_build_reg_read(0x0082u, 2u, &p));
+        expect_bytes(p.inner, want_reg, sizeof want_reg);
+    }
+
+    {
+        uint8_t rsp[20] = {
+            0x36,0x11,0x00,0x00,0x01,0x00,0x00,
+            0x6a,0x01,0x90,0x01,0x53,0x01,0x74,0x01,0x51,0x01,0x74,0x01,0x00
+        };
+        const uint16_t want[GXFP_FDT_ZONE_COUNT] = {
+            0x016au,0x0190u,0x0153u,0x0174u,0x0151u,0x0174u
+        };
+        uint16_t zones[GXFP_FDT_ZONE_COUNT] = {0};
+        uint8_t touchflag = 0xffu;
+        rsp[19] = gxfp_body_checksum(rsp, 19u);
+        assert(gxfp_parse_fdt_response(rsp, sizeof rsp, &touchflag, zones));
+        assert(touchflag == 0u);
+        assert(memcmp(zones, want, sizeof want) == 0);
+        assert(!gxfp_parse_fdt_response(rsp, sizeof rsp - 1u, &touchflag, zones));
+        rsp[19] ^= 1u;
+        assert(!gxfp_parse_fdt_response(rsp, sizeof rsp, &touchflag, zones));
+    }
+
     puts("test_target_init: OK");
     return 0;
 }

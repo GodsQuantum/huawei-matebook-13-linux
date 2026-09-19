@@ -22,8 +22,8 @@
 
 /*
  * Why this exists instead of NBIS: FpImageDevice mandates the NBIS pipeline
- * (minutiae plus bozorth3), which this sensor cannot feed. Its 6x5 mm surface
- * yields about 6 minutiae per capture where reliable matching needs 20 to 40,
+ * (minutiae plus bozorth3), which this sensor cannot feed. Its roughly 2.5x3.2 mm active surface
+ * yields too few minutiae per capture for the stock NBIS path,
  * and the measured bozorth3 score was consistently zero. Enhancing ridges or
  * upscaling does not help: the limit is sensor area, not image quality.
  *
@@ -52,8 +52,8 @@
 #ifndef GX_SIFT_MAX_PTS
 /* Keypoints kept per image. Measured on recorded capture sets: raising this
  * from 60 to 150 lifts the genuine score from 6.5 to 11.7 matches on average
- * without lifting an impostor's. Beyond 150 the detector saturates: a 132x112
- * image simply holds no more salient points. */
+ * without lifting an impostor's. Beyond 150 the detector saturates on the small 80x64 target
+ * image and adds little useful structure. */
 #define GX_SIFT_MAX_PTS 150
 #endif
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #ifndef GX51_TARGET_H
 #define GX51_TARGET_H
 
@@ -8,6 +9,7 @@
 #define GXFP_CONFIG_LEN 256u
 #define GXFP_TARGET_INNER_MAX (GXFP_CONFIG_LEN + 4u)
 #define GXFP_MEM_READ_MAX 256u
+#define GXFP_FDT_ZONE_COUNT 6u
 
 extern const uint8_t GXFP_TARGET_BASE_CONFIG[GXFP_CONFIG_LEN];
 
@@ -26,12 +28,21 @@ struct gxfp_target_calibration {
 };
 
 uint8_t gxfp_body_checksum(const uint8_t *buf, size_t len);
+bool gxfp_build_nop(struct gxfp_target_packet *packet);
 bool gxfp_build_soft_reset(struct gxfp_target_packet *packet);
 bool gxfp_build_chip_id(struct gxfp_target_packet *packet);
 bool gxfp_build_read_otp(struct gxfp_target_packet *packet);
 bool gxfp_build_idle(struct gxfp_target_packet *packet);
 bool gxfp_build_reg_write(uint16_t address, uint16_t value,
                           struct gxfp_target_packet *packet);
+bool gxfp_build_reg_read(uint16_t address, uint16_t len,
+                         struct gxfp_target_packet *packet);
+bool gxfp_build_query_mcu_state(uint8_t state,
+                                struct gxfp_target_packet *packet);
+bool gxfp_build_fdt_command(uint8_t state, const uint8_t zones[12],
+                            struct gxfp_target_packet *packet);
+bool gxfp_build_nav(struct gxfp_target_packet *packet);
+bool gxfp_build_get_image(struct gxfp_target_packet *packet);
 bool gxfp_build_mem_read(uint32_t address, uint32_t len,
                          struct gxfp_target_packet *packet);
 bool gxfp_build_factory_hash_read(struct gxfp_target_packet *packet);
@@ -54,6 +65,8 @@ bool gxfp_parse_chip_id_response(const uint8_t *body, size_t len,
                                  uint16_t *chip_id);
 bool gxfp_parse_otp_response(const uint8_t *body, size_t len, uint8_t out[64]);
 bool gxfp_parse_config_response(const uint8_t *body, size_t len, uint8_t *status);
+bool gxfp_parse_fdt_response(const uint8_t *body, size_t len, uint8_t *touchflag,
+                             uint16_t out[GXFP_FDT_ZONE_COUNT]);
 enum gxfp_mem_read_result {
     GXFP_MEM_READ_INVALID = 0,
     GXFP_MEM_READ_DATA = 1,

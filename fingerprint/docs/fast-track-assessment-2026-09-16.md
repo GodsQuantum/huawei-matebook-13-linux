@@ -21,7 +21,7 @@ entire Windows biometric stack.
 
 ## PSK fast track
 
-The exact `GF_ST411SEC_APP_14115` behavior is now discriminated. On Pegasus, a
+The exact `GF_ST411SEC_APP_14115` behavior is now discriminated. On reference MateBook, a
 read-only `E4` probe returns status `0`, type `0x0000aaaa` and 32 bytes. Static
 analysis of the exact target firmware independently explains that response: the
 category-`0xE` operation-2 handler constructs the `AAAA`/32-byte result.
@@ -44,7 +44,7 @@ record type `0x000d`, length `0x30`, followed by the 48-byte TLS PSK. The full
 
 That same investigation completed a live hardware TLS 1.2
 `PSK-AES128-GCM-SHA256` handshake on GXFP51A0/14115. Thus SGX/WBDI is no longer
-a prerequisite for Linux operation. Pegasus still needs an independent local
+a prerequisite for Linux operation. reference MateBook still needs an independent local
 reproduction before this repository may claim local TLS success.
 
 A follow-up from the working 5187 path also confirms the oversized-record trap:
@@ -54,16 +54,16 @@ record sequence number. The GXFP51A0 branch now carries that GCM path with the
 first application-data sequence set to 1 and a 22,176-byte regression vector.
 
 
-Pegasus hardware testing now closes one important portability assumption. The
+reference MateBook hardware testing now closes one important portability assumption. The
 exact 14115 F2 read handler admits only absolute addresses in the application
 flash window `0x08020000` through `0x08040000`. Reads aimed at the lower factory
 regions therefore return the request echo without memory data. Factory-blob
-recovery through F2 must stay disabled on Pegasus unless a genuinely different
+recovery through F2 must stay disabled on reference MateBook unless a genuinely different
 command/state is demonstrated.
 
 F2 remains useful for read-only flash access, but upstream testing found two
 possible dump artifacts: an echoed request prefix and corruption of the first
-data byte of a read. Pegasus also showed that an unaligned `base+3` header read
+data byte of a read. reference MateBook also showed that an unaligned `base+3` header read
 can reflect request metadata into the apparent payload; factory headers are now
 read from the aligned record base and the body length is taken from bytes `+4..+7`.
 Any extractor must use strict response-shape checks and redundant-record agreement
@@ -71,15 +71,15 @@ before use.
 
 ## Revised gates
 
-1. Keep the proven Pegasus transport: mode 0 + `SPI_CS_HIGH`, target reset
+1. Keep the proven reference MateBook transport: mode 0 + `SPI_CS_HIGH`, target reset
    sequence, 1 MHz and final GPIO264 LOW.
-2. Reconstruct the 14115 factory flash record on Pegasus using read-only,
+2. Reconstruct the 14115 factory flash record on reference MateBook using read-only,
    overlapping F2 reads and strict known-vector/record-integrity checks.
 3. Decrypt only in memory, recover the F2-corrupted first byte by requiring a
    unique type `0x000d` / length `48` candidate, and require matching PMKs from
    at least two redundant copies. E4 is a firmware sanity check, not a body hash.
    Never log, store or publish the PSK.
-4. Establish the already-modelled TLS 1.2 PSK-GCM session on Pegasus.
+4. Establish the already-modelled TLS 1.2 PSK-GCM session on reference MateBook.
 5. Reuse/adapt the tested same-die ChicagoHS capture, calibration, matcher and
    libfprint/fprintd integration instead of reimplementing those layers.
 6. Keep SGX/WBDI only as a Windows-compatibility/fallback research path.
