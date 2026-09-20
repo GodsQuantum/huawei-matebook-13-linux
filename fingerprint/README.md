@@ -3,7 +3,7 @@
 Native experimental libfprint driver for the SPI Goodix GXFP51A0 found in the
 Huawei MateBook 13 2021 family.
 
-> Français: [README.FR.md](README.FR.md)
+> Français: [README.FR.md](README.FR.md) · 简体中文: [README.ZH-CN.md](README.ZH-CN.md)
 
 ## Status — 2026-09-20
 
@@ -50,6 +50,11 @@ reduces placement-related false rejections without lowering the biometric
 threshold or combining weak scores across attempts.
 
 ## Install
+
+### Download the packaged rel20 release
+
+For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is the [rel20 GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20). It contains the native Arch/CachyOS package, a portable Linux source bundle, install instructions and SHA-256 checksums.
+
 
 ### Arch / CachyOS
 

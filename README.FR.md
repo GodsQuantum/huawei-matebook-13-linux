@@ -2,7 +2,7 @@
 
 > Notes pratiques, correctifs et rétro-ingénierie pour rendre les Huawei MateBook 13 pleinement exploitables sous Linux.
 >
-> **English: [README.md](README.md)**
+> **English: [README.md](README.md)** · **简体中文：[README.ZH-CN.md](README.ZH-CN.md)**
 
 Le MateBook 13 est déjà très utilisable sous Linux, mais sur les modèles testés avec Intel + NVIDIA MX250, deux points concentrent l'essentiel des difficultés lors du passage depuis Windows :
 
@@ -65,23 +65,29 @@ chmod +x huawei-matebook-13-gpu-manager.sh
 ./huawei-matebook-13-gpu-manager.sh --lang fr install
 ```
 
-Après le redémarrage demandé :
+Après le redémarrage demandé, l'installateur fournit une commande terminal courte :
 
 ```bash
-# menu interactif
-./huawei-matebook-13-gpu-manager.sh --lang fr
+# dashboard sans réveiller la dGPU : état GPU/alimentation + applications autorisées à utiliser la MX250
+GPU-control
 
-# ou CLI
-./huawei-matebook-13-gpu-manager.sh --lang fr add
-./huawei-matebook-13-gpu-manager.sh --lang fr status
-./huawei-matebook-13-gpu-manager.sh --lang fr test
+# gestion
+GPU-control add
+GPU-control steam-all-on
+GPU-control status
+GPU-control doctor
+GPU-control test
 ```
+
+Tout ce qui n'est pas listé par `GPU-control` reste sur Intel ; le client Steam lui-même reste également sur Intel.
 
 Voir [`gpu-power/README.FR.md`](gpu-power/README.FR.md) pour l'architecture, les distributions, Steam, le rollback et le dépannage.
 
 ## 2. Capteur d'empreinte — Goodix GXFP51A0 / GF3658 Milan
 
-**Commencer ici :** [`fingerprint/`](fingerprint/)
+**rel20 prête à installer :** [télécharger la release GitHub](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20) — paquet natif Arch/CachyOS, bundle source Linux portable, guide d'installation et manifeste SHA-256.
+
+**Documentation/source :** [`fingerprint/`](fingerprint/)
 
 Tout le projet de recherche initial sur le capteur d'empreinte est conservé dans ce dossier : protocole, ressources ACPI/SPI/GPIO, probes supervisées, cross-checks du pilote Windows et documentation de sécurité.
 

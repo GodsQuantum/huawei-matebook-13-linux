@@ -2,7 +2,7 @@
 
 > Practical Linux-readiness notes, fixes and reverse-engineering for the Huawei MateBook 13 family.
 >
-> **Français : [README.FR.md](README.FR.md)**
+> **Français : [README.FR.md](README.FR.md)** · **简体中文：[README.ZH-CN.md](README.ZH-CN.md)**
 
 The MateBook 13 is already a very usable Linux laptop, but on the tested Intel + NVIDIA MX250 models two issues remain disproportionately important when moving from Windows:
 
@@ -65,23 +65,29 @@ chmod +x huawei-matebook-13-gpu-manager.sh
 ./huawei-matebook-13-gpu-manager.sh install
 ```
 
-After the requested reboot:
+After the requested reboot, the installer provides a short terminal command:
 
 ```bash
-# interactive menu
-./huawei-matebook-13-gpu-manager.sh
+# no-wake dashboard: current GPU/power state + applications allowed to use MX250
+GPU-control
 
-# or CLI
-./huawei-matebook-13-gpu-manager.sh add
-./huawei-matebook-13-gpu-manager.sh status
-./huawei-matebook-13-gpu-manager.sh test
+# management commands
+GPU-control add
+GPU-control steam-all-on
+GPU-control status
+GPU-control doctor
+GPU-control test
 ```
+
+Everything not listed by `GPU-control` stays on Intel; the Steam client itself also stays on Intel.
 
 See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported distributions, Steam handling, rollback and troubleshooting.
 
 ## 2. Fingerprint reader — Goodix GXFP51A0 / GF3658 Milan
 
-**Start here:** [`fingerprint/`](fingerprint/)
+**Ready-to-install rel20:** [download the GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20) — native Arch/CachyOS package, portable Linux source bundle, install guide and SHA-256 manifest.
+
+**Documentation/source:** [`fingerprint/`](fingerprint/)
 
 The entire original fingerprint research project is preserved under this directory. It includes the protocol notes, ACPI/SPI/GPIO mapping, supervised probes, Windows driver cross-checks and safety documentation.
 

@@ -7,7 +7,7 @@
 # PCI while idle, hot-rescans it only for selected applications, uses PRIME
 # Render Offload, then unloads NVIDIA and removes the device again.
 #
-# UI: English/French. Automatic package adapters cover Arch/CachyOS, Fedora,
+# UI: English/French/Simplified Chinese. Automatic package adapters cover Arch/CachyOS, Fedora,
 # Debian/Ubuntu and common openSUSE prerequisites; any systemd distribution can
 # use the core with a preinstalled proprietary NVIDIA R580 driver. Plasma
 # Wayland is the validated desktop.
@@ -15,7 +15,7 @@
 set -Eeuo pipefail
 shopt -s nullglob
 
-VERSION="3.0.2"
+VERSION="3.1.0"
 STATE_SCHEMA=3
 INSTALL_SCHEMA=3
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -29,6 +29,10 @@ SYSTEM_CONFIG="${HUAWEI_GPU_SYSTEM_CONFIG:-/etc/huawei-matebook-gpu-manager.conf
 MODPROBE_CONFIG="${HUAWEI_GPU_MODPROBE_CONFIG:-/etc/modprobe.d/huawei-matebook-gpu-manager.conf}"
 POWER_HELPER="${HUAWEI_GPU_POWER_HELPER:-/usr/local/sbin/huawei-matebook-dgpu-power}"
 RUNNER="${HUAWEI_GPU_RUNNER:-/usr/local/bin/huawei-matebook-dgpu-run}"
+USER_BIN="${HUAWEI_GPU_USER_BIN:-$HOME/.local/bin}"
+MANAGER_CLI="$USER_BIN/huawei-matebook-gpu-manager"
+MANAGER_ALIAS_UPPER="$USER_BIN/GPU-control"
+MANAGER_ALIAS_LOWER="$USER_BIN/gpu-control"
 SUDOERS_FILE="${HUAWEI_GPU_SUDOERS_FILE:-/etc/sudoers.d/huawei-matebook-dgpu}"
 BOOT_SERVICE="${HUAWEI_GPU_BOOT_SERVICE:-/etc/systemd/system/huawei-matebook-dgpu-off.service}"
 UDEV_RULE="${HUAWEI_GPU_UDEV_RULE:-/etc/udev/rules.d/61-huawei-matebook-igpu.rules}"
@@ -104,6 +108,7 @@ choose_language() {
     if [[ -n "$LANG_CHOICE" ]]; then return; fi
     case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
         fr*|FR*) LANG_CHOICE="fr" ;;
+        zh*|ZH*) LANG_CHOICE="zh" ;;
         *)       LANG_CHOICE="en" ;;
     esac
 }
@@ -113,28 +118,40 @@ msg() {
     choose_language
     case "$LANG_CHOICE:$key" in
         fr:need_user) echo "Lance ce script avec ton utilisateur normal, pas avec sudo." ;;
+        zh:need_user) echo "请使用普通用户运行此脚本，不要使用 sudo。" ;;
         en:need_user) echo "Run this script as your normal user, not with sudo." ;;
         fr:install_title) echo "Installation / réparation de la gestion GPU à la demande" ;;
+        zh:install_title) echo "安装 / 修复按需 GPU 管理" ;;
         en:install_title) echo "Install / repair on-demand GPU management" ;;
         fr:unsupported) echo "Matériel non validé. Ce script cible un Huawei avec NVIDIA GeForce MX250 (10de:1d13)." ;;
+        zh:unsupported) echo "未验证的硬件。此脚本面向配备 NVIDIA GeForce MX250 (10de:1d13) 的华为设备。" ;;
         en:unsupported) echo "Unsupported hardware. This script targets Huawei hardware with NVIDIA GeForce MX250 (10de:1d13)." ;;
         fr:reboot) echo "Redémarrage requis avant le premier lancement GPU à la demande." ;;
+        zh:reboot) echo "首次按需启动 GPU 前需要重启。" ;;
         en:reboot) echo "A reboot is required before the first on-demand GPU launch." ;;
         fr:steam_close) echo "Ferme complètement Steam avant de modifier ses Launch Options." ;;
+        zh:steam_close) echo "修改 Steam 启动选项前请完全退出 Steam。" ;;
         en:steam_close) echo "Fully exit Steam before changing its Launch Options." ;;
         fr:no_app) echo "Aucune application trouvée." ;;
+        zh:no_app) echo "未找到应用程序。" ;;
         en:no_app) echo "No application found." ;;
         fr:press_enter) echo "Entrée pour continuer..." ;;
+        zh:press_enter) echo "按 Enter 继续..." ;;
         en:press_enter) echo "Press Enter to continue..." ;;
         fr:confirm) echo "Confirmer ?" ;;
+        zh:confirm) echo "确认继续？" ;;
         en:confirm) echo "Continue?" ;;
         fr:install_done) echo "Configuration installée. Le mode au repos reste full Integrated (dGPU retirée du PCI)." ;;
+        zh:install_done) echo "配置已安装。空闲时保持完整集成显卡模式（独显从 PCI 移除）。" ;;
         en:install_done) echo "Configuration installed. Idle mode remains full Integrated (dGPU removed from PCI)." ;;
         fr:plasma_warn) echo "Plasma Wayland n'a pas été détecté. Le mécanisme est installé mais le desktop courant n'est pas validé; le runner refusera de lancer si le compositeur accroche la NVIDIA." ;;
+        zh:plasma_warn) echo "未检测到 Plasma Wayland。核心机制仍会安装，但当前桌面环境尚未验证；如果合成器占用 NVIDIA，runner 将拒绝启动。" ;;
         en:plasma_warn) echo "Plasma Wayland was not detected. The core is installed, but this desktop is not validated; the runner will refuse to launch if the compositor grabs NVIDIA." ;;
         fr:driver_missing) echo "Pilote NVIDIA R580 introuvable. La MX250/Pascal n'est plus supportée par les branches NVIDIA 590+; installe R580 puis relance." ;;
+        zh:driver_missing) echo "未找到 NVIDIA R580 驱动。MX250/Pascal 已不受 NVIDIA 590+ 分支支持；请安装 R580 后重试。" ;;
         en:driver_missing) echo "NVIDIA R580 driver not found. MX250/Pascal is no longer supported by NVIDIA 590+; install R580 and run again." ;;
         fr:unknown) echo "$*" ;;
+        zh:unknown) echo "$*" ;;
         en:unknown) echo "$*" ;;
         *) echo "$*" ;;
     esac
@@ -157,13 +174,20 @@ confirm() {
     [[ -t 0 ]] || return 1
     local p a
     p="${1:-$(msg confirm)}"
-    if [[ "$LANG_CHOICE" == fr ]]; then
-        read -r -p "$p [o/N] " a || true
-        [[ "$a" =~ ^[oOyY]$ ]]
-    else
-        read -r -p "$p [y/N] " a || true
-        [[ "$a" =~ ^[yYoO]$ ]]
-    fi
+    case "$LANG_CHOICE" in
+        fr)
+            read -r -p "$p [o/N] " a || true
+            [[ "$a" =~ ^[oOyY]$ ]]
+            ;;
+        zh)
+            read -r -p "$p [y/N] " a || true
+            [[ "$a" =~ ^[yY是]$ ]]
+            ;;
+        *)
+            read -r -p "$p [y/N] " a || true
+            [[ "$a" =~ ^[yYoO]$ ]]
+            ;;
+    esac
 }
 
 if [[ $EUID -eq 0 && "${HUAWEI_GPU_TEST_MODE:-0}" != 1 ]]; then
@@ -314,6 +338,11 @@ PY
 
 sync_embedded_manifest() {
     [[ -f "$SELF" && -w "$SELF" ]] || return 0
+    # Never rewrite a tracked source checkout with one machine's personal app
+    # selection. Installed/portable copies may still carry the recovery manifest.
+    if command -v git >/dev/null 2>&1 && git -C "$(dirname "$SELF")" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        return 0
+    fi
     python3 - "$SELF" "$STEAM_ALL" "${#MANAGED_DESKTOP_APPS[@]}" "${MANAGED_DESKTOP_APPS[@]}" \
         "${#MANAGED_STEAM_APPS[@]}" "${MANAGED_STEAM_APPS[@]}" <<'PY'
 import os,re,sys,tempfile
@@ -741,10 +770,10 @@ hardware_discover() {
 
 load_discovered() {
     if [[ -r "$SYSTEM_CONFIG" ]]; then
-        # shellcheck disable=SC1090
+        # shellcheck disable=SC1090,SC1091
         source "$SYSTEM_CONFIG"
     elif [[ -r "$STATE_DIR/discovered.conf" ]]; then
-        # shellcheck disable=SC1090
+        # shellcheck disable=SC1090,SC1091
         source "$STATE_DIR/discovered.conf"
     else
         return 1
@@ -1152,6 +1181,98 @@ EOF2
     rm -f "$tmp"
 }
 
+nvidia_running_kernel_ready() {
+    modinfo -k "$(uname -r)" nvidia >/dev/null 2>&1
+}
+
+nvidia_ready_kernels() {
+    local d k
+    for d in /usr/lib/modules/*; do
+        [[ -d "$d" ]] || continue
+        k="$(basename "$d")"
+        modinfo -k "$k" nvidia >/dev/null 2>&1 && printf '%s\n' "$k"
+    done | sort -V
+}
+
+nvidia_available_version() {
+    local k
+    if nvidia_running_kernel_ready; then
+        modinfo -k "$(uname -r)" -F version nvidia 2>/dev/null | head -n1
+        return
+    fi
+    k="$(nvidia_ready_kernels | tail -n1)"
+    [[ -n "$k" ]] && modinfo -k "$k" -F version nvidia 2>/dev/null | head -n1 || true
+}
+
+root_port_runtime_status() {
+    load_discovered 2>/dev/null || { echo N/A; return; }
+    cat "$SYSFS_PCI_DEVICES/$DGPU_ROOT_BDF/power/runtime_status" 2>/dev/null || echo N/A
+}
+
+current_power_profile() {
+    command -v powerprofilesctl >/dev/null 2>&1 && powerprofilesctl get 2>/dev/null || echo N/A
+}
+
+desktop_managed_live() {
+    local f
+    f="$LOCAL_APPS/$(basename "$1")"
+    [[ -f "$f" ]] && grep -Fq "$RUNNER" "$f" 2>/dev/null && grep -q '^X-Huawei-MateBook-GPU-Managed=true$' "$f" 2>/dev/null
+}
+
+overview() {
+    local dgpu modules mode ready=NO kernels version root_runtime profile x name live
+    dgpu="$(find_dgpu_bdf 2>/dev/null || true)"
+    modules="$(lsmod | awk '$1~/^nvidia/{printf "%s ",$1}')"
+    if [[ -z "$dgpu" && -z "$modules" ]]; then mode="INTEL ONLY — MX250 off"; else mode="NVIDIA ACTIVE"; fi
+    nvidia_running_kernel_ready && ready=YES
+    kernels="$(nvidia_ready_kernels | paste -sd, -)"
+    version="$(nvidia_available_version)"
+    root_runtime="$(root_port_runtime_status)"
+    profile="$(current_power_profile)"
+
+    bold "GPU Control $VERSION — Huawei MateBook 13 / GeForce MX250"
+    line
+    printf 'Mode:              %s\n' "$mode"
+    printf 'PCIe root port:    %s\n' "$root_runtime"
+    printf 'Power profile:     %s\n' "$profile"
+    printf 'Running kernel:    %s\n' "$(uname -r)"
+    printf 'NVIDIA R580:       %s%s\n' "${version:-not found}" "$([[ "$ready" == YES ]] && echo ' — ready' || echo ' — NOT READY for running kernel')"
+    if [[ "$ready" != YES && -n "$kernels" ]]; then
+        printf 'NVIDIA-ready kernels: %s\n' "$kernels"
+        warn "The dGPU stays safely off, but GPU applications cannot start until a kernel with the NVIDIA module is booted."
+    fi
+    line
+    echo "Applications that turn the MX250 ON:"
+    echo "  Desktop:"
+    if ((${#MANAGED_DESKTOP_APPS[@]})); then
+        for x in "${MANAGED_DESKTOP_APPS[@]}"; do
+            name="$(desktop_name "$LOCAL_APPS/$x" 2>/dev/null || true)"; [[ -n "$name" ]] || name="$x"
+            if desktop_managed_live "$x"; then live=ready; else live="DRIFT — run 'GPU-control apply'"; fi
+            printf '    - %s [%s] — %s\n' "$name" "$x" "$live"
+        done
+    else echo "    (none)"; fi
+    echo "  Steam:"
+    if [[ "$STEAM_ALL" == 1 ]]; then
+        echo "    policy: all installed games (Valve runtimes/tools excluded)"
+        while IFS=$'\t' read -r x name; do [[ -n "$x" ]] && printf '    - %s [%s]\n' "$name" "$x"; done < <(steam_games_tsv 2>/dev/null || true)
+    elif ((${#MANAGED_STEAM_APPS[@]})); then
+        for x in "${MANAGED_STEAM_APPS[@]}"; do name="$(steam_game_name "$x" 2>/dev/null || true)"; printf '    - %s [%s]\n' "${name:-unknown}" "$x"; done
+    else echo "    (none)"; fi
+    line
+    echo "Everything else stays on Intel. Steam itself stays on Intel."
+}
+
+install_manager_cli() {
+    mkdir -p "$USER_BIN"
+    if [[ "$(readlink -f "$SELF")" != "$(readlink -f "$MANAGER_CLI" 2>/dev/null || true)" ]]; then
+        install -m 0755 "$SELF" "$MANAGER_CLI"
+    else
+        chmod 0755 "$MANAGER_CLI"
+    fi
+    ln -sfn "$(basename "$MANAGER_CLI")" "$MANAGER_ALIAS_UPPER"
+    ln -sfn "$(basename "$MANAGER_CLI")" "$MANAGER_ALIAS_LOWER"
+}
+
 install_runner() {
     local tmp
     tmp="$(mktemp)"
@@ -1301,7 +1422,8 @@ strip_desktop_gpu() {
 }
 
 import_legacy_desktop_backup() {
-    local id="$1" state="$2" legacy="$LEGACY_V1_STATE_DIR/desktop/$id"
+    local id="$1" state="$2" legacy
+    legacy="$LEGACY_V1_STATE_DIR/desktop/$id"
     [[ -f "$state/captured" || ! -f "$legacy/captured" ]] && return 0
     mkdir -p "$state"
     cp -a "$legacy/captured" "$state/captured"
@@ -1353,7 +1475,11 @@ remove_desktop_app() {
 search_desktop_app() {
     local query="${1:-}"
     if [[ -z "$query" && -t 0 ]]; then
-        if [[ "$LANG_CHOICE" == fr ]]; then read -r -p "Recherche application : " query; else read -r -p "Search application: " query; fi
+        case "$LANG_CHOICE" in
+            fr) read -r -p "Recherche application : " query ;;
+            zh) read -r -p "搜索应用程序：" query ;;
+            *)  read -r -p "Search application: " query ;;
+        esac
     fi
     mapfile -t rows < <(python3 - "$HOME" "$query" <<'PY'
 from pathlib import Path
@@ -1401,7 +1527,7 @@ steam_root() {
     for p in "$HOME/.local/share/Steam" "$HOME/.steam/steam"; do [[ -d "$p" ]] && { readlink -f "$p"; return; }; done
     return 1
 }
-steam_running() { pgrep -u "$USER_UID" -x steam >/dev/null 2>&1 || pgrep -u "$USER_UID" -f 'steamwebhelper' >/dev/null 2>&1; }
+steam_running() { pgrep -u "$USER_UID" -x steam >/dev/null 2>&1 || pgrep -u "$USER_UID" -x steamwebhelper >/dev/null 2>&1; }
 
 steam_games_tsv() {
     local root; root="$(steam_root)" || return 1
@@ -1413,12 +1539,18 @@ vdf=root/'steamapps/libraryfolders.vdf'
 if vdf.exists():
     text=vdf.read_text(errors='ignore')
     for p in re.findall(r'"path"\s+"([^"]+)"',text): libs.append(Path(p.replace('\\\\','\\'))/'steamapps')
+# Steam manifests have no reliable game/type field. Exclude only known
+# Valve runtimes/compatibility tools so an "all games" policy never wraps the
+# runtime itself in the dGPU runner.
+tool_name=re.compile(
+    r'^(?:Steam Linux Runtime(?:\\b| )|Proton(?:\\b| )|'
+    r'Steamworks Common Redistributables$|Steam Controller Configs$)', re.I)
 seen=set()
 for lib in libs:
     for mf in lib.glob('appmanifest_*.acf'):
         t=mf.read_text(errors='ignore')
         a=re.search(r'"appid"\s+"(\d+)"',t); n=re.search(r'"name"\s+"([^"]+)"',t)
-        if a and n and a.group(1) not in seen:
+        if a and n and a.group(1) not in seen and not tool_name.search(n.group(1)):
             seen.add(a.group(1)); print(a.group(1)+'\t'+n.group(1))
 PY
 }
@@ -1429,12 +1561,35 @@ steam_localconfig() {
         return
     fi
     local root; root="$(steam_root)" || return 1
-    find "$root/userdata" -mindepth 2 -maxdepth 2 -type f -name localconfig.vdf -print 2>/dev/null | head -n1
+    python3 - "$root" <<'PY'
+from pathlib import Path
+import re,sys
+root=Path(sys.argv[1])
+candidates=list((root/'userdata').glob('*/config/localconfig.vdf'))
+if not candidates:
+    raise SystemExit(1)
+
+# Prefer Steam's MostRecent account when loginusers.vdf is available.
+login=root/'config/loginusers.vdf'
+if login.exists():
+    text=login.read_text(encoding='utf-8',errors='replace')
+    for m in re.finditer(r'"(7656\d+)"\s*\{(.*?)\n\s*\}', text, re.S):
+        if re.search(r'"MostRecent"\s+"1"', m.group(2), re.I):
+            account_id=int(m.group(1))-76561197960265728
+            target=root/'userdata'/str(account_id)/'config/localconfig.vdf'
+            if target.is_file():
+                print(target)
+                raise SystemExit(0)
+
+# Safe fallback for older/changed Steam login metadata.
+print(max(candidates, key=lambda p: p.stat().st_mtime_ns))
+PY
 }
 steam_game_name() { steam_games_tsv 2>/dev/null | awk -F'\t' -v id="$1" '$1==id {print $2; exit}'; }
 
 import_legacy_steam_backup() {
-    local appid="$1" target="$STEAM_STATE_DIR/original/$appid.json"
+    local appid="$1" target
+    target="$STEAM_STATE_DIR/original/$appid.json"
     [[ -f "$target" ]] && return 0
     local candidate
     for candidate in         "$LEGACY_V1_STATE_DIR/steam/original/$appid.json"         "$LEGACY_V1_STATE_DIR/original/$appid.json"; do
@@ -1530,22 +1685,43 @@ path.write_text(text,encoding='utf-8')
 PY
 }
 
-steam_add_game() { steam_edit_launchoption add "$1"; [[ "${2:-true}" == true ]] && remember_steam "$1"; info "Steam GPU on-demand enabled: $(steam_game_name "$1") [$1]"; }
-steam_remove_game() { steam_edit_launchoption remove "$1"; [[ "${2:-true}" == true ]] && forget_steam "$1"; info "Steam GPU on-demand removed: $(steam_game_name "$1") [$1]"; }
+steam_add_game() {
+    steam_edit_launchoption add "$1" || return
+    [[ "${2:-true}" == true ]] && remember_steam "$1"
+    info "Steam GPU on-demand enabled: $(steam_game_name "$1") [$1]"
+}
+steam_remove_game() {
+    steam_edit_launchoption remove "$1" || return
+    [[ "${2:-true}" == true ]] && forget_steam "$1"
+    info "Steam GPU on-demand removed: $(steam_game_name "$1") [$1]"
+}
 steam_enable_all() {
     steam_running && { err "$(msg steam_close)"; return 3; }
-    local id name
-    while IFS=$'\t' read -r id name; do [[ -n "$id" ]] && steam_add_game "$id" false || true; done < <(steam_games_tsv 2>/dev/null || true)
+    local id name rc=0
+    while IFS=$'\t' read -r id name; do
+        [[ -n "$id" ]] || continue
+        steam_add_game "$id" false || { rc=$?; break; }
+    done < <(steam_games_tsv 2>/dev/null || true)
+    (( rc == 0 )) || { err "Steam all-games policy was not saved because at least one game could not be configured."; return "$rc"; }
     STEAM_ALL=1
     [[ "${1:-true}" == true ]] && sync_persistent_state
     info "All currently installed Steam games are configured for MX250 on-demand."
 }
 steam_disable_all() {
     steam_running && { err "$(msg steam_close)"; return 3; }
-    local id name
-    while IFS=$'\t' read -r id name; do [[ -n "$id" ]] && steam_edit_launchoption remove "$id" || true; done < <(steam_games_tsv 2>/dev/null || true)
-    # Also restore saved state for games that are no longer installed but still have a known APPID.
-    for id in "${MANAGED_STEAM_APPS[@]:-}"; do [[ -n "$id" ]] && steam_edit_launchoption remove "$id" 2>/dev/null || true; done
+    local id name rc=0
+    while IFS=$'\t' read -r id name; do
+        [[ -n "$id" ]] || continue
+        steam_edit_launchoption remove "$id" || { rc=$?; break; }
+    done < <(steam_games_tsv 2>/dev/null || true)
+    if (( rc == 0 )); then
+        # Also restore saved state for games that are no longer installed but still have a known APPID.
+        for id in "${MANAGED_STEAM_APPS[@]:-}"; do
+            [[ -n "$id" ]] || continue
+            steam_edit_launchoption remove "$id" 2>/dev/null || { rc=$?; break; }
+        done
+    fi
+    (( rc == 0 )) || { err "Steam all-games policy remains enabled because restore was incomplete."; return "$rc"; }
     STEAM_ALL=0
     [[ "${1:-true}" == true ]] && sync_persistent_state
     info "Global Steam GPU on-demand mode disabled; saved LaunchOptions restored where available."
@@ -1647,7 +1823,9 @@ path_requires_root() {
 }
 
 migration_snapshot_path() {
-    local path="$1" manifest="$MIGRATION_DIR/manifest.tsv" backup="$MIGRATION_DIR/files$path"
+    local path="$1" manifest backup
+    manifest="$MIGRATION_DIR/manifest.tsv"
+    backup="$MIGRATION_DIR/files$path"
     [[ -n "$path" ]] || return 0
     if [[ -e "$path" || -L "$path" ]]; then
         printf 'PRESENT\t%s\n' "$path" >> "$manifest"
@@ -1782,6 +1960,7 @@ install_reconcile_steps() {
     install_kwin_isolation || return
     install_power_helper || return
     install_runner || return
+    install_manager_cli || return
     install_sudoers || return
     install_boot_service || return
     install_cleanup_timer || return
@@ -1878,7 +2057,11 @@ status() {
     current_dgpu="$(find_dgpu_bdf 2>/dev/null || true)"
     printf 'CURRENT_DGPU_BDF=%s\n' "${current_dgpu:-ABSENT}"
     printf 'INTEL_ALIAS='; readlink -f "$INTEL_ALIAS" 2>/dev/null || echo ABSENT
-    printf 'NVIDIA_VERSION='; modinfo -F version nvidia 2>/dev/null | head -n1 || echo ABSENT
+    printf 'NVIDIA_VERSION=%s\n' "$(nvidia_available_version)"
+    printf 'NVIDIA_RUNNING_KERNEL=%s\n' "$(nvidia_running_kernel_ready && echo READY || echo MISSING)"
+    printf 'NVIDIA_READY_KERNELS=%s\n' "$(nvidia_ready_kernels | paste -sd, -)"
+    printf 'ROOT_RUNTIME=%s\n' "$(root_port_runtime_status)"
+    printf 'POWER_PROFILE=%s\n' "$(current_power_profile)"
     echo 'KWIN:'
     systemctl --user show plasma-kwin_wayland.service -p Environment -p DropInPaths --no-pager 2>/dev/null || true
     echo 'POWER:'
@@ -1959,7 +2142,12 @@ doctor() {
     printf 'LEGACY_COMPONENTS=%s\n' "$LEGACY_COMPONENTS"
     printf 'LEGACY_GENERATIONS=%s\n' "${LEGACY_GENERATIONS:-NONE}"
     printf 'GPU_PRESENT=%s\n' "$([[ -n "$current" ]] && echo YES || echo NO)"
+    version="$(nvidia_available_version)"
     printf 'NVIDIA_VERSION=%s\n' "${version:-ABSENT}"
+    printf 'NVIDIA_RUNNING_KERNEL=%s\n' "$(nvidia_running_kernel_ready && echo READY || echo MISSING)"
+    printf 'NVIDIA_READY_KERNELS=%s\n' "$(nvidia_ready_kernels | paste -sd, -)"
+    printf 'ROOT_RUNTIME=%s\n' "$(root_port_runtime_status)"
+    printf 'POWER_PROFILE=%s\n' "$(current_power_profile)"
     printf 'KWIN_ISOLATION=%s\n' "$kwin"
     printf 'CONFIG_DRIFT=%s\n' "$([[ "$drift" == 0 ]] && echo NO || echo YES)"
     printf 'GPU_IDLE=%s\n' "$gpu_idle"
@@ -1967,12 +2155,26 @@ doctor() {
 }
 
 list_managed() {
+    local x name live
     echo 'Desktop:'
-    local x
-    for x in "${MANAGED_DESKTOP_APPS[@]:-}"; do [[ -n "$x" ]] && echo "  - $x"; done
+    if ((${#MANAGED_DESKTOP_APPS[@]})); then
+        for x in "${MANAGED_DESKTOP_APPS[@]}"; do
+            name="$(desktop_name "$LOCAL_APPS/$x" 2>/dev/null || true)"; [[ -n "$name" ]] || name="$x"
+            desktop_managed_live "$x" && live=ready || live=DRIFT
+            printf '  - %s [%s] — %s\n' "$name" "$x" "$live"
+        done
+    else echo '  (none)'; fi
     echo 'Steam:'
     echo "  all=$STEAM_ALL"
-    for x in "${MANAGED_STEAM_APPS[@]:-}"; do [[ -n "$x" ]] && echo "  - $x"; done
+    if [[ "$STEAM_ALL" == 1 ]]; then
+        while IFS=$'\t' read -r x name; do [[ -n "$x" ]] && printf '  - %s [%s]\n' "$name" "$x"; done < <(steam_games_tsv 2>/dev/null || true)
+    else
+        for x in "${MANAGED_STEAM_APPS[@]:-}"; do
+            [[ -n "$x" ]] || continue
+            name="$(steam_game_name "$x" 2>/dev/null || true)"
+            printf '  - %s [%s]\n' "${name:-unknown}" "$x"
+        done
+    fi
     return 0
 }
 
@@ -2000,6 +2202,7 @@ uninstall_core() {
     systemctl --user daemon-reload || true
     sudo systemctl disable huawei-matebook-dgpu-off.service >/dev/null 2>&1 || true
     sudo rm -f "$BOOT_SERVICE" "$SUDOERS_FILE" "$POWER_HELPER" "$RUNNER" "$UDEV_RULE" "$MODPROBE_CONFIG" "$SYSTEM_CONFIG"
+    rm -f "$MANAGER_ALIAS_UPPER" "$MANAGER_ALIAS_LOWER" "$MANAGER_CLI"
     sudo systemctl daemon-reload
     sudo udevadm control --reload-rules || true
     rebuild_initramfs || true
@@ -2048,8 +2251,9 @@ main_menu() {
         bold "Huawei MateBook 13 GPU Manager — MX250 on-demand"
         echo "v$VERSION"
         line
-        if [[ "$LANG_CHOICE" == fr ]]; then
-            cat <<'MENU'
+        case "$LANG_CHOICE" in
+            fr)
+                cat <<'MENU'
 1) Installer / mettre à niveau / réparer
 2) Ajouter une application Desktop
 3) Retirer une application Desktop
@@ -2063,8 +2267,25 @@ main_menu() {
 11) Désinstaller l'infrastructure
 0) Quitter
 MENU
-        else
-            cat <<'MENU'
+                ;;
+            zh)
+                cat <<'MENU'
+1) 安装 / 升级 / 修复
+2) 添加桌面应用程序
+3) 移除桌面应用程序
+4) 添加 Steam 游戏
+5) 移除 Steam 游戏
+6) 所有已安装的 Steam 游戏 -> MX250
+7) 重新应用已保存的应用程序
+8) 列出配置
+9) Doctor / 完整诊断
+10) 测试按需 GPU
+11) 卸载管理基础设施
+0) 退出
+MENU
+                ;;
+            *)
+                cat <<'MENU'
 1) Install / upgrade / repair
 2) Add a Desktop application
 3) Remove a Desktop application
@@ -2078,7 +2299,8 @@ MENU
 11) Uninstall infrastructure
 0) Quit
 MENU
-        fi
+                ;;
+        esac
         local c id rc
         read -r -p '> ' c
         case "$c" in
@@ -2119,15 +2341,16 @@ usage() {
 Huawei MateBook 13 GPU Manager $VERSION
 
 Usage:
-  $0 [--lang en|fr] [--yes] [--no-driver-install] install
-  $0 [--lang en|fr] add [APP.desktop]
-  $0 [--lang en|fr] remove [APP.desktop]
+  $0 [--lang en|fr|zh] [--yes] [--no-driver-install] install
+  $0 [--lang en|fr|zh] add [APP.desktop]
+  $0 [--lang en|fr|zh] remove [APP.desktop]
   $0 steam-add [APPID]
   $0 steam-remove APPID
   $0 steam-all-on
   $0 steam-all-off
   $0 apply
   $0 list
+  $0 overview
   $0 status
   $0 doctor
   $0 test
@@ -2149,7 +2372,7 @@ EOF2
 
 # Source-only mode is used by the regression suite; no CLI dispatch or system mutation.
 if [[ "${HUAWEI_GPU_LIB_ONLY:-0}" == 1 ]]; then
-    return 0 2>/dev/null || exit 0
+    if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; else exit 0; fi
 fi
 
 # Parse global flags before command.
@@ -2166,12 +2389,19 @@ while (($#)); do
     esac
 done
 set -- "${args[@]}"
-[[ "$LANG_CHOICE" == "" || "$LANG_CHOICE" == en || "$LANG_CHOICE" == fr ]] || { err "--lang must be en or fr"; exit 2; }
+[[ "$LANG_CHOICE" == "" || "$LANG_CHOICE" == en || "$LANG_CHOICE" == fr || "$LANG_CHOICE" == zh ]] || { err "--lang must be en, fr or zh"; exit 2; }
 choose_language
 ensure_dirs
 bootstrap_user_state
 
-cmd="${1:-menu}"
+invoked_as="$(basename "$0")"
+if [[ -n "${1:-}" ]]; then
+    cmd="$1"
+elif [[ "$invoked_as" == "GPU-control" || "$invoked_as" == "gpu-control" ]]; then
+    cmd="overview"
+else
+    cmd="menu"
+fi
 case "$cmd" in
     menu) main_menu ;;
     install|repair|upgrade) install_core ;;
@@ -2183,6 +2413,7 @@ case "$cmd" in
     steam-all-off) steam_disable_all true ;;
     apply) apply_saved_desktop_apps; apply_saved_steam_apps ;;
     list) list_managed ;;
+    overview|dashboard) overview ;;
     status) status ;;
     doctor) doctor ;;
     test) smoke_test ;;

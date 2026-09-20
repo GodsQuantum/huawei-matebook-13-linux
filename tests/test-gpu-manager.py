@@ -42,6 +42,7 @@ def test_env(td: Path):
         "HUAWEI_GPU_SYSFS_PCI_DEVICES": str(sys_pci),
         "HUAWEI_GPU_DMI_ROOT": str(dmi),
         "HUAWEI_GPU_SCAN_DIRS": str(scripts),
+        "HUAWEI_GPU_USER_BIN": str(td / "user-bin"),
         "HUAWEI_GPU_SYSTEM_CONFIG": str(td / "etc" / "huawei.conf"),
         "HUAWEI_GPU_LEGACY_V1_RUNNER": str(td / "usr" / "local" / "bin" / "legacy-dgpu-run"),
         "HUAWEI_GPU_LEGACY_V1_POWER": str(td / "usr" / "local" / "sbin" / "legacy-dgpu-power"),
@@ -58,7 +59,7 @@ class ManagerV3Tests(unittest.TestCase):
             env = test_env(Path(d))
             p = bash(self.source_cmd('printf "%s|%s|%s\\n" "$VERSION" "$STATE_SCHEMA" "$INSTALL_SCHEMA"'), env)
             self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertEqual(p.stdout.strip(), "3.0.2|3|3")
+            self.assertEqual(p.stdout.strip(), "3.1.0|3|3")
 
     def test_01_state_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
@@ -561,6 +562,85 @@ class ManagerV3Tests(unittest.TestCase):
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertIn("CONFIG_DRIFT=NO", p.stdout)
 
+
+    def test_30_steam_all_filters_valve_runtime_components(self):
+        with tempfile.TemporaryDirectory() as d:
+            td = Path(d); env = test_env(td)
+            apps = Path(env["HOME"]) / ".local/share/Steam/steamapps"
+            apps.mkdir(parents=True)
+            (apps / "appmanifest_730.acf").write_text('"AppState" { "appid" "730" "name" "Counter-Strike 2" }\n')
+            (apps / "appmanifest_1628350.acf").write_text('"AppState" { "appid" "1628350" "name" "Steam Linux Runtime 3.0 (sniper)" }\n')
+            p = bash(self.source_cmd("steam_games_tsv"), env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("730\tCounter-Strike 2", p.stdout)
+            self.assertNotIn("1628350", p.stdout)
+
+    def test_31_installed_cli_creates_gpu_control_aliases(self):
+        with tempfile.TemporaryDirectory() as d:
+            td = Path(d); env = test_env(td)
+            p = bash(self.source_cmd("install_manager_cli"), env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            user_bin = Path(env["HUAWEI_GPU_USER_BIN"])
+            self.assertTrue((user_bin / "huawei-matebook-gpu-manager").is_file())
+            self.assertEqual(os.readlink(user_bin / "GPU-control"), "huawei-matebook-gpu-manager")
+            self.assertEqual(os.readlink(user_bin / "gpu-control"), "huawei-matebook-gpu-manager")
+
+    def test_32_dashboard_is_no_wake_and_source_checkout_is_not_rewritten(self):
+        text = SCRIPT.read_text()
+        overview = re.search(r"overview\(\) \{(?P<body>.*?)\n\}", text, re.S)
+        self.assertIsNotNone(overview)
+        self.assertNotIn("nvidia-smi", overview.group("body"))
+        self.assertIn("rev-parse --is-inside-work-tree", text)
+
+    def test_33_steam_localconfig_discovers_real_userdata_config_depth(self):
+        with tempfile.TemporaryDirectory() as d:
+            td = Path(d); env = test_env(td)
+            cfg = Path(env["HOME"]) / ".local/share/Steam/userdata/123/config/localconfig.vdf"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('"UserLocalConfigStore" {}\n')
+            p = bash(self.source_cmd("steam_localconfig"), env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(Path(p.stdout.strip()), cfg)
+
+    def test_34_steam_all_failure_is_transactional(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = test_env(Path(d))
+            code = self.source_cmd(r'''
+                steam_running(){ return 1; }
+                steam_games_tsv(){ printf '730\tCounter-Strike 2\n'; }
+                steam_add_game(){ return 42; }
+                sync_persistent_state(){ echo SHOULD_NOT_SYNC; }
+                STEAM_ALL=0
+                set +e
+                steam_enable_all true
+                rc=$?
+                set -e
+                printf 'RC=%s ALL=%s\n' "$rc" "$STEAM_ALL"
+            ''')
+            p = bash(code, env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("RC=42 ALL=0", p.stdout)
+            self.assertNotIn("SHOULD_NOT_SYNC", p.stdout)
+
+    def test_35_steam_running_does_not_use_full_cmdline_matching(self):
+        text = SCRIPT.read_text()
+        self.assertIn('pgrep -u "$USER_UID" -x steamwebhelper', text)
+        self.assertNotIn("pgrep -u \"$USER_UID\" -f 'steamwebhelper'", text)
+
+    def test_36_simplified_chinese_ui_and_locale_detection(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = test_env(Path(d))
+            env["LANG"] = "zh_CN.UTF-8"
+            p = bash(self.source_cmd('LANG_CHOICE=""; choose_language; printf "%s|%s\\n" "$LANG_CHOICE" "$(msg install_title)"'), env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("zh|安装 / 修复按需 GPU 管理", p.stdout)
+
+    def test_37_chinese_documentation_is_present_and_linked(self):
+        root = ROOT
+        for rel in ("README.ZH-CN.md", "gpu-power/README.ZH-CN.md", "fingerprint/README.ZH-CN.md"):
+            self.assertTrue((root / rel).is_file(), rel)
+        self.assertIn("README.ZH-CN.md", (root / "README.md").read_text())
+        self.assertIn("README.ZH-CN.md", (root / "README.FR.md").read_text())
 
 
 if __name__ == "__main__":

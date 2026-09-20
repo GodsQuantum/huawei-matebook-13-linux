@@ -1,6 +1,6 @@
 # GPU & alimentation — NVIDIA MX250 à la demande
 
-> **English: [README.md](README.md)**
+> **English: [README.md](README.md)** · **简体中文：[README.ZH-CN.md](README.ZH-CN.md)**
 
 Cette section résout un problème précis des Huawei MateBook 13 équipés d'un iGPU Intel et d'une NVIDIA GeForce MX250 : **garder réellement le GPU dédié hors circuit au repos tout en lançant certaines applications sur NVIDIA, sans déconnexion ni redémarrage.**
 
@@ -40,9 +40,11 @@ Le script connaît les familles de paquets suivantes :
 
 Le script n'active jamais silencieusement un dépôt tiers.
 
-### Ne pas empiler plusieurs switchers GPU
+### Ne pas empiler les gestionnaires GPU ou CPU
 
 Ce gestionnaire contrôle le cycle PCI/modules de la MX250 tant qu'il est installé. N'effectuez pas en parallèle de changements de mode avec `optimus-manager`, EnvyControl, un bouton supergfxctl ou un autre outil qui charge/décharge/retire également la NVIDIA. Si supergfxctl est déjà présent, laissez-le en **Integrated** et ne changez pas de mode pendant une charge GPU on-demand.
+
+Pour la politique CPU/plateforme, conservez un seul composant intégré au bureau comme `power-profiles-daemon` ; n'ajoutez pas TLP/auto-cpufreq uniquement pour ce script. GPU Control affiche le profil actif mais ne remplace pas la politique globale de l'utilisateur. Une application lourde peut utiliser séparément `powerprofilesctl launch` afin de maintenir `performance` uniquement pendant sa durée d'exécution.
 
 ## Architecture
 
@@ -87,7 +89,9 @@ chmod +x huawei-matebook-13-gpu-manager.sh
 ./huawei-matebook-13-gpu-manager.sh --lang fr install
 ```
 
-Un redémarrage est attendu après la première installation.
+Un redémarrage est attendu après la première installation afin d'appliquer proprement la politique de boot, le module NVIDIA correspondant au noyau démarré et l'environnement KWin.
+
+L'installateur crée aussi `~/.local/bin/GPU-control` (et `gpu-control` en minuscules). Sans argument, `GPU-control` affiche un dashboard en lecture seule qui ne réveille pas la dGPU : état Intel/NVIDIA, runtime PCIe, profil d'alimentation actif, disponibilité NVIDIA pour le **noyau réellement démarré**, et liste exacte des applications autorisées à activer la MX250.
 
 ### Mise à niveau / réparation
 
@@ -97,20 +101,17 @@ Sur CachyOS/Arch utilisant réellement Limine, le gestionnaire appelle directeme
 
 ## Ajouter ou retirer des applications
 
-Menu :
+Après installation, `GPU-control` devient le point d'entrée normal :
 
 ```bash
-./huawei-matebook-13-gpu-manager.sh --lang fr
+GPU-control                         # vue d'ensemble sans réveiller la MX250
+GPU-control add                     # sélection interactive d'une application
+GPU-control add DaVinciResolve.desktop
+GPU-control remove DaVinciResolve.desktop
+GPU-control list
 ```
 
-CLI :
-
-```bash
-./huawei-matebook-13-gpu-manager.sh --lang fr add
-./huawei-matebook-13-gpu-manager.sh --lang fr add DaVinciResolve.desktop
-./huawei-matebook-13-gpu-manager.sh --lang fr remove DaVinciResolve.desktop
-./huawei-matebook-13-gpu-manager.sh --lang fr list
-```
+Le script source reste directement utilisable et conserve son menu interactif lorsqu'il est lancé sans argument.
 
 Le script crée un override `.desktop` utilisateur et préserve un éventuel launcher local préexistant. Il impose `DBusActivatable=false` sur les applications gérées afin que l'environnement de bureau exécute bien la ligne `Exec=` modifiée.
 
@@ -128,9 +129,12 @@ Depuis la v3, l’état utilisateur canonique est versionné dans le répertoire
 Le client Steam doit rester sur Intel. Les jeux sélectionnés peuvent être enveloppés par le runner GPU :
 
 ```bash
-./huawei-matebook-13-gpu-manager.sh steam-add 730
-./huawei-matebook-13-gpu-manager.sh steam-remove 730
+GPU-control steam-add 730
+GPU-control steam-remove 730
+GPU-control steam-all-on
 ```
+
+`steam-all-on` vise les jeux installés mais exclut volontairement les composants de compatibilité Valve connus comme Proton et Steam Linux Runtime. Ces runtimes restent l'infrastructure du jeu et ne doivent pas devenir eux-mêmes des applications gérées par la dGPU.
 
 Steam doit être complètement fermé lors de la modification de `localconfig.vdf`. Un backup horodaté est créé avant chaque modification et les Launch Options préexistantes sont restaurées au retrait.
 
@@ -139,10 +143,13 @@ L'édition directe du VDF étant plus fragile que les `.desktop`, le support Ste
 ## Diagnostic et test
 
 ```bash
-./huawei-matebook-13-gpu-manager.sh --lang fr status
-./huawei-matebook-13-gpu-manager.sh --lang fr doctor
-./huawei-matebook-13-gpu-manager.sh --lang fr test
+GPU-control
+GPU-control status
+GPU-control doctor
+GPU-control test
 ```
+
+Le dashboard et les diagnostics évitent volontairement `nvidia-smi`, qui n'est pas un bon probe d'idle lorsqu'on cherche à maintenir une dGPU agressivement hors tension. Ils distinguent également un bon état Intel-only d'un décalage noyau/DKMS où NVIDIA est installé pour un autre noyau mais indisponible dans celui qui tourne.
 
 Au repos, la MX250 doit être absente. Le test doit afficher brièvement un renderer NVIDIA puis revenir à une dGPU absente, sans module ni utilisateur NVIDIA restant.
 
