@@ -16,7 +16,7 @@ for cmd in makepkg pacman sudo udevadm systemctl busctl; do
   }
 done
 
-if ! grep -Rqs '^acpi:GXFP51A0:$' /sys/bus/spi/devices/*/modalias 2>/dev/null; then
+if ! grep -Rqs '^acpi:GXFP51A0:' /sys/bus/spi/devices/*/modalias 2>/dev/null; then
   echo "ERROR: ACPI/SPI device GXFP51A0 was not found." >&2
   exit 4
 fi
@@ -38,10 +38,8 @@ echo "==> Installing libfprint-goodix51a0 and fprintd"
 sudo pacman -S --needed --noconfirm fprintd
 sudo pacman -U --needed --noconfirm "$PKG"
 
-echo "==> Reloading the standard Linux device/service integration"
-sudo udevadm control --reload
-sudo udevadm trigger --subsystem-match=spi
-sudo udevadm settle
+echo "==> Verifying boot-safe SPI transport"
+sudo /usr/libexec/gxfp51a0-spidev-bind
 sudo systemctl daemon-reload
 sudo systemctl restart fprintd.service
 
@@ -57,11 +55,13 @@ cat <<'EOF'
 
 Installation complete.
 
+The package prepares GXFP51A0 -> spidev before every fprintd start, so
+fingerprint authentication is available to the initial login manager after boot.
+
 Standard Linux tools:
   fprintd-enroll -f right-index-finger
   fprintd-verify
   fprintd-list "$USER"
 
-The driver does not modify PAM or desktop configuration. KDE/GNOME/login
-integration remains the distribution/desktop authentication policy.
+The driver does not otherwise modify PAM or desktop configuration.
 EOF

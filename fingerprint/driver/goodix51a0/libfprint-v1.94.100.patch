@@ -46,3 +46,10 @@ index aad0675e..64a220e1 100644
          test(driver_test,
              sh,
              args: ['-c', 'exit 77']
+diff --git a/libfprint/fprint-list-udev-rules.c b/libfprint/fprint-list-udev-rules.c
+--- a/libfprint/fprint-list-udev-rules.c
++++ b/libfprint/fprint-list-udev-rules.c
+@@ -52,2 +52,2 @@ print_driver (const FpDeviceClass *cls)
+-      g_print ("ACTION==\"add|change\", SUBSYSTEM==\"spi\", ENV{MODALIAS}==\"acpi:%s:\", RUN{builtin}+=\"kmod load spi:spidev\", RUN+=\"/bin/sh -c 'echo spidev > %%S%%p/driver_override && echo %%k > %%S%%p/subsystem/drivers/spidev/bind'\"\n",
++      g_print ("ACTION==\"add|change\", SUBSYSTEM==\"spi\", ENV{MODALIAS}==\"acpi:%s:*\", RUN{builtin}+=\"kmod load spi:spidev\", RUN+=\"/bin/sh -c 'echo spidev > %%S%%p/driver_override && { test -L %%S%%p/driver || echo %%k > %%S%%p/subsystem/drivers/spidev/bind; }'\"\n",
+                entry->spi_acpi_id);

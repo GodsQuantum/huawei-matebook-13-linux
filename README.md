@@ -85,7 +85,7 @@ See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported dis
 
 ## 2. Fingerprint reader — Goodix GXFP51A0 / GF3658 Milan
 
-**Ready-to-install rel20:** [download the GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20) — native Arch/CachyOS package, portable Linux source bundle, install guide and SHA-256 manifest.
+**Ready-to-install rel22:** [download the GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22) — native Arch/CachyOS package, portable Linux source bundle, install guide and SHA-256 manifest. rel22 also makes the SPI transport boot-ready before fprintd starts, so the initial login manager can use fingerprint authentication after a cold boot.
 
 **Documentation/source:** [`fingerprint/`](fingerprint/)
 

@@ -1,0 +1,16 @@
+post_install() {
+  udevadm control --reload || true
+  udevadm trigger --subsystem-match=spi || true
+  udevadm settle || true
+  systemctl daemon-reload || true
+  systemctl try-restart fprintd.service || true
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_remove() {
+  udevadm control --reload || true
+  systemctl daemon-reload || true
+}

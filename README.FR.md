@@ -85,7 +85,7 @@ Voir [`gpu-power/README.FR.md`](gpu-power/README.FR.md) pour l'architecture, les
 
 ## 2. Capteur d'empreinte — Goodix GXFP51A0 / GF3658 Milan
 
-**rel20 prête à installer :** [télécharger la release GitHub](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20) — paquet natif Arch/CachyOS, bundle source Linux portable, guide d'installation et manifeste SHA-256.
+**rel22 prête à installer :** [télécharger la release GitHub](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22) — paquet natif Arch/CachyOS, bundle source Linux portable, guide d'installation et manifeste SHA-256. rel22 prépare aussi le transport SPI avant le démarrage de fprintd afin que le gestionnaire de connexion initial puisse utiliser l'empreinte après un cold boot.
 
 **Documentation/source :** [`fingerprint/`](fingerprint/)
 

@@ -41,9 +41,11 @@
 
 ## 安装
 
-### 下载已打包的 rel20 release
+### 下载已打包的 rel22 release
 
-对于已验证的 GXFP51A0 / GF3658 ST411，最简单的起点是 [GitHub rel20 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20)。其中包含：
+对于已验证的 GXFP51A0 / GF3658 ST411，最简单的起点是 [GitHub rel22 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22)。rel22 修复冷启动后的 SPI 准备：udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀，并且 fprintd 启动前会运行幂等的 `gxfp51a0-spidev-bind.service`，只绑定未被其他驱动占用的 GXFP51A0，并确认 `/dev/spidev*` 已出现。
+
+Release 包含：
 
 - Arch/CachyOS 原生安装包；
 - 可移植 Linux 源码 bundle；

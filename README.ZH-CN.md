@@ -70,7 +70,9 @@ KWin 固定使用 Intel，避免在 MX250 热添加时自动占用 NVIDIA render
 
 ## 2. 指纹 — Goodix GXFP51A0 / GF3658 Milan
 
-**rel20 安装包：** [GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20)
+**rel22 安装包：** [GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22)
+
+rel22 在 fprintd 启动前自动准备 GXFP51A0 的 SPI/spidev 传输，因此冷启动后的初始登录界面也可以直接使用指纹认证。
 
 Release 包含 Arch/CachyOS 原生包、可移植 Linux 源码 bundle、安装说明以及 SHA-256 校验清单。
 

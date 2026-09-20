@@ -2,6 +2,9 @@
 set -Eeuo pipefail
 STATE_DIR="/var/lib/gxfp51a0-local-install"
 DROPIN_FILE="/etc/systemd/system/fprintd.service.d/60-goodix51a0-local-lib.conf"
+UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
+BIND_HELPER="/usr/local/libexec/gxfp51a0-spidev-bind"
+BIND_SERVICE="/etc/systemd/system/gxfp51a0-spidev-bind.service"
 
 if (( EUID != 0 )); then
   echo "ERROR: run this rollback with sudo/root." >&2
@@ -26,7 +29,8 @@ if [[ -d "$STATE_DIR/backup" ]]; then
   cp -a "$STATE_DIR/backup/." /
 fi
 
-rm -f "$DROPIN_FILE"
+rm -f "$DROPIN_FILE" "$UDEV_RULE_FILE" "$BIND_HELPER" "$BIND_SERVICE"
+udevadm control --reload || true
 rm -rf "$STATE_DIR"
 ldconfig
 systemctl daemon-reload

@@ -42,6 +42,8 @@ echo ""
 echo "===== 2. FIRST-CONTACT SOURCE REGRESSION ====="
 python3 "$REPO_ROOT/tests/test-goodix51a0-first-contact.py"
 echo "FIRST_CONTACT_SOURCE_TEST=PASS"
+python3 "$REPO_ROOT/tests/test-goodix51a0-boot-binding.py"
+echo "BOOT_BINDING_SOURCE_TEST=PASS"
 
 echo ""
 echo "===== 3. RESEARCH UNIT / SAFETY SUITE ====="

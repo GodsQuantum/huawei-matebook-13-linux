@@ -4,7 +4,7 @@ Updated: 2026-09-20.
 
 ## Current release candidate
 
-- package revision: libfprint-goodix51a0 1.94.100.goodix51a0-20
+- package revision: libfprint-goodix51a0 1.94.100.goodix51a0-22
 - libfprint base: v1.94.100
 - fprintd validated line: 1.94.5
 - exact validated target: GXFP51A0, GF3658/ST411, chip 0x2504
@@ -42,13 +42,20 @@ installs use normal KDE/fprintd enrollment.
 
 ## Release validation
 
-The rel20 baseline and full libfprint build pass. Release gates verify the
+The rel22 baseline and full libfprint build pass. Release gates verify the
 source manifest, compiled GXFP51A0 object, FAST/BRIEF/RANSAC code, identify
 path and absence of the biometric dump hook. Passive validation performs no
 active sensor transfer, GPIO/MMIO write or firmware action.
 
 The Arch/CachyOS installer builds locally and does not modify PAM, KDE or GNOME.
-It adds only gpiochip access to the upstream fprintd sandbox.
+It adds only gpiochip access to the upstream fprintd sandbox. rel22 also fixes
+cold-boot transport readiness: the generated udev rule matches ACPI
+compatible-ID suffixes, and fprintd requires an idempotent systemd binder that
+prepares GXFP51A0 -> spidev and verifies the character node before fprintd
+starts. The binder never unbinds an unexpected kernel driver. Three transport
+reset/recovery cycles were validated without a fingerprint press: D-Bus
+activation of fprintd recreated spidev and rediscovered all enrolled fingers
+each time.
 
 ## Privacy and safety invariants
 

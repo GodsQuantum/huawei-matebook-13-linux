@@ -51,9 +51,11 @@ threshold or combining weak scores across attempts.
 
 ## Install
 
-### Download the packaged rel20 release
+### Download the packaged rel22 release
 
-For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is the [rel20 GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel20). It contains the native Arch/CachyOS package, a portable Linux source bundle, install instructions and SHA-256 checksums.
+For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is the [rel22 GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22). It contains the native Arch/CachyOS package, a portable Linux source bundle, install instructions and SHA-256 checksums.
+
+rel22 fixes cold-boot readiness. The generated udev rule accepts ACPI compatible-ID suffixes such as `acpi:GXFP51A0:GXFP51A0:`, and fprintd now requires an idempotent `gxfp51a0-spidev-bind.service` that loads `spidev`, binds only an unclaimed GXFP51A0 device, and verifies the character node before fprintd starts. It refuses to unbind an unexpected kernel driver.
 
 
 ### Arch / CachyOS

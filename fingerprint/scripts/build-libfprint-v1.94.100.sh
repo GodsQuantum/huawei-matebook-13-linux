@@ -255,7 +255,7 @@ say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
 if grep -Fq 'GXFP51A0' "$object_strings_dump"; then
   acpi_gate="OBJECT"
 elif [[ -f "$BUILD_DIR/libfprint/70-libfprint-2.rules" ]] && \
-     grep -Fq 'acpi:GXFP51A0:' "$BUILD_DIR/libfprint/70-libfprint-2.rules"; then
+     grep -Fq 'ENV{MODALIAS}=="acpi:GXFP51A0:*"' "$BUILD_DIR/libfprint/70-libfprint-2.rules"; then
   # LTO builds may keep the ID only in compiler IR, so strings(1) on the
   # intermediate object is not authoritative. The generated udev rule is
   # produced from the linked driver's ID table and is a stronger final-build
@@ -286,6 +286,9 @@ say "GOODIX51A0_OBJECT_COMPILED=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_OBJECT=YES"
 say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
 say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
+grep -Fq 'ENV{MODALIAS}=="acpi:GXFP51A0:*"' "$BUILD_DIR/libfprint/70-libfprint-2.rules" \
+  || die "GOODIX51A0_UDEV_MODALIAS_GLOB_MISSING"
+say "GOODIX51A0_UDEV_MODALIAS_GLOB=PASS"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES"
@@ -306,6 +309,7 @@ say "LIBFPRINT_BUILD=PASS"
 say "GOODIX51A0_OBJECT_COMPILED=YES"
 say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
 say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
+say "GOODIX51A0_UDEV_MODALIAS_GLOB=PASS"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES"

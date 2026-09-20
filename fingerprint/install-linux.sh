@@ -6,6 +6,9 @@ BUILD_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/gxfp51a0-libfprint-build"
 STATE_DIR="/var/lib/gxfp51a0-local-install"
 DROPIN_DIR="/etc/systemd/system/fprintd.service.d"
 DROPIN_FILE="$DROPIN_DIR/60-goodix51a0-local-lib.conf"
+UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
+BIND_HELPER="/usr/local/libexec/gxfp51a0-spidev-bind"
+BIND_SERVICE="/etc/systemd/system/gxfp51a0-spidev-bind.service"
 INSTALL_DEPS=1
 BUILD_ONLY=0
 
@@ -122,7 +125,7 @@ if (( BUILD_ONLY )); then
   exit 0
 fi
 
-if ! grep -Rqs '^acpi:GXFP51A0:$' /sys/bus/spi/devices/*/modalias 2>/dev/null; then
+if ! grep -Rqs '^acpi:GXFP51A0:' /sys/bus/spi/devices/*/modalias 2>/dev/null; then
   echo "ERROR: ACPI/SPI device GXFP51A0 was not found; refusing system install." >&2
   exit 5
 fi
@@ -133,6 +136,16 @@ STAGE="$BUILD_ROOT/stage"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 DESTDIR="$STAGE" "$MESON" install -C "$BUILD_DIR"
+
+UDEV_RULE_SRC="$(find "$STAGE" -type f -path '*/udev/rules.d/70-libfprint-2.rules' -print -quit)"
+[[ -n "$UDEV_RULE_SRC" && -f "$UDEV_RULE_SRC" ]] || {
+  echo "ERROR: staged GXFP51A0 udev rule was not generated." >&2
+  exit 6
+}
+grep -Fq 'ENV{MODALIAS}=="acpi:GXFP51A0:*"' "$UDEV_RULE_SRC" || {
+  echo "ERROR: staged udev rule lacks the GXFP51A0 modalias glob." >&2
+  exit 6
+}
 
 LIBDIR_REL="$("$MESON" introspect "$BUILD_DIR" --buildoptions | \
   python3 -c 'import json,sys; a=json.load(sys.stdin); print(next(x["value"] for x in a if x["name"]=="libdir"))')"
@@ -163,12 +176,21 @@ sudo cp -a "$STAGE/usr/local/." /usr/local/
 
 sudo mkdir -p "$DROPIN_DIR"
 cat > "$TMP_STATE/dropin" <<EOF
+[Unit]
+Requires=gxfp51a0-spidev-bind.service
+After=gxfp51a0-spidev-bind.service
+
 [Service]
 # Local GXFP51A0 libfprint build; isolated to fprintd.
 Environment=LD_LIBRARY_PATH=$LIBDIR
 DeviceAllow=char-gpiochip rw
 EOF
 sudo install -m 0644 "$TMP_STATE/dropin" "$DROPIN_FILE"
+sudo install -Dm0644 "$UDEV_RULE_SRC" "$UDEV_RULE_FILE"
+sudo install -Dm0755 "$ROOT/system/gxfp51a0-spidev-bind" "$BIND_HELPER"
+sed 's#/usr/libexec/gxfp51a0-spidev-bind#/usr/local/libexec/gxfp51a0-spidev-bind#' \
+  "$ROOT/system/gxfp51a0-spidev-bind.service" > "$TMP_STATE/bind-service"
+sudo install -Dm0644 "$TMP_STATE/bind-service" "$BIND_SERVICE"
 
 sudo mkdir -p "$STATE_DIR"
 sudo rm -rf "$STATE_DIR/backup"
@@ -178,7 +200,11 @@ printf '%s\n' "$LIBDIR" | sudo tee "$STATE_DIR/libdir" >/dev/null
 sudo install -m 0755 "$ROOT/uninstall-linux-source.sh" "$STATE_DIR/uninstall.sh"
 
 sudo ldconfig
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=spi
+sudo udevadm settle
 sudo systemctl daemon-reload
+sudo "$BIND_HELPER"
 sudo systemctl restart fprintd.service
 
 DEVICE="$(busctl --system call \
