@@ -1,21 +1,22 @@
-# Goodix GXFP51A0 / GF3658 Milan sous Linux
+# Goodix GXFP51A0 / GF3658 ST411 sous Linux
 
 Pilote libfprint natif expérimental pour le Goodix SPI GXFP51A0 présent dans la
 famille Huawei MateBook 13 2021.
 
 > English: [README.md](README.md)
 
-## État — 19 septembre 2026
+## État — 20 septembre 2026
 
-Cible validée matériellement :
+Cible matériellement validée :
 
 - ACPI HID : `GXFP51A0`
-- Goodix GF3658 / Milan, ST411
-- firmware : `GF_ST411SEC_APP_14115`
-- SPI mode 0 + `SPI_CS_HIGH`, 1 MHz validé
-- GPIO48 readiness/IRQ, GPIO264 reset MCU
+- Goodix GF3658 / ST411, chip ID `0x2504`
+- firmware validé : `GF_ST411SEC_APP_14115`
+- SPI mode 0 + `SPI_CS_HIGH`, 1 MHz
+- GPIO48 readiness/IRQ et GPIO264 reset MCU
 - TLS 1.2 `PSK-AES128-GCM-SHA256`
-- capture/matching 80x64 côté hôte via libfprint
+- image active 80×64
+- base libfprint : `v1.94.100`
 
 Chemin de production :
 
@@ -23,27 +24,34 @@ Chemin de production :
 GXFP51A0 → libfprint → fprintd → KDE / GNOME / PAM / CLI
 ```
 
-Il n’existe aucune interface graphique spécifique au capteur et aucun patch de
-protocole KDE/GNOME.
+Aucune UI spécifique, réécriture PAM, modification de firmware ou runtime
+Goodix propriétaire n'est nécessaire.
 
-Validé sur la machine de référence :
+### Ce qui est validé
 
-- enrollment fprintd standard terminé ;
-- index droit reconnu ;
-- deux doigts non enregistrés différents refusés ;
-- le driver demande 15 acquisitions biométriques d’enrollment ; fprintd expose
-  16 étapes au frontend quand `identify` est disponible car il ajoute une étape
-  interne liée à l’identification ; il expose aussi `press`, `finger-needed` et
-  `finger-present` ;
-- le candidat actuel implémente `identify` libfprint standard pour le
-  multi-doigts et `VerifyStart("any")` ;
-- verify/identify renvoie la décision biométrique avant le nettoyage lié au
-  relâchement du doigt afin de ne pas ralentir le login manager.
+Sur l'unité de référence GXFP51A0/GF3658/ST411 :
 
-Un timeout TLS/image transitoire pendant le préchauffage n’annule plus
-`open` : l’action biométrique dispose d’un retry de session complet et borné.
+- l'enrollment KDE/fprintd standard termine avec **20 poses acceptées** ;
+- le matching FAST-9 + BRIEF-256 + RANSAC rigide est entièrement exécuté côté
+  hôte en C ;
+- le seuil d'acceptation reste fixe à **7 inliers RANSAC** ;
+- un succès est renvoyé immédiatement ;
+- un no-match peut demander jusqu'à **3 poses complètes et indépendantes**
+  avant le refus terminal. Le nombre d'essais est fixe et ne dépend jamais de
+  la proximité du score avec le seuil ;
+- `identify` reste mono-capture ;
+- les désynchronisations target/TLS disposent d'une récupération bornée avec
+  timing d'initialisation appris et persisté ;
+- la recette de capture conserve son gap nominal validé de 30 ms, séparé du
+  timing plus conservateur d'initialisation ;
+- le build release ne contient aucun writer de dump biométrique.
 
-## Installation Arch / CachyOS
+Ces 3 poses compensent les variations de placement d'un très petit capteur
+partiel sans baisser le seuil biométrique ni additionner des scores faibles.
+
+## Installation
+
+### Arch / CachyOS
 
 Depuis la racine du dépôt :
 
@@ -51,10 +59,13 @@ Depuis la racine du dépôt :
 ./fingerprint/install-arch.sh
 ```
 
-L’installateur compile localement, installe le paquet et fprintd, recharge udev
-et redémarre fprintd. Il ne modifie **ni PAM, ni KDE, ni GNOME**.
+L'installateur vérifie la présence du `GXFP51A0`, compile le patch libfprint,
+installe `libfprint-goodix51a0` et `fprintd`, ajoute uniquement l'accès
+gpiochip nécessaire, recharge udev puis redémarre fprintd.
 
-Outils Linux standards après installation :
+Il ne modifie **ni PAM, ni KDE, ni GNOME**.
+
+Ensuite utilise les réglages standards du bureau ou :
 
 ```bash
 fprintd-enroll -f right-index-finger
@@ -62,32 +73,63 @@ fprintd-verify
 fprintd-list "$USER"
 ```
 
-La politique d’authentification du bureau reste celle de la distribution.
+Le pilote demande 20 poses. Déplace légèrement le doigt entre les poses afin de
+couvrir plusieurs zones du doigt.
 
-## Diagnostic guidé de vérification
+### Anciens templates de développement
 
-Pour les tests interactifs, utilise le harness local plutôt que des consignes
-synchronisées par le chat :
-
-```bash
-./fingerprint/tools/gxfp51a0-verify-diagnostic.py
-```
-
-Il attend les états fprintd standards `finger-needed` / `finger-present`,
-affiche localement un compte à rebours 3-2-1 puis les ordres explicites
-`POSE`, `GARDE` et `RETIRE`. Le nom du doigt physique est affiché en MAJUSCULES.
-Les logs driver ne servent qu’aux détails optionnels de score/timing ; le
-guidage dépend uniquement de l’état D-Bus standard de fprintd.
-
-Pour comparer plusieurs doigts contre un template enregistré :
+Le format courant est template driver v4 / SIGFM v3. Une personne venant d'une
+ancienne révision de développement de ce dépôt peut devoir supprimer une fois
+ses anciens templates puis ré-enroller :
 
 ```bash
-./fingerprint/tools/gxfp51a0-compare-fingers.py
+fprintd-delete "$USER"
 ```
 
-La séquence par défaut effectue trois scans `INDEX DROIT` puis trois contrôles
-négatifs : `INDEX GAUCHE`, `MAJEUR GAUCHE`, `MAJEUR DROIT`. Un rapport JSON
-agrégé contient scores, seuils, verdicts et temps de capture.
+Une installation neuve n'a pas cette étape.
+
+### Debian / Ubuntu / Fedora / autres Linux
+
+L'installateur source portable reconstruit exactement le candidat libfprint
+épinglé et garde le remplacement isolé sous `/usr/local` :
+
+```bash
+./fingerprint/install-linux.sh
+```
+
+Il sait installer les dépendances sur les familles Arch/CachyOS,
+Debian/Ubuntu, Fedora et openSUSE. Sur Arch/CachyOS il délègue au paquet pacman
+natif. Sur les autres familles supportées il relie uniquement fprintd au
+libfprint local via un drop-in systemd et conserve un manifeste de rollback.
+
+Rollback :
+
+```bash
+sudo /var/lib/gxfp51a0-local-install/uninstall.sh
+```
+
+`./fingerprint/install-linux.sh --build-only` permet de vérifier la compilation
+sans rien installer.
+
+## Matcher
+
+Le chemin de production utilise :
+
+- soustraction adaptative du fond ;
+- normalisation percentile + unsharp ;
+- FAST-9 multi-échelle à deux niveaux ;
+- descripteurs BRIEF-256 non orientés ;
+- cross-check mutuel + ratio test ;
+- RANSAC rigide 200 itérations, tolérance 2 px ;
+- raffinement rigide par moindres carrés ;
+- meilleur score parmi 20 vues d'enrollment.
+
+Le pilote ne baisse pas le seuil après un échec, n'additionne pas plusieurs
+scores faibles et n'apprend pas depuis des vérifications échouées.
+
+Le score pixel/ZNCC reste disponible uniquement avec le flag de recherche
+explicite `GXFP_MATCH_DIAGNOSTICS`. Il ne participe pas à la décision
+d'authentification.
 
 ## Validation contributeur
 
@@ -95,47 +137,59 @@ agrégé contient scores, seuils, verdicts et temps de capture.
 make -C fingerprint verify
 ```
 
-Cette commande exécute les tests déterministes/sécurité, vérifie le manifeste,
-clone exactement libfprint `v1.94.100`, compile le driver et contrôle le
-binaire final.
+La suite valide les tests déterministes/sécurité, le manifeste source, compile
+libfprint `v1.94.100` et contrôle le binaire final.
 
-Gates release :
+Gates principales :
 
 ```text
 SOURCE_MANIFEST=PASS
 LIBFPRINT_BUILD=PASS
 GOODIX51A0_OBJECT_COMPILED=YES
+GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES
 GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES
 RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT
 SOFTWARE_BUILD_READY=YES
+ACTIVE_SENSOR_IO=NONE
+GPIO_WRITES=NONE
+MMIO_WRITES=NONE
+FIRMWARE_ACTIONS=NONE
 ```
 
-La validation software n’effectue aucun transfert capteur actif, aucune écriture
-GPIO/MMIO et aucune action firmware.
+Les diagnostics locaux de maintenance sont optionnels ; un utilisateur normal
+n'en a pas besoin.
 
 ## Sécurité et confidentialité
 
-Le build release ne compile pas le writer de dump biométrique. Les diagnostics
-capables de traiter des captures sont réservés au build développeur.
-
 Ne jamais publier :
 
-- captures ou templates biométriques ;
-- PMK/PSK/clés ou fixtures privées par unité ;
+- captures ou templates d'empreinte ;
+- PMK/PSK/clés ou fixtures propres à une unité ;
 - binaires/firmwares Goodix ou Huawei propriétaires ;
-- numéros de série ou identifiants privés de machine.
+- numéros de série ou identifiants privés.
+
+Le cache PMK et le timing appris sont des états runtime sous
+`/var/lib/fprint/` et ne sont ni packagés ni versionnés.
+
+Le template fprintd v4 local est une donnée biométrique et doit être protégé
+comme tel.
 
 Le pilote ne flashe pas le firmware du capteur.
 
 ## Périmètre
 
-La cible prouvée est la combinaison GXFP51A0/ST411/firmware ci-dessus. Un autre
-portable avec le même ACPI HID peut avoir un câblage GPIO ou un firmware
-différent et doit être validé avant d’être déclaré supporté.
+La cible prouvée est la combinaison exacte GXFP51A0 / GF3658 / ST411 ci-dessus.
+Un autre appareil avec le même ACPI HID peut néanmoins avoir un câblage GPIO,
+un firmware ou une intégration carte mère différents.
 
-Voir [intégration desktop native](docs/native-desktop-integration.md),
-[provenance](PROVENANCE.md), [source driver](driver/goodix51a0/) et
-[handoff actuel](HANDOFF_CURRENT.md).
+Ce logiciel biométrique reste reverse-engineered et expérimental. La validation
+est aujourd'hui la plus forte sur l'unité de référence et sur des contrôles
+négatifs inter-doigts du même utilisateur ; elle ne remplace pas une
+certification biométrique sur un grand corpus inter-personnes. Ne considère pas
+l'empreinte seule comme un facteur de sécurité haute assurance.
 
-Le sous-arbre source du driver est `LGPL-2.1-or-later`. Les documents de
-recherche historiques et le reste du dépôt peuvent avoir une licence distincte.
+Voir [intégration desktop](docs/native-desktop-integration.md),
+[provenance](PROVENANCE.md), [source](driver/goodix51a0/) et
+[research log](docs/research-log.md) et [handoff actuel](HANDOFF_CURRENT.md).
+
+Le sous-arbre de production du pilote est `LGPL-2.1-or-later`.

@@ -28,6 +28,20 @@ The complete `driver/goodix51a0/` production driver subtree is distributed
 under `LGPL-2.1-or-later`; see `driver/goodix51a0/COPYING`. More specific
 per-file notices remain authoritative.
 
+### FAST/BRIEF/RANSAC matcher lineage
+
+The pure-C matcher in `driver/goodix51a0/fastbrief/` was initially adapted from
+the Goodix matcher work in:
+
+- **buxel/libfprint** — commit
+  `8c3674092ed29bfc6bf0fcf73b24fd821393508c`
+- source files: `libfprint/drivers/goodixtls/sigfm.c` and `sigfm.h`
+- license: `LGPL-2.1-or-later`
+
+The local GXFP51A0 version adds exact-target preprocessing integration,
+multi-view template serialization, optional pixel-overlap diagnostics and
+driver-specific hardening. Original copyright and SPDX notices are retained.
+
 ## Behavioral / interoperability references
 
 The following projects were used as independent protocol or architecture

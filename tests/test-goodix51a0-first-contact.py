@@ -94,7 +94,8 @@ assert "OPENSSL_cleanse (self->psk" in fn("gx_pmk_clear")
 assert "self->psk_ready = FALSE;" in fn("gx_pmk_clear")
 assert "self->timing_scale = gx_timing_load ();" in op
 assert "self->timing_saved = self->timing_scale;" in op
-assert "gx_adapt_sweep ();" in op
+assert "gx_adapt_sweep ();" not in op
+assert "GX_ADAPT_" not in text
 
 assert "gx51_sleep_us(300000)" in transport
 assert "gx51_sleep_us(600000)" in transport

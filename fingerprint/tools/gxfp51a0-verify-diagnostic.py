@@ -15,8 +15,8 @@ MANAGER = "/net/reactivated/Fprint/Manager"
 MANAGER_IFACE = "net.reactivated.Fprint.Manager"
 DEVICE_IFACE = "net.reactivated.Fprint.Device"
 
-SCORE_RE = re.compile(r"verify: attempt \d+ -> (\d+) matches \(threshold (\d+)")
-EARLY_RE = re.compile(r"verify: early result reported at (\d+) matches")
+SCORE_RE = re.compile(r"verify: attempt \d+(?:/\d+)? -> (\d+) matches \(best=\d+ threshold=(\d+)")
+RETRY_RE = re.compile(r"verify: no-match attempt (\d+)/(\d+); request another complete press")
 CAPTURE_MS_RE = re.compile(r"timing: whole capture (\d+) us")
 RESULT_RE = re.compile(r"Verify result: (verify-[a-z-]+) \((not )?done\)")
 
@@ -164,13 +164,15 @@ def main():
                         m = CAPTURE_MS_RE.search(line)
                         if m:
                             capture_ms = int(m.group(1)) / 1000.0
-                        m = EARLY_RE.search(line)
-                        if m and not remove_announced:
-                            score = int(m.group(1))
-                            remove_announced = True
-                            beep()
-                            print(f">>> VERDICT CALCULÉ — RETIRE {physical_label} MAINTENANT <<<",
-                                  flush=True)
+                        m = RETRY_RE.search(line)
+                        if m:
+                            attempt, total = map(int, m.groups())
+                            ready_announced = False
+                            print(
+                                f"SCAN {attempt}/{total} NON RETENU. "
+                                "RETIRE LE DOIGT, puis attends le prochain « POSE ».",
+                                flush=True,
+                            )
                         continue
 
                     if line.startswith("Verifying:"):

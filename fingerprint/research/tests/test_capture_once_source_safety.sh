@@ -16,7 +16,8 @@ s=Path(sys.argv[1]).read_text()
 a=s.index("gx_capture_thread (")
 b=s.index("gx_session_done (", a)
 f=s[a:b]
-assert '!g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE")' in f
+assert f.count("gx_capture_features (self)") == 1
+assert "GX_VIEWS_PER_STAGE" not in f
 a=s.index("gx_capture_done (")
 b=s.index("gx_run_state (", a)
 f=s[a:b]

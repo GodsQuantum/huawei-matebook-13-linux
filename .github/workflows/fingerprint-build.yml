@@ -42,6 +42,8 @@ jobs:
       - name: Bash syntax
         run: |
           bash -n fingerprint/install-arch.sh
+          bash -n fingerprint/install-linux.sh
+          bash -n fingerprint/uninstall-linux-source.sh
           find fingerprint/scripts fingerprint/research -type f -name '*.sh' -print0 \
             | xargs -0 -n1 bash -n
 

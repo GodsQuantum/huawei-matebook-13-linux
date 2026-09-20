@@ -27,7 +27,9 @@
  */
 
 #define FP_COMPONENT "goodix51a0"
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <errno.h>
 #include <glib/gstdio.h>
@@ -251,8 +253,23 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 #endif
 
   static guint8 scratch[GOODIX_RX_MAX];
+  int expected_plain_replies = 0;
   int attempts = body[0] == 0x20u ? GX_GET_IMAGE_ATTEMPTS : 1;
   int attempt;
+
+  /* Reply counts observed stable across the GXFP51A0 capture path and matching
+   * the command semantics. Commands not listed here retain silence-based
+   * draining. GET_IMAGE remains special because its ACK/TLS ordering varies. */
+  switch (body[0])
+    {
+    case 0x32u: expected_plain_replies = 1; break; /* FDT down */
+    case 0x36u: expected_plain_replies = 2; break; /* FDT manual/data */
+    case 0x50u: expected_plain_replies = 2; break; /* NAV */
+    case 0x80u: expected_plain_replies = 1; break; /* register write */
+    case 0x82u: expected_plain_replies = 2; break; /* register read */
+    case 0xaeu: expected_plain_replies = 2; break; /* MCU state */
+    default: break;
+    }
 
   if (out_ack_seen)
     *out_ack_seen = FALSE;
@@ -264,12 +281,25 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
       guint8 ty;
       gboolean ack_seen = FALSE;
       gboolean tls_seen = FALSE;
+      int no_reply_miss_limit =
+        (body[0] == 0x20u || body[0] == 0xaeu) ? 12 : 25;
       int r, got = 0, i, misses = 0;
 
       /* Capture commands are sent directly. The recipe carries explicit NOPs
        * at the positions observed on GXFP51A0; do not prepend one here. */
       if (!gx_write_frame (self, GOODIX_PKT_PLAIN, body, n))
         return FALSE;
+
+      /* Windows sends capture-group NOP without waiting for an ACK.
+       * Waiting for silence here costs ~250 ms because NOP intentionally has
+       * no response.  The outer capture recipe still keeps its conservative
+       * inter-command gap, so this removes only a known-empty drain. */
+      if (body[0] == 0x00u)
+        {
+          fp_dbg ("drain cmd=00: no ACK expected; skip silence wait");
+          return TRUE;
+        }
+
       g_usleep (15000);
 
       for (i = 0; i < 120; i++)
@@ -283,7 +313,7 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
               misses++;
               if (got && misses >= GX_DRAIN_SILENCE)
                 break;
-              if (!got && misses >= 25)
+              if (!got && misses >= no_reply_miss_limit)
                 break;
               continue;
             }
@@ -298,6 +328,12 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
               if (gxfp_parse_ack (scratch, r, body[0], &ack_status) &&
                   gxfp_ack_status_success (ack_status))
                 ack_seen = TRUE;
+              if (expected_plain_replies > 0 && got >= expected_plain_replies)
+                {
+                  fp_dbg ("drain cmd=%02x: expected %d replies received; finish",
+                          body[0], expected_plain_replies);
+                  break;
+                }
               g_usleep (5000);
               continue;
             }
@@ -315,7 +351,7 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
           misses++;
           if (got && misses >= GX_DRAIN_SILENCE)
             break;
-          if (!got && misses >= 25)
+          if (!got && misses >= no_reply_miss_limit)
             break;
         }
 
@@ -1122,7 +1158,10 @@ gx_tls_teardown (FpiDeviceGoodix51A0 *self)
   g_clear_pointer (&self->tls, gx_tls_free);
 }
 
-/* Exact 14115/51x7 capture recipes, as validated by the Linux imaging path. */
+/* Exact 14115/51x7 capture recipes, as validated by the Linux imaging path.
+ * The learned timing scale belongs to target/TLS recovery. Finger/background
+ * capture was validated repeatedly at the nominal 30 ms step gap; multiplying
+ * it by a recovered init scale only adds latency after a transient handshake. */
 static gboolean
 gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
 {
@@ -1150,7 +1189,7 @@ gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
         return FALSE;
       fp_dbg ("chrono cmd=%02x drain=%ld us", packet->inner[0],
               (long) (g_get_monotonic_time () - t0));
-      g_usleep (GX_SEQ_GAP_US * self->timing_scale / 100);
+      g_usleep (GX_SEQ_GAP_US);
     }
   return TRUE;
 }
@@ -1257,7 +1296,7 @@ gx_send_capture_cleanup (FpiDeviceGoodix51A0 *self)
             }
         }
 
-      g_usleep (GX_SEQ_GAP_US * self->timing_scale / 100);
+      g_usleep (GX_SEQ_GAP_US);
     }
 
   ok = TRUE;
@@ -1481,39 +1520,20 @@ gx_fdt_drop (const int *base, const int *cur)
 /*  enrol and verify against the descriptor matcher in goodix_sift.c.   */
 /* ------------------------------------------------------------------ */
 
-/* Decision threshold: how many points of the capture the template explains
- * (see the view fusion further down).
+/* SIGFM score gates.
  *
- * BEWARE — THIS THRESHOLD DEPENDS ON HOW RICH THE TEMPLATE IS, and that is its
- * weak point. The fused score grows with the number and especially the extent
- * of the enrolled views, for a foreign finger just as much as for the right
- * one. Measured against 51 captures of NON-enrolled fingers (several fingers,
- * both hands, plus a second person):
- *
- *   - tight template, 29 views ......... impostor max 3
- *   - wide template, 30 views spanning
- *     328x248 (guided enrolment) ....... impostor max 8, four captures >= 5
- *   - same, plus adaptive views ........ impostor max 9
- *
- * In other words, improving coverage ALSO raises the impostor floor: the gain
- * in rejection rate is paid for in security margin. A threshold of 6, calibrated
- * on five captures of a single foreign finger, let three false accepts through
- * (6, 7 and 8) as soon as the set was widened — five samples from one finger
- * are not enough to set a security parameter.
- *
- * 15 sits at about twice the observed impostor maximum and well below the
- * genuine minimum measured on this template (20 over eight varied poses). Any
- * change to enrolment requires RE-MEASURING this against a varied impostor set. */
-#define GX_MATCH_THRESHOLD 15
+ * These are candidate values, not security claims.  The release is only
+ * promotable after a labelled genuine/impostor corpus shows a clear margin.
+ * External small-sensor SIGFM drivers use runtime gates around 100-150; start
+ * at the conservative low end until this exact 80x64 target is measured. */
+#define GX_MATCH_THRESHOLD            7
+#define GX_MIN_CAPTURE_KEYPOINTS     25
 
-/* What determines template quality is the number of DISTINCT presses, not the
- * raw number of captures: two captures taken back to back show almost the same
- * area, since the finger does not move within a second. Measured, 5 presses of
- * 3 views each got the genuine finger REJECTED, while a dozen distinct presses
- * gave reliable recognition. Coverage is the dominant factor. */
-#define GX_ENROLL_STAGES 15   /* presses asked of the user */
-#define GX_VIEWS_PER_STAGE 2  /* a second view adds slight variation for free */
-#define GX_ENROLL_VIEWS (GX_ENROLL_STAGES * GX_VIEWS_PER_STAGE)
+/* One user-visible press is one biometric sample.  Hidden second captures made
+ * the previous enrollment slow and did not add controlled diversity. */
+#define GX_ENROLL_STAGES             20
+#define GX_VIEWS_PER_STAGE            1
+#define GX_ENROLL_VIEWS              GX_ENROLL_STAGES
 
 /* Reads the firmware version, which also proves the SPI dialogue works. */
 static gboolean
@@ -2180,26 +2200,33 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
 static double *
 gx_preprocess (FpiDeviceGoodix51A0 *self, const guint16 *px)
 {
-  const int W = GOODIX_IMG_WIDTH, H = GOODIX_IMG_HEIGHT;
-  double *d = g_malloc (sizeof (double) * GOODIX_IMG_PIXELS);
-  g_autofree double *buf = g_malloc (sizeof (double) * MAX (W, H));
-  int x, y, i;
+  const int n = GOODIX_IMG_PIXELS;
+  double *out = g_new (double, n);
+  g_autofree double *sorted = g_new (double, n);
+  double pos, frac, p54;
+  int lo, hi;
 
-  for (i = 0; i < GOODIX_IMG_PIXELS; i++)
-    d[i] = (double) self->bg_frame[i] - px[i];
-  for (y = 0; y < H; y++)
+  /* Exact-target GXFP51A0 imaging: frame-background has a drifting DC
+   * component.  Recenter at the ~54th percentile, clip negatives, and keep
+   * one physical frame per press.  The matcher wrapper performs the final
+   * percentile stretch and unsharp mask. */
+  for (int i = 0; i < n; i++)
     {
-      for (x = 0; x < W; x++) buf[x] = d[y * W + x];
-      qsort (buf, W, sizeof (double), gx_cmp_dbl);
-      { double m = buf[W / 2]; for (x = 0; x < W; x++) d[y * W + x] -= m; }
+      out[i] = (double) px[i] - self->bg_frame[i];
+      sorted[i] = out[i];
     }
-  for (x = 0; x < W; x++)
-    {
-      for (y = 0; y < H; y++) buf[y] = d[y * W + x];
-      qsort (buf, H, sizeof (double), gx_cmp_dbl);
-      { double m = buf[H / 2]; for (y = 0; y < H; y++) d[y * W + x] -= m; }
-    }
-  return d;
+
+  qsort (sorted, n, sizeof *sorted, gx_cmp_dbl);
+  pos = 0.54 * (double) (n - 1);
+  lo = (int) floor (pos);
+  hi = (int) ceil (pos);
+  frac = pos - lo;
+  p54 = sorted[lo] * (1.0 - frac) + sorted[hi] * frac;
+
+  for (int i = 0; i < n; i++)
+    out[i] = MAX (0.0, out[i] - p54);
+
+  return out;
 }
 
 /* Is a finger actually down? Costs about 33 ms. */
@@ -2301,7 +2328,7 @@ gx_capture_features (FpiDeviceGoodix51A0 *self)
  * can request re-enrollment instead of silently interpreting stale biometric
  * data with changed semantics. Legacy aay templates from the development
  * harness remain readable so current research data does not get stranded. */
-#define GX_TEMPLATE_VERSION 1u
+#define GX_TEMPLATE_VERSION 4u
 
 static GVariant *
 gx_views_to_variant (GPtrArray *views)
@@ -2346,13 +2373,6 @@ gx_views_from_print (FpPrint *print)
           return views;
         }
     }
-  else if (g_variant_is_of_type (data, G_VARIANT_TYPE ("aay")))
-    {
-      /* Compatibility with pre-installation research templates only. New
-       * enrollments are always written in the versioned format above. */
-      fp_info ("legacy unversioned template accepted");
-      payload = g_variant_ref (data);
-    }
   else
     {
       fp_warn ("unsupported template payload type %s",
@@ -2372,198 +2392,6 @@ gx_views_from_print (FpPrint *print)
     }
   return views;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Adaptive store: widening coverage as the sensor gets used          */
-/* ------------------------------------------------------------------ */
-
-/* libfprint offers no way to hand back an enriched template: verify completion
- * takes no FpPrint, and fprintd only writes a template from the enrol path. So
- * the driver keeps its own store alongside fprintd's — never inside it, since
- * fprintd scans its own directory and would mistake our files for templates.
- *
- * SAFETY — the rule that makes adaptation harmless: the acquisition threshold
- * sits strictly ABOVE the decision threshold. Anyone triggering an acquisition
- * is therefore already authenticating with a comfortable margin, so adaptation
- * never lowers the bar for an attacker; it only widens the coverage of someone
- * who already passes. Without that rule a doubtful accept would be written
- * permanently into the template, which is template poisoning. */
-#define GX_ADAPT_MIN    30   /* twice the decision threshold, about four times
-                                the highest score any foreign finger reached */
-/* Novelty ceiling, expressed as a FRACTION of the capture's points rather than
- * an absolute count. The score scales with template richness — measured, a
- * 30-view template lifts ordinary poses from about 12 matches to about 100 — so
- * a fixed ceiling stops qualifying anything as soon as the template improves.
- * Above 60 % of points explained the pressed area is already well covered and
- * one more view would teach nothing. */
-#define GX_ADAPT_MAX_FRAC 0.60
-#define GX_ADAPT_VIEWS  20   /* cap, bounding verification time */
-/* The store must live INSIDE fprintd's state directory: its systemd unit
- * declares ProtectSystem=strict with StateDirectory=fprint, leaving the rest of
- * the filesystem read-only to it. The name starts with a dot so it can never be
- * taken for a user directory — fprintd only ever opens the directory named
- * after an authenticated user, and no account is named like this. */
-#define GX_ADAPT_DIR    "/var/lib/fprint/.goodix51a0-adapt"
-
-/* Store path for a given template, or NULL when the template carries no usable
- * identity. The user name comes from fprintd; reject anything that could escape
- * the directory. */
-static gchar *
-gx_adapt_path (FpPrint *print)
-{
-  const gchar *user = print ? fp_print_get_username (print) : NULL;
-
-  if (!user || !*user || strchr (user, '/') || g_str_has_prefix (user, "."))
-    return NULL;
-  return g_strdup_printf ("%s/%s.%d.views", GX_ADAPT_DIR, user,
-                          (int) fp_print_get_finger (print));
-}
-
-/* Views accumulated, in acquisition order: a sequence of length-prefixed
- * blocks, each one a view serialised exactly as in an fprintd template. */
-static GPtrArray *
-gx_adapt_load (const gchar *path)
-{
-  GPtrArray *views = g_ptr_array_new_with_free_func ((GDestroyNotify) gx_sift_free);
-  g_autofree gchar *raw = NULL;
-  gsize len = 0, off = 0;
-
-  if (!path || !g_file_get_contents (path, &raw, &len, NULL))
-    return views;
-
-  while (off + 4 <= len)
-    {
-      guint32 sz;
-      GxSiftFeatures *f;
-
-      memcpy (&sz, raw + off, 4);
-      off += 4;
-      if (sz > len - off)
-        break;                          /* truncated file: keep what we have */
-      f = gx_sift_deserialize ((const guint8 *) raw + off, sz);
-      if (f)
-        g_ptr_array_add (views, f);
-      off += sz;
-    }
-  return views;
-}
-
-static gboolean
-gx_adapt_append (const gchar *path, const GxSiftFeatures *f)
-{
-  g_autoptr(GByteArray) blob = NULL;
-  g_autoptr(GError) err = NULL;
-  guint32 sz;
-  gboolean ok;
-  FILE *fh;
-
-  if (!path)
-    return FALSE;
-  blob = gx_sift_serialize (f);
-  if (!blob)
-    return FALSE;
-
-  if (g_mkdir_with_parents (GX_ADAPT_DIR, 0700) != 0)
-    {
-      fp_warn ("adaptive store: cannot create %s: %s",
-               GX_ADAPT_DIR, g_strerror (errno));
-      return FALSE;
-    }
-  /* Append only: a view already written is never rewritten, so a crash mid
-   * write can only damage the last one, which the reader then skips cleanly. */
-  fh = fopen (path, "ab");
-  if (!fh)
-    {
-      fp_warn ("adaptive store: %s: %s", path, g_strerror (errno));
-      return FALSE;
-    }
-  sz = blob->len;
-  ok = (fwrite (&sz, 4, 1, fh) == 1 &&
-        fwrite (blob->data, 1, blob->len, fh) == blob->len);
-  if (!ok)
-    fp_warn ("adaptive store: short write to %s", path);
-  if (fclose (fh) != 0)
-    ok = FALSE;
-  g_chmod (path, 0600);
-  return ok;
-}
-
-/* Clears the store when its template is deleted or re-enrolled: acquired views
- * must not outlive the template that authorised them. */
-static void
-gx_adapt_clear (FpPrint *print)
-{
-  g_autofree gchar *path = gx_adapt_path (print);
-
-  if (path && g_unlink (path) == 0)
-    fp_info ("adaptive store cleared (%s)", path);
-}
-
-/* fprintd deletes the template itself and NEVER tells the driver: our prints
- * are host-stored, and libfprint's delete vfunc only covers templates kept on
- * the device. Without the sweep below, deleting a fingerprint in the desktop
- * settings would leave its descriptors on disk indefinitely — a privacy
- * problem, not merely untidiness.
- *
- * So catch up at open time: any store whose fprintd template has vanished is
- * removed. This is not instant — it takes an operation on the sensor to trigger
- * the cleanup — but it is the only hook libfprint leaves to a driver. */
-static void
-gx_adapt_sweep (void)
-{
-  GDir *d = g_dir_open (GX_ADAPT_DIR, 0, NULL);
-  const gchar *name;
-
-  if (!d)
-    return;
-
-  while ((name = g_dir_read_name (d)))
-    {
-      g_autofree gchar *stem = NULL, *user = NULL, *userdir = NULL;
-      const gchar *finger;
-      gboolean found = FALSE;
-      gchar *dot;
-      GDir *dd;
-
-      if (!g_str_has_suffix (name, ".views"))
-        continue;
-      stem = g_strndup (name, strlen (name) - strlen (".views"));
-
-      /* Split "<user>.<finger>" at the LAST dot: a user name may itself
-       * contain one. */
-      dot = strrchr (stem, '.');
-      if (!dot || !dot[1])
-        continue;
-      *dot = '\0';
-      user = g_strdup (stem);
-      finger = dot + 1;
-
-      /* The template lives under <user>/<driver id>/<device id>/<finger>,
-       * and the device id may vary. */
-      userdir = g_build_filename ("/var/lib/fprint", user, "goodixtls", NULL);
-      dd = g_dir_open (userdir, 0, NULL);
-      if (dd)
-        {
-          const gchar *devid;
-          while (!found && (devid = g_dir_read_name (dd)))
-            {
-              g_autofree gchar *p = g_build_filename (userdir, devid, finger, NULL);
-              found = g_file_test (p, G_FILE_TEST_EXISTS);
-            }
-          g_dir_close (dd);
-        }
-
-      if (!found)
-        {
-          g_autofree gchar *victim = g_build_filename (GX_ADAPT_DIR, name, NULL);
-          if (g_unlink (victim) == 0)
-            fp_info ("removed orphaned adaptive store %s "
-                     "(its template is gone)", name);
-        }
-    }
-  g_dir_close (d);
-}
-
 
 /* ------------------------------------------------------------------ */
 /*  Enrolment and verification                                         */
@@ -2586,7 +2414,6 @@ typedef struct
   gboolean   identifying;     /* one-to-many gallery match */
   gboolean   match_reported;  /* terminal match/no-match already sent early */
   FpPrint   *identify_match;  /* matched gallery print, owned while the task lives */
-  GxSiftIsland *island;       /* coverage accumulated, for enrolment guidance */
 } GxTask;
 
 enum {
@@ -2601,6 +2428,7 @@ enum {
 #define GX_POLL_MS     100     /* detection polling period */
 #define GX_POLL_MAX    300     /* about 30 s before giving up */
 #define GX_POLL_OFF    100     /* about 10 s to wait for release */
+#define GX_VERIFY_MAX_ATTEMPTS 3 /* fixed budget; never score-proximity conditioned */
 
 /* ------------------------------------------------------------------ */
 /*  Off-loading the blocking work                                      */
@@ -2627,7 +2455,6 @@ typedef struct
   FpiSsm         *ssm;
   FpDevice       *dev;
   GxSiftFeatures *feat;      /* capture result, NULL on failure */
-  GPtrArray      *extra;     /* additional views of the same press */
   gboolean        ok;
 } GxWork;
 
@@ -2635,8 +2462,6 @@ static void
 gx_work_free (GxWork *w)
 {
   g_clear_pointer (&w->feat, gx_sift_free);
-  if (w->extra)
-    g_ptr_array_free (w->extra, TRUE);
   g_free (w);
 }
 
@@ -2658,34 +2483,9 @@ gx_capture_thread (GTask *task, gpointer src, gpointer data, GCancellable *c)
 {
   GxWork *w = data;
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (w->dev);
-  GxTask *t = fpi_ssm_get_data (w->ssm);
 
   w->feat = gx_capture_features (self);
   w->ok = (w->feat != NULL);
-
-  /* Several views per press: the finger shifts slightly between captures, which
-   * enriches the template without asking the user for more gestures. They are
-   * captured here but handed to the main loop for merging — the state
-   * machine's data must only be mutated there. */
-  if (w->ok && w->feat->n >= 8 && !t->verifying &&
-      !g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
-    {
-      int extra;
-
-      w->extra = g_ptr_array_new_with_free_func ((GDestroyNotify) gx_sift_free);
-      for (extra = 1; extra < GX_VIEWS_PER_STAGE; extra++)
-        {
-          GxSiftFeatures *g;
-
-          if (!gx_finger_present (self))
-            break;
-          g = gx_capture_features (self);
-          if (g && g->n >= 8)
-            g_ptr_array_add (w->extra, g);
-          else
-            g_clear_pointer (&g, gx_sift_free);
-        }
-    }
   g_task_return_boolean (task, TRUE);
 }
 
@@ -2746,7 +2546,6 @@ gx_task_free (GxTask *t)
     g_ptr_array_free (t->views, TRUE);
   g_clear_pointer (&t->probe, gx_sift_free);
   g_clear_object (&t->identify_match);
-  g_clear_pointer (&t->island, gx_sift_island_free);
   g_free (t);
 }
 
@@ -2843,8 +2642,15 @@ gx_poll_off (gpointer user_data)
   if (off || ++t->polls > GX_POLL_OFF)
     {
       fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
-      /* vue suivante, ou fin */
-      if (t->verifying || t->stage >= GX_ENROLL_STAGES)
+      /* Next enrollment view, fixed-budget verify retry, or finish. */
+      if (t->verifying && !t->identifying && !t->match_reported &&
+          t->tries < GX_VERIFY_MAX_ATTEMPTS)
+        {
+          fp_info ("verify: finger released; waiting for retry press %d/%d",
+                   t->tries + 1, GX_VERIFY_MAX_ATTEMPTS);
+          fpi_ssm_jump_to_state (ssm, GX_ST_WAIT_ON);
+        }
+      else if (t->verifying || t->stage >= GX_ENROLL_STAGES)
         fpi_ssm_jump_to_state (ssm, GX_ST_DONE);
       else
         fpi_ssm_jump_to_state (ssm, GX_ST_WAIT_ON);
@@ -2861,45 +2667,68 @@ gx_score_probe_against_print (FpPrint *tmpl,
                               guint *out_adapt_views)
 {
   g_autoptr(GPtrArray) views = gx_views_from_print (tmpl);
-  g_autofree gchar *apath = gx_adapt_path (tmpl);
-  g_autoptr(GPtrArray) extra = gx_adapt_load (apath);
-  g_autofree guint8 *seen = g_new0 (guint8, probe && probe->n ? probe->n : 1);
-  int fused = 0;
-  guint i;
+  int best = 0;
+  int top[5] = { 0, 0, 0, 0, 0 };
+  guint top_idx[5] = { 0, 0, 0, 0, 0 };
 
   if (out_base_views)
     *out_base_views = views ? views->len : 0;
   if (out_adapt_views)
-    *out_adapt_views = extra ? extra->len : 0;
+    *out_adapt_views = 0;
+
   if (!probe)
     return 0;
 
-  for (i = 0; views && i < views->len; i++)
-    gx_sift_match_mask (g_ptr_array_index (views, i), probe, seen);
-  for (i = 0; extra && i < extra->len; i++)
-    gx_sift_match_mask (g_ptr_array_index (extra, i), probe, seen);
-  for (i = 0; i < probe->n; i++)
-    fused += seen[i];
+  /* Modern small-sensor SIGFM drivers use the best score against one enrolled
+   * sample.  Fusing evidence across every view inflated the impostor floor in
+   * the previous matcher as galleries became richer. */
+  for (guint i = 0; views && i < views->len; i++)
+    {
+      int score = gx_sift_match (probe, g_ptr_array_index (views, i));
 
-  return fused;
-}
+      if (score > best)
+        best = score;
 
-static void
-gx_maybe_adapt_print (FpPrint *tmpl,
-                      const GxSiftFeatures *probe,
-                      int score)
-{
-  g_autofree gchar *apath = gx_adapt_path (tmpl);
-  g_autoptr(GPtrArray) extra = gx_adapt_load (apath);
+      for (guint rank = 0; rank < G_N_ELEMENTS (top); rank++)
+        if (score > top[rank])
+          {
+            for (guint j = G_N_ELEMENTS (top) - 1; j > rank; j--)
+              {
+                top[j] = top[j - 1];
+                top_idx[j] = top_idx[j - 1];
+              }
+            top[rank] = score;
+            top_idx[rank] = i;
+            break;
+          }
+    }
 
-  if (!probe || score < GX_ADAPT_MIN ||
-      score > (int) (GX_ADAPT_MAX_FRAC * probe->n) ||
-      extra->len >= GX_ADAPT_VIEWS)
-    return;
+  if (g_getenv ("GXFP_MATCH_DIAGNOSTICS"))
+    {
+      fp_info ("gallery scores: %d@%u %d@%u %d@%u %d@%u %d@%u (views=%u)",
+               top[0], top_idx[0], top[1], top_idx[1], top[2], top_idx[2],
+               top[3], top_idx[3], top[4], top_idx[4],
+               views ? views->len : 0);
 
-  if (gx_adapt_append (apath, probe))
-    fp_info ("adaptive store: view acquired (%u/%d)",
-             extra->len + 1, GX_ADAPT_VIEWS);
+      if (views)
+        for (guint rank = 0; rank < G_N_ELEMENTS (top); rank++)
+          {
+            guint idx = top_idx[rank];
+            int inliers = 0, overlap = 0, zncc = 0, agree = 0;
+
+            if (top[rank] <= 0 || idx >= views->len)
+              continue;
+            if (gx_sift_pixel_overlap_metrics (probe,
+                                               g_ptr_array_index (views, idx),
+                                               &inliers, &overlap, &zncc, &agree))
+              fp_info ("pixel diagnostic: rank=%u view=%u baseline=%d "
+                       "inliers=%d overlap=%d zncc_milli=%d agree_permille=%d",
+                       rank, idx, top[rank], inliers, overlap, zncc, agree);
+          }
+    }
+
+  /* Pixel metrics are research-only and MUST NOT affect authentication. */
+  return best;
 }
 
 static void
@@ -2914,7 +2743,7 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
 
   if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
     {
-      guint nfeatures = f ? f->n : 0;
+      guint nfeatures = f ? gx_sift_keypoints (f) : 0;
 
       fp_info ("GXFP51A0 capture-only diagnostic complete: features=%u",
                nfeatures);
@@ -2926,12 +2755,7 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
       return;
     }
 
-      for (guint e = 0; w->extra && e < w->extra->len; e++)
-        g_ptr_array_add (t->views, g_ptr_array_index (w->extra, e));
-      if (w->extra)
-        g_ptr_array_set_free_func (w->extra, NULL);   /* ownership moved */
-
-      if (!f || f->n < 8)
+      if (!f || gx_sift_keypoints (f) < GX_MIN_CAPTURE_KEYPOINTS)
         {
           /* Tell the two causes apart: they call for opposite gestures.
            * The image capture takes about 1.4 s, so a finger pressed and
@@ -2958,10 +2782,9 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
         }
       else if (t->verifying)
         {
-          /* One usable press is one authentication decision. Never condition a
-           * recapture on how close the biometric score came to the threshold:
-           * doing so amplifies false accepts. Quality failures are retryable,
-           * scores are terminal. */
+          /* A usable press is one independent biometric decision. Verification
+           * has a small fixed retry budget for partial-sensor placement misses;
+           * retries never depend on how close a score is to the threshold. */
           t->tries++;
           g_clear_pointer (&t->probe, gx_sift_free);
           t->probe = f;
@@ -2995,8 +2818,7 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
               if (best_print && best >= GX_MATCH_THRESHOLD)
                 {
                   t->identify_match = g_object_ref (best_print);
-                  gx_maybe_adapt_print (best_print, t->probe, best);
-                }
+                    }
 
               fpi_device_identify_report (dev,
                                           t->identify_match,
@@ -3012,57 +2834,50 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
               guint base_views = 0, adapt_views = 0;
 
               fpi_device_get_verify_data (dev, &tmpl);
-              t->best = gx_score_probe_against_print (tmpl, t->probe,
-                                                      &base_views,
-                                                      &adapt_views);
+              int attempt_score = gx_score_probe_against_print (tmpl, t->probe,
+                                                                  &base_views,
+                                                                  &adapt_views);
+              t->best = MAX (t->best, attempt_score);
 
-              fp_info ("verify: attempt %d -> %d matches (threshold %d, %u views + %u acquired)",
-                       t->tries, t->best, GX_MATCH_THRESHOLD,
-                       base_views, adapt_views);
+              fp_info ("verify: attempt %d/%d -> %d matches (best=%d threshold=%d, %u views + %u acquired)",
+                       t->tries, GX_VERIFY_MAX_ATTEMPTS, attempt_score, t->best,
+                       GX_MATCH_THRESHOLD, base_views, adapt_views);
 
-              gx_maybe_adapt_print (tmpl, t->probe, t->best);
-
-              /* Report immediately after scoring; WAIT_OFF is hardware cleanup
-               * and must not delay PAM or a desktop login transaction. */
-              fpi_device_verify_report (dev,
-                                        t->best >= GX_MATCH_THRESHOLD
-                                          ? FPI_MATCH_SUCCESS
-                                          : FPI_MATCH_FAIL,
-                                        NULL, NULL);
-              t->match_reported = TRUE;
-              fp_info ("verify: early result reported at %d matches (threshold %d)",
-                       t->best, GX_MATCH_THRESHOLD);
+              if (attempt_score >= GX_MATCH_THRESHOLD)
+                {
+                  fpi_device_verify_report (dev, FPI_MATCH_SUCCESS, NULL, NULL);
+                  t->match_reported = TRUE;
+                  fp_info ("verify: match reported on attempt %d at %d matches",
+                           t->tries, attempt_score);
+                }
+              else if (t->tries >= GX_VERIFY_MAX_ATTEMPTS)
+                {
+                  fpi_device_verify_report (dev, FPI_MATCH_FAIL, NULL, NULL);
+                  t->match_reported = TRUE;
+                  fp_info ("verify: no-match reported after %d fixed attempts (best=%d threshold=%d)",
+                           t->tries, t->best, GX_MATCH_THRESHOLD);
+                }
+              else
+                {
+                  fp_info ("verify: no-match attempt %d/%d; request another complete press",
+                           t->tries, GX_VERIFY_MAX_ATTEMPTS);
+                }
             }
 
         }
       else
         {
-          int dx = 0, dy = 0, sc = 0, x0, y0, x1, y1;
-          guint np = 0;
-          gboolean placed;
+          guint keypoints = gx_sift_keypoints (f);
 
+          /* On an 80x64 partial sensor, two valid presses of the same finger
+           * may cover disjoint patches and legitimately score zero pairwise.
+           * Rejecting those samples traps enrollment and destroys coverage.
+           * Quality is gated above by contrast and keypoint count; biometric
+           * discrimination is evaluated later against the complete gallery. */
           g_ptr_array_add (t->views, f);
           t->stage++;
-
-          /* Register this view against the coverage acquired so far. The
-           * result is logged rather than returned: enrol progress carries no
-           * message, and the desktop enrolment dialogue shows nothing but a
-           * counter anyway. A dedicated tool reads these lines and shows the
-           * user which part of the finger to present next. */
-          if (!t->island)
-            t->island = gx_sift_island_new ();
-          placed = gx_sift_island_add (t->island, f, &dx, &dy, &sc);
-          gx_sift_island_extent (t->island, &x0, &y0, &x1, &y1, &np);
-
-          if (placed)
-            fp_info ("enroll: stage=%d at=%d,%d overlap=%d "
-                     "extent=%dx%d points=%u",
-                     t->stage, dx, dy, sc, x1 - x0, y1 - y0, np);
-          else
-            fp_info ("enroll: stage=%d at=? overlap=%d "
-                     "extent=%dx%d points=%u (disjoint area)",
-                     t->stage, sc, x1 - x0, y1 - y0, np);
-
+          fp_info ("enroll: stage=%d/%d keypoints=%u",
+                   t->stage, GX_ENROLL_STAGES, keypoints);
           fpi_device_enroll_progress (dev, t->stage, NULL, NULL);
         }
       /* Capture done: we no longer need the finger, only its release.
@@ -3135,9 +2950,6 @@ gx_enroll_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   fpi_print_set_device_stored (print, FALSE);
   g_object_set (print, "fpi-data", gx_views_to_variant (t->views), NULL);
 
-  /* The template changes: views acquired under the authority of the old one
-   * are no longer legitimate, so start from an empty store. */
-  gx_adapt_clear (print);
   fpi_device_enroll_complete (dev, g_object_ref (print), NULL);
 }
 
@@ -3194,7 +3006,6 @@ gx_dev_open (FpDevice *dev)
   self->fdt_abs = GOODIX_FDT_ABS;
   self->timing_scale = gx_timing_load ();
   self->timing_saved = self->timing_scale;
-  gx_adapt_sweep ();
 
   /*
    * First-contact sequence only. Windows does not perform an unconditional
@@ -3316,14 +3127,9 @@ gx_verify_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   best = t->best;
   fpi_device_get_verify_data (dev, &template);
   views = gx_views_from_print (template);
-  {
-    g_autofree gchar *apath = gx_adapt_path (template);
-    g_autoptr(GPtrArray) extra = gx_adapt_load (apath);
-
-    fp_info ("verify: %d matches in %d attempt(s) "
-             "(threshold %d, %u views + %u acquired)", best, t->tries,
-             GX_MATCH_THRESHOLD, views->len, extra->len);
-  }
+  fp_info ("verify: %d matches in %d attempt(s) "
+           "(threshold %d, %u enrolled views)", best, t->tries,
+           GX_MATCH_THRESHOLD, views->len);
 
   /* Defensive fallback for paths that reached completion without a usable
    * capture-side report. The normal production path reports before WAIT_OFF. */

@@ -16,6 +16,9 @@ verify = (SCRIPTS / "verify-software-baseline.sh").read_text(encoding="utf-8")
 passive = (SCRIPTS / "passive-linux-observability.sh").read_text(encoding="utf-8")
 makefile = (FP / "Makefile").read_text(encoding="utf-8")
 readme = (FP / "README.md").read_text(encoding="utf-8")
+require((FP / "install-arch.sh").is_file(), "Arch installer missing")
+require((FP / "install-linux.sh").is_file(), "Portable Linux installer missing")
+require((FP / "uninstall-linux-source.sh").is_file(), "Portable Linux rollback missing")
 
 require('LIBFPRINT_TAG="v1.94.100"' in build, "libfprint tag drift")
 require('MESON_VERSION="1.12.0"' in build, "Meson version drift")
@@ -49,6 +52,7 @@ require("GOODIX51A0_ACPI_ID_IN_BUILD=YES" in build, "final-build ACPI-ID success
 require("GOODIX51A0_ACPI_ID_GATE=" in build, "LTO-safe ACPI-ID gate marker missing")
 require("GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES" in build, "archive-membership success marker missing")
 require("GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES" in build, "identify final-library gate missing")
+require("GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES" in build, "FAST/BRIEF/RANSAC final-library gate missing")
 require("RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT" in build, "release biometric-dump exclusion gate missing")
 
 require("test-goodix51a0-first-contact.py" in verify, "first-contact regression missing")

@@ -158,7 +158,7 @@ say "LIBFPRINT_PATCH=PASS"
 say ""
 say "===== 6. INJECT REVIEWED CANDIDATE SOURCES ====="
 target="$SRC_DIR/libfprint/drivers/goodix51a0"
-mkdir -p "$target"
+mkdir -p "$target/fastbrief"
 
 sources=(
   goodix51a0.c
@@ -167,6 +167,8 @@ sources=(
   goodix_tls.h
   goodix_sift.c
   goodix_sift.h
+  fastbrief/sigfm.c
+  fastbrief/sigfm.h
   gx51_transport.c
   gx51_transport.h
   gx51_target.c
@@ -223,13 +225,23 @@ shared_lib="$BUILD_DIR/libfprint/libfprint-2.so.2.0.0"
 shared_strings_dump="$BUILD_ROOT/libfprint-shared.strings.txt"
 strings "$shared_lib" >"$shared_strings_dump"
 
-# Public/release builds must not contain the biometric capture dumping hook.
-# Check the final linked shared object: under LTO, the intermediate object may
-# only contain compiler IR and strings(1) is not authoritative.
-if grep -Fq '/run/goodix51a0/dump' "$shared_strings_dump" ||    grep -Fq 'capture saved:' "$shared_strings_dump"; then
-  die "BIOMETRIC_DUMP_HOOK_PRESENT_IN_RELEASE_LIBRARY"
+# Release and explicit developer builds have opposite privacy invariants.
+# Release is the default and MUST NOT contain the biometric writer.
+# GXFP51A0_DEVELOPER_BUILD=1 is intentionally opt-in and MUST contain it.
+if [[ "${GXFP51A0_DEVELOPER_BUILD:-0}" == "1" ]]; then
+  if ! grep -Fq '/run/goodix51a0/dump' "$shared_strings_dump" || \
+     ! grep -Fq 'capture saved:' "$shared_strings_dump"; then
+    die "BIOMETRIC_DUMP_HOOK_MISSING_IN_DEVELOPER_LIBRARY"
+  fi
+  dump_gate_marker="DEVELOPER_BIOMETRIC_DUMP_HOOK=PRESENT"
+else
+  if grep -Fq '/run/goodix51a0/dump' "$shared_strings_dump" || \
+     grep -Fq 'capture saved:' "$shared_strings_dump"; then
+    die "BIOMETRIC_DUMP_HOOK_PRESENT_IN_RELEASE_LIBRARY"
+  fi
+  dump_gate_marker="RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
 fi
-say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
+say "$dump_gate_marker"
 
 # Multiple enrolled fingers require the standard libfprint identify vfunc.
 # Prove both the API references in the compiled object and the final linked
@@ -259,10 +271,16 @@ fi
 nm "$archive" >"$archive_nm_dump"
 grep -Fq 'fpi_device_goodix51a0_get_type' "$archive_nm_dump" \
   || die "GOODIX51A0_TYPE_SYMBOL_NOT_FOUND_IN_ARCHIVE"
+grep -Fq 'sigfm_match_score' "$archive_nm_dump" \
+  || die "GOODIX51A0_SIGFM_SYMBOL_NOT_FOUND_IN_ARCHIVE"
+if grep -Fq 'gx_sift_island_' "$archive_nm_dump"; then
+  die "LEGACY_MATCHER_ISLAND_PRESENT_IN_ARCHIVE"
+fi
 
 ar t "$archive" >"$archive_members_dump"
 grep -Fq 'drivers_goodix51a0_goodix51a0.c.o' "$archive_members_dump" \
   || die "GOODIX51A0_OBJECT_NOT_LISTED_IN_ARCHIVE"
+grep -Fq 'drivers_goodix51a0_fastbrief_sigfm.c.o' "$archive_members_dump" || die "GOODIX51A0_FASTBRIEF_OBJECT_NOT_LISTED_IN_ARCHIVE"
 
 say "GOODIX51A0_OBJECT_COMPILED=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_OBJECT=YES"
@@ -270,9 +288,10 @@ say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
 say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
+say "GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES"
 say "GOODIX51A0_IDENTIFY_PATH_IN_OBJECT=YES"
 say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
-say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
+say "$dump_gate_marker"
 say "SOFTWARE_BUILD_READY=YES"
 
 say ""
@@ -289,8 +308,9 @@ say "GOODIX51A0_ACPI_ID_IN_BUILD=YES"
 say "GOODIX51A0_ACPI_ID_GATE=$acpi_gate"
 say "GOODIX51A0_OBJECT_IN_DRIVER_ARCHIVE=YES"
 say "GOODIX51A0_TYPE_SYMBOL_IN_DRIVER_ARCHIVE=YES"
+say "GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES"
 say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
-say "RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT"
+say "$dump_gate_marker"
 say "SOFTWARE_BUILD_READY=YES"
 say "ACTIVE_SENSOR_IO=NONE"
 say "GPIO_WRITES=NONE"

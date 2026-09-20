@@ -1,63 +1,68 @@
-# Current handoff — GXFP51A0 / GF3658 Milan
+# Current handoff — GXFP51A0 / GF3658 ST411
 
-**Updated: 2026-09-19 23:55.**
+Updated: 2026-09-20.
 
-Canonical detailed handoff:
+## Current release candidate
 
-`handoff/HANDOFF_2026-09-19_2355_GXFP51A0_NATIVE_FPRINTD_RELEASE.md`
+- package revision: libfprint-goodix51a0 1.94.100.goodix51a0-20
+- libfprint base: v1.94.100
+- fprintd validated line: 1.94.5
+- exact validated target: GXFP51A0, GF3658/ST411, chip 0x2504
+- validated firmware: GF_ST411SEC_APP_14115
+- native path: sensor -> libfprint -> fprintd -> KDE/GNOME/PAM/CLI
+- no device-specific desktop UI
+- no firmware flash or replacement
 
-Read that file in full before changing the driver.
+## Matcher
 
-## Current state
+Production matching is pure C FAST-9 + BRIEF-256 + cross-check + rigid RANSAC.
+The acceptance threshold is fixed at 7 inliers. Enrollment stores 20 views.
+Verification may request up to three complete independent presses after
+no-match results; the retry budget is fixed and never depends on score
+proximity. Identify remains single-capture.
 
-- installed on reference MateBook: `libfprint-goodix51a0 1.94.100.goodix51a0-7`;
-- fprintd: `1.94.5-2.1`;
-- native libfprint/fprintd integration; no device-specific desktop UI;
-- right-index template remains enrolled;
-- rel7 lifecycle/identify/privacy changes build and install successfully;
-- complete software baseline and reproducible libfprint build PASS;
-- release biometric dump writer absent from final library;
-- standard libfprint identify path present in final library.
+The optional pixel/ZNCC scorer is diagnostic-only behind the explicit
+GXFP_MATCH_DIAGNOSTICS environment flag and never changes authentication.
+Rejected mosaic-star and adaptive-learning experiments are not in the
+production authentication path.
 
-## Human interaction
+## Transport and performance
 
-Do not coordinate finger timing through chat.
+Stable reply-bearing capture commands use bounded event-driven draining. NOP
+has no ACK wait. Ambiguous image ordering keeps conservative retry handling.
+Initialization/TLS may learn a 100–300 percent timing scale after real
+synchronization failures. The validated fingerprint capture recipe is separate
+and always keeps its nominal 30 ms inter-command gap.
 
-Use:
+## Template format
 
-```bash
-./fingerprint/tools/gxfp51a0-verify-diagnostic.py
-```
+Driver template version 4 / SIGFM serialization version 3. Existing templates
+from older development revisions must be deleted and enrolled once. Fresh
+installs use normal KDE/fprintd enrollment.
 
-The harness follows fprintd's standard D-Bus `finger-needed` and
-`finger-present` properties and gives local POSE/GARDE/RETIRE instructions.
-The physical finger label is displayed in uppercase.
+## Release validation
 
-For score-distribution diagnostics, use:
+The rel20 baseline and full libfprint build pass. Release gates verify the
+source manifest, compiled GXFP51A0 object, FAST/BRIEF/RANSAC code, identify
+path and absence of the biometric dump hook. Passive validation performs no
+active sensor transfer, GPIO/MMIO write or firmware action.
 
-```bash
-./fingerprint/tools/gxfp51a0-compare-fingers.py
-```
+The Arch/CachyOS installer builds locally and does not modify PAM, KDE or GNOME.
+It adds only gpiochip access to the upstream fprintd sandbox.
 
-Default sequence: INDEX DROIT x3, then INDEX GAUCHE, MAJEUR GAUCHE and
-MAJEUR DROIT against the enrolled right-index template. It writes one aggregate
-JSON report under `~/.local/state/gxfp51a0/`.
+## Privacy and safety invariants
 
-## Latest live verify
+Never publish biometric captures/templates, PMK/PSK/key material, per-unit
+fixtures, serial numbers, private machine identifiers, proprietary firmware or
+Windows binaries. Runtime PMK/timing state under /var/lib/fprint is not part of
+the repository or package.
 
-Rel7 right-index attempts produced complete 10,573-byte images with genuine
-scores observed at `0 / 15` and then `8 / 15`. The latest capture took about
-1.54 s. Both terminal no-match decisions were emitted while the finger was
-still present, so removal timing did not cause those failures.
+GPIO112 must never be touched. GPIO264 is the MCU reset and must be left low
+while the sensor is running. Hardware experiments remain bounded and explicit.
 
-Do not change matcher thresholds from isolated samples. The next step is the
-six-scan multi-finger comparison above to measure genuine dispersion versus
-negative-control scores before touching matcher logic.
+## Further work
 
-## Publication
-
-README EN/FR, provenance, native desktop integration, source-build installer,
-Arch packaging, release privacy gates and CI checks have been prepared for the
-public repository. Build/package artifacts are git-ignored.
-
-See the detailed handoff for all invariants and resume instructions.
+No additional physical test battery is required for the current public driver
+push. Future work should be driven by ordinary-use reports and, ideally, a
+larger consented cross-person validation corpus. Do not lower threshold 7 or
+activate pixel-score acceptance without such validation.

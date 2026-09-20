@@ -16,6 +16,8 @@ assert "gx_read_frame (self" in f
 # The short IRQ poll must happen before the actual frame read. Ignore the
 # explanatory comment that mentions gx_read_frame() by name.
 assert f.index("gx51_wait_irq_gpio48 (self->irq_fd, GX_DRAIN_IRQ_POLL_MS)") < f.index("r = gx_read_frame (self")
-assert "misses >= 25" in f
+assert "no_reply_miss_limit" in f
+assert "(body[0] == 0x20u || body[0] == 0xaeu) ? 12 : 25" in f
+assert "misses >= no_reply_miss_limit" in f
 PY2
 echo 'test_plain_drain_short_irq_source_safety: OK'

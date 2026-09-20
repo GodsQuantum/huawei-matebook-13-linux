@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "gx51_transport.h"
 
 #include <errno.h>

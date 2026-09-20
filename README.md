@@ -7,7 +7,7 @@
 The MateBook 13 is already a very usable Linux laptop, but on the tested Intel + NVIDIA MX250 models two issues remain disproportionately important when moving from Windows:
 
 1. **GPU & power management** — using the NVIDIA MX250 only when an application actually needs it, without leaving the dGPU consuming power all day and without logging out to switch modes.
-2. **Fingerprint reader support** — the Goodix GXFP51A0 / GF3658 Milan sensor is not yet supported by a production Linux driver and still requires reverse-engineering.
+2. **Fingerprint reader support** — this repository now includes an experimental native libfprint driver for the validated Goodix GXFP51A0 / GF3658 ST411 target.
 
 This repository is organized around those two gaps.
 
@@ -16,7 +16,7 @@ This repository is organized around those two gaps.
 | Area | Status | What this repository provides |
 | --- | --- | --- |
 | **GPU & power — NVIDIA MX250** | **Working on the validated setup** | Full-Integrated idle state, hot dGPU activation per app, PRIME Render Offload, automatic unload/PCI removal, Plasma/KWin isolation, Desktop and Steam helpers |
-| **Fingerprint — Goodix GXFP51A0 / GF3658** | **First contact confirmed / driver integration in progress** | Real Linux ACK + `GF_ST411SEC_APP_14115` and exact OTP-derived target config confirmed on MateBook 13 2021; TLS/PMK is the next boundary |
+| **Fingerprint — Goodix GXFP51A0 / GF3658** | **Experimental native driver working on the validated target** | Native libfprint/fprintd/KDE path, TLS/PMK, 80×64 capture, FAST/BRIEF/RANSAC matching, 20-view enrollment and bounded verification retries |
 
 ### Validated GPU configuration
 
@@ -85,16 +85,16 @@ See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported dis
 
 The entire original fingerprint research project is preserved under this directory. It includes the protocol notes, ACPI/SPI/GPIO mapping, supervised probes, Windows driver cross-checks and safety documentation.
 
-Current reality: **there is still no working Linux fingerprint driver for this sensor.** The candidate now builds reproducibly against libfprint v1.94.100 and its first-contact flow is aligned with the reconstructed Windows path, but the already-tested Linux sequence remains silent (34 SPI transfers, 0 Goodix IRQ, 180/180 retained RX bytes equal to `0xFF`). DMA/PIO and the other controller-side hypotheses are closed; the current boundary is physical/platform observability. New contributors can reproduce the complete software baseline with `make -C fingerprint verify`.
-
-Target architecture remains:
+Current reality: **an experimental native Linux driver is working on the validated MateBook 13 2021 GXFP51A0/GF3658/ST411 target.** It builds reproducibly against libfprint v1.94.100 and uses the standard Linux biometric stack:
 
 ```text
-validated Linux Milan transport
+GXFP51A0
 -> libfprint
 -> fprintd
--> KDE/GNOME/PAM login and sudo
+-> KDE/GNOME/PAM/CLI
 ```
+
+The validated path includes TLS/PMK establishment, 80×64 host-side capture, 20-view enrollment, FAST/BRIEF/RANSAC matching and fixed bounded retries for partial-finger placement misses. It does not flash firmware or require a device-specific desktop UI. See [`fingerprint/README.md`](fingerprint/README.md) for the exact supported firmware/hardware scope, installation and security limitations.
 
 ## Supported hardware vs. project scope
 

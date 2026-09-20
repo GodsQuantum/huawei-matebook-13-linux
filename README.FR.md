@@ -7,7 +7,7 @@
 Le MateBook 13 est déjà très utilisable sous Linux, mais sur les modèles testés avec Intel + NVIDIA MX250, deux points concentrent l'essentiel des difficultés lors du passage depuis Windows :
 
 1. **Gestion GPU et alimentation** — utiliser la NVIDIA MX250 uniquement quand une application en a besoin, sans laisser le GPU dédié consommer en permanence et sans déconnexion/reconnexion pour changer de mode.
-2. **Capteur d'empreinte** — le Goodix GXFP51A0 / GF3658 Milan ne dispose pas encore d'un pilote Linux de production et nécessite toujours de la rétro-ingénierie.
+2. **Capteur d'empreinte** — le dépôt inclut maintenant un pilote libfprint natif expérimental pour la cible validée Goodix GXFP51A0 / GF3658 ST411.
 
 Le dépôt est désormais organisé autour de ces deux écueils.
 
@@ -16,7 +16,7 @@ Le dépôt est désormais organisé autour de ces deux écueils.
 | Domaine | État | Ce que fournit le dépôt |
 | --- | --- | --- |
 | **GPU & alimentation — NVIDIA MX250** | **Fonctionnel sur la configuration validée** | Vrai état Integrated au repos, activation à la volée par application, PRIME Render Offload, déchargement/retrait PCI automatique, isolation Plasma/KWin, gestion Desktop et Steam |
-| **Empreinte — Goodix GXFP51A0 / GF3658** | **Premier contact confirmé / intégration driver en cours** | ACK Linux réel + `GF_ST411SEC_APP_14115` et configuration cible dérivée de l’OTP confirmés sur MateBook 13 2021 ; TLS/PMK est la prochaine frontière |
+| **Empreinte — Goodix GXFP51A0 / GF3658** | **Pilote natif expérimental fonctionnel sur la cible validée** | Chemin libfprint/fprintd/KDE natif, TLS/PMK, capture 80×64, matching FAST/BRIEF/RANSAC, enrollment 20 vues et retries bornés |
 
 ### Configuration GPU validée
 
@@ -85,16 +85,16 @@ Voir [`gpu-power/README.FR.md`](gpu-power/README.FR.md) pour l'architecture, les
 
 Tout le projet de recherche initial sur le capteur d'empreinte est conservé dans ce dossier : protocole, ressources ACPI/SPI/GPIO, probes supervisées, cross-checks du pilote Windows et documentation de sécurité.
 
-État actuel : **il n'existe toujours pas de pilote Linux fonctionnel pour ce capteur.** Le candidat compile désormais de manière reproductible contre libfprint v1.94.100 et son first-contact est aligné sur le chemin Windows reconstruit, mais la séquence Linux déjà testée reste silencieuse (34 transferts SPI, 0 IRQ Goodix, 180/180 octets RX retenus à `0xFF`). DMA/PIO et les autres hypothèses côté contrôleur sont fermés ; la frontière actuelle est l'observabilité physique/plateforme. Un nouveau contributeur peut reproduire tout le baseline logiciel avec `make -C fingerprint verify`.
-
-Architecture cible :
+État actuel : **un pilote Linux natif expérimental fonctionne sur la cible MateBook 13 2021 GXFP51A0/GF3658/ST411 validée.** Il compile de manière reproductible contre libfprint v1.94.100 et utilise la pile biométrique Linux standard :
 
 ```text
-transport Milan Linux validé
+GXFP51A0
 -> libfprint
 -> fprintd
--> KDE/GNOME/PAM / sudo
+-> KDE/GNOME/PAM/CLI
 ```
+
+Le chemin validé couvre l'établissement TLS/PMK, la capture 80×64 côté hôte, l'enrollment 20 vues, le matching FAST/BRIEF/RANSAC et des retries fixes/bornés pour les erreurs de placement sur ce petit capteur partiel. Il ne flashe pas le firmware et n'impose aucune UI desktop spécifique. Voir [`fingerprint/README.FR.md`](fingerprint/README.FR.md) pour le périmètre matériel/firmware exact, l'installation et les limites de sécurité.
 
 ## Matériel pris en charge et périmètre
 
