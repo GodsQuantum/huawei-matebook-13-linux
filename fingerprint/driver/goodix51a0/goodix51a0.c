@@ -107,6 +107,7 @@ struct _FpiDeviceGoodix51A0
   int           timing_saved;/* last value persisted to disk, to avoid rewrites */
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
+  gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -1950,6 +1951,18 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
   if (!gx_tls_session (self))
     return FALSE;
 
+  /* The sensor drives GPIO48 level-high while a response is pending. The
+   * first background capture must not race the tail of the TLS handshake:
+   * wait for a proven idle-low boundary, then give the MCU a short quiesce
+   * window before starting the capture recipe. This only runs on cold/context
+   * preparation; the normal warm Claim path never pays this delay. */
+  if (gx51_wait_irq_gpio48_low (self->irq_fd, 250) < 0)
+    {
+      fp_warn ("GXFP51A0 TLS settled but IRQ did not return low before calibration");
+      return FALSE;
+    }
+  g_usleep (100 * 1000);
+
   if (capture_diagnostic)
     {
       fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PREPARING_BACKGROUND: KEEP_FINGER_OFF_SENSOR");
@@ -2097,6 +2110,7 @@ static void
 gx_invalidate_capture_context (FpiDeviceGoodix51A0 *self)
 {
   self->production_ready = FALSE;
+  self->warm_valid = FALSE;
   self->have_fdt = FALSE;
   self->bg_dirty = FALSE;
   self->tls_rxlen = 0;
@@ -2958,121 +2972,8 @@ gx_enroll_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 /* ------------------------------------------------------------------ */
 
 static void
-gx_dev_open (FpDevice *dev)
+gx_transport_close (FpiDeviceGoodix51A0 *self)
 {
-  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
-  GError *err = NULL;
-  const gchar *path;
-  gchar fw[64] = "";
-
-  path = fpi_device_get_udev_data (dev, FPI_DEVICE_UDEV_SUBTYPE_SPIDEV);
-  self->spi_fd = open (path, O_RDWR | O_CLOEXEC);
-  if (self->spi_fd < 0)
-    {
-      g_set_error (&err, G_IO_ERROR, g_io_error_from_errno (errno),
-                   "cannot open spidev node %s", path);
-      fpi_device_open_complete (dev, err);
-      return;
-    }
-
-  if (flock (self->spi_fd, LOCK_EX | LOCK_NB) != 0)
-    {
-      close (self->spi_fd);
-      self->spi_fd = -1;
-      fpi_device_open_complete (dev, fpi_device_error_new_msg (
-        FP_DEVICE_ERROR_BUSY, "sensor already in use by another process"));
-      return;
-    }
-
-  {
-    guint8 mode = SPI_MODE_0 | SPI_CS_HIGH, bits = 8;
-    guint32 speed = 1000000;
-    ioctl (self->spi_fd, SPI_IOC_WR_MODE, &mode);
-    ioctl (self->spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-    ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
-  }
-
-  self->irq_fd = gx51_open_irq_gpio48 ();
-  if (self->irq_fd < 0)
-    {
-      close (self->spi_fd);
-      self->spi_fd = -1;
-      fpi_device_open_complete (dev, fpi_device_error_new_msg (
-        FP_DEVICE_ERROR_PROTO, "GXFP51A0 GPIO48 IRQ input is not available"));
-      return;
-    }
-  fp_info ("GXFP51A0 IRQ source: direct GPIO48 level polling");
-
-  self->fdt_abs = GOODIX_FDT_ABS;
-  self->timing_scale = gx_timing_load ();
-  self->timing_saved = self->timing_scale;
-
-  /*
-   * First-contact sequence only. Windows does not perform an unconditional
-   * reset before DriverState. After exhausted DriverState retries, perform the
-   * reviewed reset fallback once and continue into init_MCU without replaying
-   * DriverState.
-   */
-  if (!gx_driverstate_install_windows (self))
-    {
-      fp_info ("GXFP51A0: DriverState silent; applying reviewed Windows fallback reset");
-      gx_gpio_reset (self);
-      fp_warn ("GXFP51A0: continuing to init_MCU after DriverState fallback as Windows does");
-    }
-
-  if (gx_read_fw_version (self, fw, sizeof fw))
-    fp_info ("GXFP51A0 firmware: %s", fw);
-  else
-    {
-      /* Windows common-init: HardResetMcu after the three A8 attempts,
-       * then one final GetEvkVersion. */
-      fp_info ("GXFP51A0: three A8 attempts silent; applying common-init reset fallback");
-      gx_gpio_reset (self);
-      if (gx_read_fw_version_once (self, fw, sizeof fw))
-        fp_info ("GXFP51A0 firmware after reset fallback: %s", fw);
-      else
-        fp_warn ("GXFP51A0: no A8 firmware response after final fallback");
-    }
-
-  fp_info ("GXFP51A0 opened; experimental PMK/TLS/capture path enabled");
-
-  if (!g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") &&
-      !g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") &&
-      !g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
-    {
-      /* Opportunistic preclaim preparation keeps the normal fast path used by
-       * desktop clients, but it is not part of the semantic meaning of
-       * FpDevice::open.  A transient TLS/background-image timeout must not make
-       * the device disappear from fprintd/KDE.  Leave the handles open and let
-       * the actual enroll/verify/identify action perform the bounded retry. */
-      if (!gx_prepare_capture_context_once (self, FALSE))
-        {
-          fp_warn ("GXFP51A0 preclaim preparation failed; deferring clean preparation to the biometric action");
-          if (!gx_recover_capture_context (self))
-            fp_warn ("GXFP51A0 preclaim recovery reset was incomplete; action startup will retry from a fresh boundary");
-        }
-      else
-        {
-          self->production_ready = TRUE;
-          fp_info ("GXFP51A0 production capture context ready before EnrollStart/VerifyStart");
-        }
-    }
-
-  fpi_device_open_complete (dev, NULL);
-}
-
-
-static void
-gx_dev_close (FpDevice *dev)
-{
-  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
-
-  g_clear_handle_id (&self->poll_id, g_source_remove);
-  self->production_ready = FALSE;
-  self->have_fdt = FALSE;
-  gx_tls_teardown (self);
-  gx_pmk_clear (self);
-
   if (self->irq_fd >= 0)
     {
       close (self->irq_fd);
@@ -3084,8 +2985,280 @@ gx_dev_close (FpDevice *dev)
       close (self->spi_fd);
       self->spi_fd = -1;
     }
+}
 
+static gboolean
+gx_transport_open (FpDevice *dev, GError **error)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  const gchar *path;
+  guint8 mode = SPI_MODE_0 | SPI_CS_HIGH;
+  guint8 bits = 8;
+  guint32 speed = 1000000;
+
+  path = fpi_device_get_udev_data (dev, FPI_DEVICE_UDEV_SUBTYPE_SPIDEV);
+  if (!path || !*path)
+    {
+      g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                           "GXFP51A0 spidev node was not supplied by libfprint udev discovery");
+      return FALSE;
+    }
+
+  self->spi_fd = open (path, O_RDWR | O_CLOEXEC);
+  if (self->spi_fd < 0)
+    {
+      g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errno),
+                   "cannot open spidev node %s", path);
+      return FALSE;
+    }
+
+  if (flock (self->spi_fd, LOCK_EX | LOCK_NB) != 0)
+    {
+      gx_transport_close (self);
+      g_set_error_literal (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_BUSY,
+                           "sensor already in use by another process");
+      return FALSE;
+    }
+
+  if (ioctl (self->spi_fd, SPI_IOC_WR_MODE, &mode) < 0 ||
+      ioctl (self->spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits) < 0 ||
+      ioctl (self->spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed) < 0)
+    {
+      int saved_errno = errno;
+
+      gx_transport_close (self);
+      g_set_error (error, G_IO_ERROR, g_io_error_from_errno (saved_errno),
+                   "cannot configure GXFP51A0 SPI transport: %s",
+                   g_strerror (saved_errno));
+      return FALSE;
+    }
+
+  self->irq_fd = gx51_open_irq_gpio48 ();
+  if (self->irq_fd < 0)
+    {
+      gx_transport_close (self);
+      g_set_error_literal (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_PROTO,
+                           "GXFP51A0 GPIO48 IRQ input is not available");
+      return FALSE;
+    }
+
+  fp_info ("GXFP51A0 IRQ source: direct GPIO48 level polling");
+  return TRUE;
+}
+
+static void
+gx_warm_discard (FpiDeviceGoodix51A0 *self)
+{
+  self->warm_valid = FALSE;
+  self->production_ready = FALSE;
+  self->have_fdt = FALSE;
+  self->bg_dirty = FALSE;
+  self->tls_rxlen = 0;
+  self->tls_rxpos = 0;
+  if (self->tls_up && self->spi_fd >= 0 && self->irq_fd >= 0)
+    gx_tls_teardown (self);
+  else
+    {
+      self->tls_up = FALSE;
+      g_clear_pointer (&self->tls, gx_tls_free);
+    }
+  gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
+}
+
+static gboolean
+gx_warm_available (FpiDeviceGoodix51A0 *self)
+{
+  return self->warm_valid && self->tls_up && self->tls &&
+         self->bg_frame && self->have_fdt;
+}
+
+static gboolean
+gx_warm_validate (FpiDeviceGoodix51A0 *self)
+{
+  int cur[GXFP_FDT_ZONE_COUNT];
+  gint64 t0 = g_get_monotonic_time ();
+
+  if (gx_fdt_probe (self, cur) != 0)
+    return FALSE;
+
+  fp_info ("GXFP51A0 warm context validated in %d ms (FDT mean=%d drop=%d)",
+           (int) ((g_get_monotonic_time () - t0) / 1000),
+           gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur));
+  return TRUE;
+}
+
+static gboolean
+gx_cold_prepare (FpiDeviceGoodix51A0 *self)
+{
+  gchar fw[64] = "";
+
+  self->fdt_abs = GOODIX_FDT_ABS;
+  self->timing_scale = gx_timing_load ();
+  self->timing_saved = self->timing_scale;
+
+  if (!gx_driverstate_install_windows (self))
+    {
+      fp_info ("GXFP51A0: DriverState silent; applying reviewed Windows fallback reset");
+      gx_gpio_reset (self);
+      fp_warn ("GXFP51A0: continuing to init_MCU after DriverState fallback as Windows does");
+    }
+
+  if (gx_read_fw_version (self, fw, sizeof fw))
+    fp_info ("GXFP51A0 firmware: %s", fw);
+  else
+    {
+      fp_info ("GXFP51A0: three A8 attempts silent; applying common-init reset fallback");
+      gx_gpio_reset (self);
+      if (gx_read_fw_version_once (self, fw, sizeof fw))
+        fp_info ("GXFP51A0 firmware after reset fallback: %s", fw);
+      else
+        fp_warn ("GXFP51A0: no A8 firmware response after final fallback");
+    }
+
+  fp_info ("GXFP51A0 opened; experimental PMK/TLS/capture path enabled");
+
+  if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") ||
+      g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") ||
+      g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
+    return FALSE;
+
+  if (!gx_prepare_capture_context_once (self, FALSE))
+    {
+      fp_warn ("GXFP51A0 probe prewarm preparation failed; deferring bounded recovery to the biometric action");
+      gx_invalidate_capture_context (self);
+      gx_tls_teardown (self);
+      gx_pmk_clear (self);
+      g_clear_pointer (&self->bg_frame, g_free);
+      return FALSE;
+    }
+
+  self->production_ready = TRUE;
+  self->warm_valid = TRUE;
+  fp_info ("GXFP51A0 production capture context ready; native warm state armed");
+  return TRUE;
+}
+
+#define GX_PROBE_PREWARM_ATTEMPTS 2
+
+static void
+gx_dev_probe (FpDevice *dev)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  GError *err = NULL;
+  gint64 t0 = g_get_monotonic_time ();
+  gboolean prewarmed = FALSE;
+  gboolean diagnostic =
+    g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") ||
+    g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") ||
+    g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY");
+
+  if (!gx_transport_open (dev, &err))
+    {
+      fpi_device_probe_complete (dev, NULL, NULL, err);
+      return;
+    }
+
+  if (!diagnostic)
+    {
+      for (int attempt = 1; attempt <= GX_PROBE_PREWARM_ATTEMPTS; attempt++)
+        {
+          /* probe() is an enumeration-time optimization, not an authentication
+           * operation. Every attempt starts from a deterministic MCU boundary;
+           * this prevents stale TLS state from a crashed/restarted daemon from
+           * leaking into the next preparation. */
+          gx_gpio_reset (self);
+
+          if (gx_cold_prepare (self))
+            {
+              prewarmed = TRUE;
+              self->production_ready = FALSE;
+              gx_pmk_clear (self);
+              fp_info ("GXFP51A0 native prewarm completed during libfprint probe "
+                       "in %d ms (attempt %d/%d)",
+                       (int) ((g_get_monotonic_time () - t0) / 1000),
+                       attempt, GX_PROBE_PREWARM_ATTEMPTS);
+              break;
+            }
+
+          fp_warn ("GXFP51A0 probe prewarm attempt %d/%d failed",
+                   attempt, GX_PROBE_PREWARM_ATTEMPTS);
+          gx_warm_discard (self);
+          if (attempt < GX_PROBE_PREWARM_ATTEMPTS)
+            g_usleep (250 * 1000);
+        }
+    }
+
+  if (!prewarmed)
+    {
+      gx_warm_discard (self);
+      if (!diagnostic)
+        fp_warn ("GXFP51A0 probe prewarm unavailable; device remains usable through the cold open path");
+    }
+
+  gx_transport_close (self);
+  /* Keep the historical libfprint device ID so existing fprintd templates remain visible. */
+  fpi_device_probe_complete (dev, NULL, NULL, NULL);
+}
+
+static void
+gx_dev_open (FpDevice *dev)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  GError *err = NULL;
+  gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
+
+  if (!gx_transport_open (dev, &err))
+    {
+      fpi_device_open_complete (dev, err);
+      return;
+    }
+
+  if (gx_warm_available (self))
+    {
+      if (gx_warm_validate (self))
+        {
+          self->production_ready = TRUE;
+          fp_info ("GXFP51A0 reusing native libfprint warm context");
+          fpi_device_open_complete (dev, NULL);
+          return;
+        }
+
+      fp_warn ("GXFP51A0 warm context did not answer; falling back to cold preparation");
+      gx_warm_discard (self);
+      gx_gpio_reset (self);
+    }
+  else if (had_warm)
+    {
+      fp_info ("GXFP51A0 incomplete warm context; returning to cold preparation");
+      gx_warm_discard (self);
+      gx_gpio_reset (self);
+    }
+
+  (void) gx_cold_prepare (self);
+  fpi_device_open_complete (dev, NULL);
+}
+
+static void
+gx_dev_close (FpDevice *dev)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+
+  g_clear_handle_id (&self->poll_id, g_source_remove);
+
+  if (self->production_ready && self->warm_valid && self->tls_up &&
+      self->tls && self->have_fdt && self->bg_frame)
+    {
+      self->production_ready = FALSE;
+      gx_pmk_clear (self);
+      gx_transport_close (self);
+      fp_info ("GXFP51A0 stashed native warm context across fp_device close");
+      fpi_device_close_complete (dev, NULL);
+      return;
+    }
+
+  gx_warm_discard (self);
+  gx_transport_close (self);
   fpi_device_close_complete (dev, NULL);
 }
 
@@ -3255,12 +3428,8 @@ fpi_device_goodix51a0_finalize (GObject *object)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (object);
 
-  if (self->irq_fd >= 0)
-    close (self->irq_fd);
-  if (self->spi_fd >= 0)
-    close (self->spi_fd);
-
-  g_clear_pointer (&self->bg_frame, g_free);
+  gx_warm_discard (self);
+  gx_transport_close (self);
   G_OBJECT_CLASS (fpi_device_goodix51a0_parent_class)->finalize (object);
 }
 
@@ -3279,6 +3448,7 @@ fpi_device_goodix51a0_class_init (FpiDeviceGoodix51A0Class *klass)
 
   dev_class->temp_hot_seconds = -1;   /* slow capture: no thermal throttling */
 
+  dev_class->probe = gx_dev_probe;
   dev_class->open = gx_dev_open;
   dev_class->close = gx_dev_close;
   dev_class->enroll = gx_dev_enroll;

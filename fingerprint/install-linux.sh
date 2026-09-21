@@ -7,8 +7,8 @@ STATE_DIR="/var/lib/gxfp51a0-local-install"
 DROPIN_DIR="/etc/systemd/system/fprintd.service.d"
 DROPIN_FILE="$DROPIN_DIR/60-goodix51a0-local-lib.conf"
 UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
-BIND_HELPER="/usr/local/libexec/gxfp51a0-spidev-bind"
-BIND_SERVICE="/etc/systemd/system/gxfp51a0-spidev-bind.service"
+EARLY_WANTS_DIR="/etc/systemd/system/graphical.target.wants"
+EARLY_WANTS_LINK="$EARLY_WANTS_DIR/fprintd.service"
 INSTALL_DEPS=1
 BUILD_ONLY=0
 
@@ -155,6 +155,18 @@ LIBDIR="/usr/local/$LIBDIR_REL"
   exit 6
 }
 
+FPRINTD_UNIT="$(systemctl show -p FragmentPath --value fprintd.service)"
+[[ -n "$FPRINTD_UNIT" && -f "$FPRINTD_UNIT" ]] || {
+  echo "ERROR: fprintd.service fragment was not found." >&2
+  exit 6
+}
+FPRINTD_BIN="$(sed -n 's/^ExecStart=//p' "$FPRINTD_UNIT" | head -n1 | awk '{print $1}')"
+[[ -n "$FPRINTD_BIN" && -x "$FPRINTD_BIN" ]] || {
+  echo "ERROR: fprintd daemon executable could not be resolved from $FPRINTD_UNIT." >&2
+  exit 6
+}
+UDEVADM_BIN="$(command -v udevadm)"
+
 TMP_STATE="$(mktemp -d)"
 trap 'rm -rf "$TMP_STATE"' EXIT
 mkdir -p "$TMP_STATE/backup"
@@ -177,20 +189,25 @@ sudo cp -a "$STAGE/usr/local/." /usr/local/
 sudo mkdir -p "$DROPIN_DIR"
 cat > "$TMP_STATE/dropin" <<EOF
 [Unit]
-Requires=gxfp51a0-spidev-bind.service
-After=gxfp51a0-spidev-bind.service
+After=systemd-udev-trigger.service
 
 [Service]
+ExecStartPre=-$UDEVADM_BIN settle --timeout=3
+ExecStart=
+ExecStart=$FPRINTD_BIN --no-timeout
+TimeoutStartSec=40s
 # Local GXFP51A0 libfprint build; isolated to fprintd.
 Environment=LD_LIBRARY_PATH=$LIBDIR
 DeviceAllow=char-gpiochip rw
+LimitCORE=0
 EOF
 sudo install -m 0644 "$TMP_STATE/dropin" "$DROPIN_FILE"
 sudo install -Dm0644 "$UDEV_RULE_SRC" "$UDEV_RULE_FILE"
-sudo install -Dm0755 "$ROOT/system/gxfp51a0-spidev-bind" "$BIND_HELPER"
-sed 's#/usr/libexec/gxfp51a0-spidev-bind#/usr/local/libexec/gxfp51a0-spidev-bind#' \
-  "$ROOT/system/gxfp51a0-spidev-bind.service" > "$TMP_STATE/bind-service"
-sudo install -Dm0644 "$TMP_STATE/bind-service" "$BIND_SERVICE"
+
+# Remove rel22 portable-install glue if upgrading in place. rel23 relies on the
+# generated libfprint udev rule and the standard fprintd service only.
+sudo rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
+  /etc/systemd/system/gxfp51a0-spidev-bind.service
 
 sudo mkdir -p "$STATE_DIR"
 sudo rm -rf "$STATE_DIR/backup"
@@ -199,12 +216,17 @@ sudo install -m 0644 "$TMP_STATE/manifest" "$STATE_DIR/manifest"
 printf '%s\n' "$LIBDIR" | sudo tee "$STATE_DIR/libdir" >/dev/null
 sudo install -m 0755 "$ROOT/uninstall-linux-source.sh" "$STATE_DIR/uninstall.sh"
 
+sudo mkdir -p "$EARLY_WANTS_DIR"
+if [[ ! -e "$EARLY_WANTS_LINK" && ! -L "$EARLY_WANTS_LINK" ]]; then
+  sudo ln -s "$FPRINTD_UNIT" "$EARLY_WANTS_LINK"
+  printf '%s\n' "$EARLY_WANTS_LINK" | sudo tee "$STATE_DIR/created-early-wants" >/dev/null
+fi
+
 sudo ldconfig
 sudo udevadm control --reload
 sudo udevadm trigger --subsystem-match=spi
 sudo udevadm settle
 sudo systemctl daemon-reload
-sudo "$BIND_HELPER"
 sudo systemctl restart fprintd.service
 
 DEVICE="$(busctl --system call \
@@ -224,6 +246,9 @@ Rollback:
   sudo $STATE_DIR/uninstall.sh
 
 The installer did not modify PAM, KDE or GNOME configuration.
+It uses only the generated libfprint udev SPI rule and the standard fprintd
+service. fprintd starts early for native libfprint prewarm and stays alive with
+--no-timeout; no GXFP-specific daemon/service is installed.
 Enroll through your desktop settings or:
   fprintd-enroll -f right-index-finger
 EOF

@@ -1,6 +1,6 @@
 pkgname=libfprint-goodix51a0
 pkgver=1.94.100.goodix51a0
-pkgrel=22
+pkgrel=23
 pkgdesc="libfprint 1.94.100 with experimental Goodix GXFP51A0 SPI driver"
 arch=('x86_64')
 url="https://fprint.freedesktop.org/"
@@ -21,6 +21,7 @@ build() {
   GXFP51A0_MESON_PREFIX=/usr \
     "$_fp_root/scripts/build-libfprint-v1.94.100.sh"
 }
+
 package() {
   local build_root="$srcdir/gxfp51a0-public-build"
 
@@ -28,11 +29,15 @@ package() {
   DESTDIR="$pkgdir" meson install -C "$build_root/libfprint-build"
 
   install -Dm644 "$startdir/fprintd-goodix51a0.conf" \
-    "$pkgdir/usr/lib/systemd/system/fprintd.service.d/50-goodix51a0-gpio.conf"
-  install -Dm755 "$_fp_root/system/gxfp51a0-spidev-bind" \
-    "$pkgdir/usr/libexec/gxfp51a0-spidev-bind"
-  install -Dm644 "$_fp_root/system/gxfp51a0-spidev-bind.service" \
-    "$pkgdir/usr/lib/systemd/system/gxfp51a0-spidev-bind.service"
+    "$pkgdir/usr/lib/systemd/system/fprintd.service.d/50-goodix51a0-runtime.conf"
+
+  # Start the standard fprintd daemon as part of the graphical boot transaction.
+  # The drop-in orders it before the display manager; libfprint probe() performs
+  # the native libfprint prewarm. This is a static package-owned enablement, not a custom
+  # GXFP service.
+  install -d "$pkgdir/usr/lib/systemd/system/graphical.target.wants"
+  ln -s ../fprintd.service \
+    "$pkgdir/usr/lib/systemd/system/graphical.target.wants/fprintd.service"
 
   if [[ -f "$build_root/libfprint-v1.94.100/COPYING" ]]; then
     install -Dm644 "$build_root/libfprint-v1.94.100/COPYING" \

@@ -33,6 +33,9 @@ def fn(name):
 ds=fn("gx_driverstate_install_windows")
 evk=fn("gx_read_fw_version_once")
 op=fn("gx_dev_open")
+transport_open=fn("gx_transport_open")
+cold=fn("gx_cold_prepare")
+probe=fn("gx_dev_probe")
 gate=fn("gx_upload_config_and_reqtls")
 staging=fn("gx_factory_load_staging_pmk")
 staging_read=fn("gx_factory_staging_read_cb")
@@ -46,10 +49,16 @@ assert "send_index < 2" in evk
 assert "cached_n = 0" in evk
 assert re.search(r"g_usleep\s*\(\s*5000\s*\)",evk)
 
-first_ds=op.find("gx_driverstate_install_windows")
-first_reset=op.find("gx_gpio_reset")
+# rel23 factors transport and first-contact preparation out of open().
+# Preserve the validated Windows ordering inside gx_cold_prepare: DriverState
+# must be attempted before its reviewed reset fallback.
+first_ds=cold.find("gx_driverstate_install_windows")
+first_reset=cold.find("gx_gpio_reset")
 assert first_ds>=0 and first_reset>first_ds
-assert op.count("gx_driverstate_install_windows")==1
+assert cold.count("gx_driverstate_install_windows")==1
+assert "gx_transport_open (dev, &err)" in op
+assert "gx_cold_prepare (self)" in op
+assert "gx_cold_prepare (self)" in probe
 
 assert "gx_target_configure" in text
 assert "gxfp_derive_calibration" in text
@@ -87,14 +96,14 @@ assert "GXFP_TARGET_PMK_LEN_ADDR" not in target_header
 assert 10 + 4*6 == 34
 
 assert "gx_read_psk" not in text
-assert "SPI_MODE_0 | SPI_CS_HIGH" in op
-assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", op)
+assert "SPI_MODE_0 | SPI_CS_HIGH" in transport_open
+assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", transport_open)
 assert "gx_pmk_clear (self);" in fn("gx_dev_close")
 assert "OPENSSL_cleanse (self->psk" in fn("gx_pmk_clear")
 assert "self->psk_ready = FALSE;" in fn("gx_pmk_clear")
-assert "self->timing_scale = gx_timing_load ();" in op
-assert "self->timing_saved = self->timing_scale;" in op
-assert "gx_adapt_sweep ();" not in op
+assert "self->timing_scale = gx_timing_load ();" in cold
+assert "self->timing_saved = self->timing_scale;" in cold
+assert "gx_adapt_sweep ();" not in cold
 assert "GX_ADAPT_" not in text
 
 assert "gx51_sleep_us(300000)" in transport

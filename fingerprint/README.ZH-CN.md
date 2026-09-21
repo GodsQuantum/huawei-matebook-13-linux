@@ -41,9 +41,9 @@
 
 ## 安装
 
-### 下载已打包的 rel22 release
+### 下载已打包的 rel23 release
 
-对于已验证的 GXFP51A0 / GF3658 ST411，最简单的起点是 [GitHub rel22 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22)。rel22 修复冷启动后的 SPI 准备：udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀，并且 fprintd 启动前会运行幂等的 `gxfp51a0-spidev-bind.service`，只绑定未被其他驱动占用的 GXFP51A0，并确认 `/dev/spidev*` 已出现。
+对于已验证的 GXFP51A0 / GF3658 ST411，最简单的起点是 [GitHub rel23 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23)。rel23 完全使用 libfprint 原生 SPI 路径：生成的 udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀并直接绑定 `spidev`，不再需要 GXFP 专用 systemd binder。标准 fprintd 随 graphical boot transaction 启动并使用 `--no-timeout`；libfprint `probe()` 预热 TLS、背景和 FDT 状态。完整 warm context 在 Claim/Release 之间保留，同时关闭 SPI/GPIO handle；下次 Claim 会先做硬件重新验证，若传感器状态丢失则自动回退到有界 cold path。现有 template-v4 enrollment 保持兼容。
 
 Release 包含：
 

@@ -38,12 +38,17 @@ echo "==> Installing libfprint-goodix51a0 and fprintd"
 sudo pacman -S --needed --noconfirm fprintd
 sudo pacman -U --needed --noconfirm "$PKG"
 
-echo "==> Verifying boot-safe SPI transport"
-sudo /usr/libexec/gxfp51a0-spidev-bind
+echo "==> Verifying native udev SPI binding and standard fprintd prewarm"
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=spi
+sudo udevadm settle --timeout=3 || true
 sudo systemctl daemon-reload
 sudo systemctl restart fprintd.service
 
-echo "==> Verifying fprintd discovery"
+test -L /usr/lib/systemd/system/graphical.target.wants/fprintd.service
+systemctl cat fprintd.service | grep -Fq '/usr/lib/fprintd --no-timeout'
+test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
+
 DEVICE="$(busctl --system call \
   net.reactivated.Fprint \
   /net/reactivated/Fprint/Manager \
@@ -55,13 +60,17 @@ cat <<'EOF'
 
 Installation complete.
 
-The package prepares GXFP51A0 -> spidev before every fprintd start, so
-fingerprint authentication is available to the initial login manager after boot.
+GXFP51A0 now follows the native libfprint SPI path:
+  udev -> spidev -> libfprint probe/open -> standard fprintd -> PAM/KDE
+
+No GXFP-specific daemon or systemd service is installed. The standard fprintd
+daemon starts early in graphical boot and stays alive with --no-timeout so the
+driver can keep a short, bounded in-process warm context for fast authentication.
 
 Standard Linux tools:
   fprintd-enroll -f right-index-finger
   fprintd-verify
   fprintd-list "$USER"
 
-The driver does not otherwise modify PAM or desktop configuration.
+The driver does not modify PAM, KDE or GNOME configuration.
 EOF

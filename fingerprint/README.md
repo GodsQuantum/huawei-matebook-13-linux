@@ -51,11 +51,11 @@ threshold or combining weak scores across attempts.
 
 ## Install
 
-### Download the packaged rel22 release
+### Download the packaged rel23 release
 
-For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is the [rel22 GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel22). It contains the native Arch/CachyOS package, a portable Linux source bundle, install instructions and SHA-256 checksums.
+For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is the [rel23 GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23). It contains the native Arch/CachyOS package, a portable Linux source bundle, install instructions and SHA-256 checksums.
 
-rel22 fixes cold-boot readiness. The generated udev rule accepts ACPI compatible-ID suffixes such as `acpi:GXFP51A0:GXFP51A0:`, and fprintd now requires an idempotent `gxfp51a0-spidev-bind.service` that loads `spidev`, binds only an unclaimed GXFP51A0 device, and verifies the character node before fprintd starts. It refuses to unbind an unexpected kernel driver.
+rel23 uses the native libfprint SPI path end-to-end. The generated udev rule accepts ACPI compatible-ID suffixes such as `acpi:GXFP51A0:GXFP51A0:` and binds the device to `spidev` without a GXFP-specific systemd binder. Standard fprintd starts as part of the graphical boot transaction with `--no-timeout`; libfprint `probe()` prewarms TLS, background and FDT state. A complete warm context survives fprintd Claim/Release while SPI/GPIO handles are closed, is hardware-revalidated on the next Claim, and falls back to the bounded cold path if the sensor state was lost. Existing template-v4 enrollments remain compatible.
 
 
 ### Arch / CachyOS

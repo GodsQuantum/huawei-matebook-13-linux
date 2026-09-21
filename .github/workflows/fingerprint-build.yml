@@ -5,12 +5,14 @@ on:
     paths:
       - 'fingerprint/**'
       - 'tests/test-goodix51a0-first-contact.py'
+      - 'tests/test-goodix51a0-boot-binding.py'
       - 'tests/test-fingerprint-tooling.py'
       - '.github/workflows/fingerprint-build.yml'
   pull_request:
     paths:
       - 'fingerprint/**'
       - 'tests/test-goodix51a0-first-contact.py'
+      - 'tests/test-goodix51a0-boot-binding.py'
       - 'tests/test-fingerprint-tooling.py'
       - '.github/workflows/fingerprint-build.yml'
 

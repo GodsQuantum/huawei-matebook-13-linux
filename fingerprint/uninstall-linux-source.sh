@@ -3,8 +3,6 @@ set -Eeuo pipefail
 STATE_DIR="/var/lib/gxfp51a0-local-install"
 DROPIN_FILE="/etc/systemd/system/fprintd.service.d/60-goodix51a0-local-lib.conf"
 UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
-BIND_HELPER="/usr/local/libexec/gxfp51a0-spidev-bind"
-BIND_SERVICE="/etc/systemd/system/gxfp51a0-spidev-bind.service"
 
 if (( EUID != 0 )); then
   echo "ERROR: run this rollback with sudo/root." >&2
@@ -29,7 +27,16 @@ if [[ -d "$STATE_DIR/backup" ]]; then
   cp -a "$STATE_DIR/backup/." /
 fi
 
-rm -f "$DROPIN_FILE" "$UDEV_RULE_FILE" "$BIND_HELPER" "$BIND_SERVICE"
+if [[ -f "$STATE_DIR/created-early-wants" ]]; then
+  EARLY_WANTS_LINK="$(cat "$STATE_DIR/created-early-wants")"
+  [[ -n "$EARLY_WANTS_LINK" ]] && rm -f -- "$EARLY_WANTS_LINK"
+fi
+
+rm -f "$DROPIN_FILE" "$UDEV_RULE_FILE"
+# Compatibility cleanup for the removed rel22 portable binder.
+rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
+  /etc/systemd/system/gxfp51a0-spidev-bind.service
+
 udevadm control --reload || true
 rm -rf "$STATE_DIR"
 ldconfig
