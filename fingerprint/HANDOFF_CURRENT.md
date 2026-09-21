@@ -2,118 +2,108 @@
 
 Updated: 2026-09-21.
 
-## Current release candidate
+## Stable and candidate
 
-- package revision: libfprint-goodix51a0 1.94.100.goodix51a0-23
-- release tag: fingerprint-gxfp51a0-rel23
+- stable public release: `fingerprint-gxfp51a0-rel23`
+- stable main before this candidate: `c99522c0a00245e30fed7d050b1314b678f04694`
+- compatibility candidate: rel24-rc1 / package `libfprint-goodix51a0 1.94.100.goodix51a0-24`
 - libfprint base: v1.94.100
 - fprintd validated line: 1.94.5
 - exact validated target: GXFP51A0, GF3658/ST411, chip 0x2504
 - validated firmware: GF_ST411SEC_APP_14115
-- native path: sensor -> libfprint -> fprintd -> KDE/GNOME/PAM/CLI
-- no device-specific desktop UI
-- no firmware flash or replacement
-- no GXFP-specific runtime daemon or systemd binder
 
-## Native SPI and prewarm lifecycle
+rel23 remains the stable/latest release until the MateBook 13 2020 reporter validates rel24-rc1. rel24-rc1 is installed on the 2021 Pegasus reference machine and keeps all existing template-v4 enrollments visible.
 
-rel23 removes the rel22 `gxfp51a0-spidev-bind.service`. The generated
-libfprint udev rule matches the real ACPI modalias, loads/binds `spidev` and
-creates the standard SPI character device. Udev-only rebinding was validated
-over repeated unbind/module-removal recovery cycles.
+## Why rel24-rc1 exists
 
-The standard fprintd service is started by the graphical boot transaction and
-runs with `--no-timeout`. libfprint `probe()` opportunistically prepares TLS,
-a clean background frame and the FDT baseline. Probe prewarm is bounded to two
-attempts; every retry starts from a reviewed MCU reset boundary. fprintd has a
-40 s start timeout so a rare second prewarm attempt is not killed midway.
+GitHub issue #6 provided the first confirmed MateBook 13 2020 WRTB-WXX9 ST411/14115 data point. rel23 authenticates correctly there (reported genuine score 27, impostor score 3 at fixed threshold 7), but capture is about 760 ms and the transport can enter repeated GET_IMAGE/FDT no-ACK states, causing multi-second PAM delays.
 
-A complete warm context remains only in the root fprintd process. On
-`FpDevice::close`, SPI/GPIO handles are closed while TLS/background/FDT state
-is retained. The next Claim reopens the handles and validates the hardware with
-an FDT probe before reusing the context. If validation fails, the warm state is
-discarded and the existing bounded cold recovery path is used.
+Pegasus also reproduced the related exhausted-retry signature where GET_IMAGE receives its cleartext ACK but the TLS image still never arrives.
 
-There is deliberately no artificial warm-state TTL. Testing a 60 s expiry
-showed that forcing a healthy sensor back through cold TLS/background setup can
-turn a later login into a multi-second recovery. fprintd core dumps are disabled
-(`LimitCORE=0`) and the state never leaves process memory.
+## rel24 transport policy
 
-Measured non-biometric Claim/Release tests on the reference machine:
+Capture pacing is deliberately independent from the existing target/TLS timing scale.
 
-- normal warm first Claim after fprintd startup: about 100–120 ms;
-- repeated Claims in the same daemon: about 90–110 ms;
-- after more than 65 s idle: first Claim remained about 113 ms;
-- aggressive five-restart stress: all first Claims remained 112–113 ms; rare
-  prewarm retries increased background service startup time but did not shift
-  that delay onto the first Claim.
+- nominal capture step gap remains 30 ms / 100%;
+- an exhausted GET_IMAGE transport failure raises capture pacing by 50 percentage points;
+- capture pacing is clamped to 100–300% (30–90 ms);
+- both `no ACK/TLS after retries` and `ACK but no TLS image after retry` mark transport desynchronisation;
+- the next retry starts from a full MCU reset/session rebuild;
+- a transport failure is not a biometric decision and does not increment the fixed verification attempt counter;
+- learned capture pacing is persisted only after a complete successful finger capture;
+- the separate TLS/init timing state cannot inflate capture pacing.
 
-Existing template-v4 enrollments remain visible; rel23 does not require
-re-enrollment.
+This preserves the 2021 fast path while allowing genuinely slow units to adapt.
 
-## Matcher
+## Boot/prewarm policy
 
-Production matching is pure C FAST-9 + BRIEF-256 + cross-check + rigid RANSAC.
-The acceptance threshold is fixed at 7 inliers. Enrollment stores 20 views.
-Verification may request up to three complete independent presses after
-no-match results; the retry budget is fixed and never depends on score
-proximity. Identify remains single-capture.
+Enumeration-time prewarm is an optimization, not a service-availability requirement.
 
-The optional pixel/ZNCC scorer is diagnostic-only behind the explicit
-GXFP_MATCH_DIAGNOSTICS environment flag and never changes authentication.
-Rejected mosaic-star and adaptive-learning experiments are not in the
-production authentication path.
+rel24-rc1 therefore uses:
 
-## Transport and performance
+- one outer probe prewarm attempt;
+- at most two cached-PMK TLS attempts during probe;
+- no fresh-staging fallback during probe;
+- normal fprintd availability even if prewarm fails;
+- the full existing 5-attempt TLS + stale-cache/fresh-staging bounded recovery only on the real biometric/open path.
 
-Stable reply-bearing capture commands use bounded event-driven draining. NOP
-has no ACK wait. Ambiguous image ordering keeps conservative retry handling.
-Initialization/TLS may learn a 100–300 percent timing scale after real
-synchronization failures. The validated fingerprint capture recipe is separate
-and always keeps its nominal 30 ms inter-command gap.
+The Arch/CachyOS package restarts fprintd with `systemctl restart --no-block`, so package transactions no longer wait for sensor prewarm.
 
-After TLS establishment, cold/context preparation waits for GPIO48 to return to
-the idle-low level and gives the MCU a short quiesce window before the first
-background capture. This avoids racing the tail of the handshake. The normal
-warm Claim path does not pay this delay.
+## Pegasus runtime validation
 
-## Template format
+Final rel24 candidate installed on Pegasus without reboot.
 
-Driver template version 4 / SIGFM serialization version 3. Existing rel20/rel22
-template-v4 enrollments remain compatible with rel23.
+Observed:
+
+- package revision: `1.94.100.goodix51a0-24`;
+- package integrity: 32 files, 0 altered;
+- fprintd: active with `--no-timeout`;
+- existing enrollments: left index, right middle, right index;
+- persisted TLS timing on this machine: 300%;
+- persisted capture timing: absent, proving TLS timing no longer contaminates the 30 ms capture default;
+- five non-biometric list/Claim-style accesses: about 30–40 ms;
+- degraded probe state: prewarm stopped after 2/2 cached-PMK TLS tries and fprintd still entered active state instead of hitting the 40 s systemd timeout;
+- package reinstall transaction with asynchronous service restart: about 10–11 s.
+
+No new manual fingerprint pose was required for this validation.
+
+## Matcher and template invariants
+
+Unchanged from rel23:
+
+- production matcher: C FAST-9 + BRIEF-256 + cross-check + rigid RANSAC;
+- fixed acceptance threshold: 7 inliers;
+- enrollment: 20 views;
+- verification: max three independent complete presses;
+- no weak-score accumulation;
+- pixel/ZNCC remains diagnostic-only;
+- template v4 / SIGFM v3 remains compatible.
+
+## Safety/privacy invariants
+
+- never touch GPIO112/GPP_D16;
+- GPIO264 is MCU reset and remains low during operation;
+- no firmware flashing;
+- no release biometric dump hook;
+- never publish PMK/PSK, biometric captures/templates, machine IDs, serials, private fixtures, proprietary firmware or Windows binaries;
+- no reboot without explicit user authorization.
 
 ## Release validation
 
-The rel23 software baseline passes the complete repository gate:
+The final candidate passes the complete software baseline:
 
-- shell/source regression tests;
-- research unit and safety suite;
+- research/safety tests;
+- first-contact and native SPI binding tests;
+- new adaptive capture pacing/recovery tests;
+- short-soft prewarm tests;
 - source manifest;
-- reproducible build from exact libfprint v1.94.100;
-- compiled GXFP51A0 object and generated udev support;
-- FAST/BRIEF/RANSAC and identify paths;
+- reproducible libfprint v1.94.100 build;
+- generated udev support;
+- FAST/BRIEF/RANSAC and identify gates;
 - release biometric dump hook absent.
 
-Passive build validation performs no active sensor transfer, GPIO/MMIO write or
-firmware action.
+Final state: `SOFTWARE_BASELINE=PASS`.
 
-The Arch/CachyOS installer builds locally and does not modify PAM, KDE or GNOME.
-It adds only the gpiochip access needed by the driver, uses the standard
-fprintd daemon and the generated libfprint udev rule.
+## Publication plan
 
-## Privacy and safety invariants
-
-Never publish biometric captures/templates, PMK/PSK/key material, per-unit
-fixtures, serial numbers, private machine identifiers, proprietary firmware or
-Windows binaries. Runtime PMK/timing state under /var/lib/fprint is not part of
-the repository or package.
-
-GPIO112 must never be touched. GPIO264 is the MCU reset and must be left low
-while the sensor is running. Hardware experiments remain bounded and explicit.
-
-## Further work
-
-No additional physical test battery is required for the rel23 public release.
-Future matcher/security changes should be driven by ordinary-use reports and,
-ideally, a larger consented cross-person validation corpus. Do not lower
-threshold 7 or activate pixel-score acceptance without such validation.
+Push the candidate branch and publish `fingerprint-gxfp51a0-rel24-rc1` as a GitHub prerelease with package/source/checksum assets. Keep rel23 as stable/latest until issue #6 confirms the slow-transport behavior is fixed. Reply to issue #6 asking for only non-sensitive timing/log results; never request captures/templates/keys.

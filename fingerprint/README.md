@@ -57,6 +57,12 @@ For the validated GXFP51A0 / GF3658 ST411 target, the easiest starting point is 
 
 rel23 uses the native libfprint SPI path end-to-end. The generated udev rule accepts ACPI compatible-ID suffixes such as `acpi:GXFP51A0:GXFP51A0:` and binds the device to `spidev` without a GXFP-specific systemd binder. Standard fprintd starts as part of the graphical boot transaction with `--no-timeout`; libfprint `probe()` prewarms TLS, background and FDT state. A complete warm context survives fprintd Claim/Release while SPI/GPIO handles are closed, is hardware-revalidated on the next Claim, and falls back to the bounded cold path if the sensor state was lost. Existing template-v4 enrollments remain compatible.
 
+### rel24-rc1: slow-transport compatibility candidate
+
+The first confirmed MateBook 13 2020 ST411/14115 report showed that rel23 can authenticate correctly on that revision while a degraded transport state makes GET_IMAGE/FDT retries very slow. rel24-rc1 keeps the validated 30 ms capture gap as the default but learns a separate 100–300% capture-only pacing value after an exhausted GET_IMAGE transport failure. That value is deliberately independent from the existing TLS/init timing scale and is persisted only after a complete successful finger capture. Both `no ACK/TLS` and `ACK but no TLS image after retry` trigger a full MCU/session recovery; such transport failures do not consume a biometric verify attempt.
+
+Enumeration prewarm is also kept soft and short: one outer probe attempt, at most two cached-PMK TLS tries, and no fresh-staging fallback. If that optimization fails, fprintd still becomes available and the normal biometric open path retains the full bounded recovery. rel24-rc1 keeps template v4, SIGFM v3, threshold 7, 20 enrollment views and at most three independent verification presses unchanged.
+
 
 ### Arch / CachyOS
 

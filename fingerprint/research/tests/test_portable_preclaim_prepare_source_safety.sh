@@ -37,9 +37,9 @@ open_=fn("gx_dev_open")
 session=fn("gx_session_start")
 close=fn("gx_dev_close")
 
-# rel23: enumeration performs the opportunistic prewarm. A failed prewarm is
-# bounded and does not make the device disappear; open retains the cold fallback.
-assert "GX_PROBE_PREWARM_ATTEMPTS 2" in s
+# rel24: enumeration performs one short opportunistic prewarm. A failed prewarm
+# does not make the device disappear; open retains the full cold fallback.
+assert "GX_PROBE_PREWARM_ATTEMPTS 1" in s
 assert "gx_cold_prepare (self)" in probe
 assert "probe prewarm attempt %d/%d failed" in probe
 assert "fpi_device_probe_complete (dev, NULL, NULL, NULL)" in probe

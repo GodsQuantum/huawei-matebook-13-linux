@@ -31,10 +31,15 @@ assert "gx_recover_capture_context (self)" in wrapper
 probe=fn("gx_dev_probe")
 cold=fn("gx_cold_prepare")
 open_=fn("gx_dev_open")
+tls=fn("gx_tls_session")
 
-# rel23 moves opportunistic preparation to probe(). It is explicitly soft:
-# exhausting the two prewarm attempts still completes enumeration successfully.
-assert "#define GX_PROBE_PREWARM_ATTEMPTS 2" in s
+# rel24 keeps enumeration prewarm deliberately short: one outer attempt,
+# two cached-PMK TLS tries, no fresh staging fallback. Enumeration still succeeds.
+assert "#define GX_PROBE_PREWARM_ATTEMPTS 1" in s
+assert "self->probe_prewarm ? 2" in tls
+assert "!self->probe_prewarm" in tls
+assert "self->probe_prewarm = TRUE" in probe
+assert "self->probe_prewarm = FALSE" in probe
 assert "gx_cold_prepare (self)" in probe
 assert "probe prewarm unavailable; device remains usable through the cold open path" in probe
 assert "fpi_device_probe_complete (dev, NULL, NULL, NULL)" in probe

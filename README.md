@@ -85,7 +85,9 @@ See [`gpu-power/README.md`](gpu-power/README.md) for architecture, supported dis
 
 ## 2. Fingerprint reader — Goodix GXFP51A0 / GF3658 Milan
 
-**Ready-to-install rel23:** [download the GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23) — native Arch/CachyOS package, portable Linux source bundle, install guide and SHA-256 manifest. rel23 removes the GXFP-specific binder service: libfprint's generated udev rule binds the SPI device natively, while standard fprintd starts with the graphical boot transaction and prewarms TLS/background/FDT through the driver's `probe()` path.
+**Stable rel23:** [download the GitHub release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23) — native Arch/CachyOS package, portable Linux source bundle, install guide and SHA-256 manifest. rel23 removes the GXFP-specific binder service: libfprint's generated udev rule binds the SPI device natively, while standard fprintd starts with the graphical boot transaction and prewarms TLS/background/FDT through the driver's `probe()` path.
+
+**rel24-rc1 compatibility candidate:** adds capture-specific adaptive pacing and full MCU/session recovery after exhausted GET_IMAGE transport failures. It was motivated by the first confirmed MateBook 13 2020 ST411/14115 report, where rel23 authenticates correctly but the transport can enter a slow `no ACK/TLS` state. The 30 ms capture gap remains the default and is independent from the TLS timing scale; transport failures never consume the fixed three biometric attempts. Boot-time prewarm is deliberately short (one outer attempt, two cached-PMK TLS tries, no fresh staging fallback) so fprintd availability is not held hostage by an unhealthy sensor.
 
 **Documentation/source:** [`fingerprint/`](fingerprint/)
 

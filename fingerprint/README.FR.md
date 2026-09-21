@@ -57,6 +57,12 @@ Pour la cible GXFP51A0 / GF3658 ST411 validée, le point de départ le plus simp
 
 rel23 utilise entièrement la voie SPI native de libfprint. La règle udev générée accepte les suffixes ACPI de type `acpi:GXFP51A0:GXFP51A0:` et lie le capteur à `spidev` sans service systemd GXFP spécifique. Le fprintd standard démarre avec la transaction graphique et `--no-timeout`; le `probe()` libfprint préchauffe TLS, le fond et FDT. Un contexte warm complet survit aux cycles Claim/Release tout en fermant les handles SPI/GPIO, est revalidé matériellement au Claim suivant et retombe sur la voie froide bornée si l'état du capteur a été perdu. Les enrollments template-v4 existants restent compatibles.
 
+### rel24-rc1 : candidat de compatibilité transport lent
+
+Le premier retour confirmé sur un MateBook 13 2020 ST411/14115 montre que rel23 peut authentifier correctement cette révision tout en subissant parfois un état transport dégradé avec des retries GET_IMAGE/FDT très lents. rel24-rc1 conserve le gap capture validé de 30 ms par défaut, mais apprend séparément un pacing capture de 100 à 300 % uniquement après un échec GET_IMAGE complet. Cette valeur est indépendante du timing TLS/init existant et n'est persistée qu'après une capture de doigt complète réussie. Les deux signatures `no ACK/TLS` et `ACK mais aucune image TLS après retry` déclenchent une récupération MCU/session complète ; un échec transport ne consomme jamais une tentative biométrique.
+
+Le prewarm d'énumération devient également volontairement court : une seule tentative externe, au plus deux essais TLS avec le PMK en cache et aucun fallback fresh-staging. Si cette optimisation échoue, fprintd devient quand même disponible et la vraie ouverture biométrique conserve sa récupération bornée complète. rel24-rc1 ne change ni template v4, ni SIGFM v3, ni le seuil 7, ni les 20 vues d'enrollment, ni les trois presses indépendantes maximum.
+
 
 ### Arch / CachyOS
 

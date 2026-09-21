@@ -16,7 +16,8 @@ for name, end in [("gx_bio_recv (", "gx_gpio_reset"),
     assert "errno != ETIMEDOUT" in f
     assert "gx_read_frame (self" in f
     assert f.index("gx51_wait_irq_gpio48 (self->irq_fd, GX_TLS_IRQ_POLL_MS)") < f.index("gx_read_frame (self")
-assert 'int max_attempts = capture_diagnostic ? 2 : (diagnostic ? 1 : 5);' in s
+assert 'int max_attempts = self->probe_prewarm ? 2 :' in s
+assert '(capture_diagnostic ? 2 : (diagnostic ? 1 : 5));' in s
 assert 'cached PMK retained after failed diagnostic TLS attempt' in s
 a=s.index("gx_tls_session (")
 b=s.index("/* Production-only stale-cache recovery", a)

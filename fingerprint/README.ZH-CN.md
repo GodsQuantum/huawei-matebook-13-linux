@@ -43,7 +43,13 @@
 
 ### 下载已打包的 rel23 release
 
-对于已验证的 GXFP51A0 / GF3658 ST411，最简单的起点是 [GitHub rel23 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23)。rel23 完全使用 libfprint 原生 SPI 路径：生成的 udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀并直接绑定 `spidev`，不再需要 GXFP 专用 systemd binder。标准 fprintd 随 graphical boot transaction 启动并使用 `--no-timeout`；libfprint `probe()` 预热 TLS、背景和 FDT 状态。完整 warm context 在 Claim/Release 之间保留，同时关闭 SPI/GPIO handle；下次 Claim 会先做硬件重新验证，若传感器状态丢失则自动回退到有界 cold path。现有 template-v4 enrollment 保持兼容。
+对于已验证的 GXFP51A0 / GF3658 ST411，最简单的稳定版本起点是 [GitHub rel23 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23)。rel23 完全使用 libfprint 原生 SPI 路径：生成的 udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀并直接绑定 `spidev`，不再需要 GXFP 专用 systemd binder。标准 fprintd 随 graphical boot transaction 启动并使用 `--no-timeout`；libfprint `probe()` 预热 TLS、背景和 FDT 状态。完整 warm context 在 Claim/Release 之间保留，同时关闭 SPI/GPIO handle；下次 Claim 会先做硬件重新验证，若传感器状态丢失则自动回退到有界 cold path。现有 template-v4 enrollment 保持兼容。
+
+### rel24-rc1：慢速传输兼容候选版
+
+首个确认的 MateBook 13 2020 ST411/14115 用户报告表明：rel23 在该机型上可以正确认证，但传输层有时会进入非常慢的 GET_IMAGE/FDT 重试状态。rel24-rc1 仍以已验证的 30 ms 采集间隔为默认值；只有在 GET_IMAGE 完整失败后，才独立学习 100–300% 的采集 pacing。该值与 TLS/初始化 timing scale 完全分离，并且只有在一次完整指纹采集成功后才持久化。`no ACK/TLS` 与“收到 ACK 但重试后仍无 TLS 图像”都会触发完整 MCU/session 恢复；传输失败不会消耗三次固定生物识别尝试中的任何一次。
+
+枚举阶段的 prewarm 也被刻意限制为短路径：一次外层尝试、最多两次 cached-PMK TLS 尝试，并且不执行 fresh-staging fallback。即使该优化失败，fprintd 仍会正常可用，真正的生物识别 open 路径仍保留完整的有界恢复。rel24-rc1 不改变 template v4、SIGFM v3、RANSAC 阈值 7、20 个 enrollment view 或最多三次独立验证按压。
 
 Release 包含：
 

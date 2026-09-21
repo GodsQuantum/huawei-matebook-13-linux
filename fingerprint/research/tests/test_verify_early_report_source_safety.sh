@@ -15,7 +15,15 @@ assert "t->tries >= GX_VERIFY_MAX_ATTEMPTS" in capture
 assert "FPI_MATCH_FAIL" in capture
 assert "verify: match reported on attempt" in capture
 assert "verify: no-match reported after %d fixed attempts" in capture
-assert capture.index("FPI_MATCH_SUCCESS") < capture.index("gx_poll_off, ssm")
+
+# The transport-recovery branch may schedule gx_poll_off before any image
+# exists; it must not emit a biometric verdict. A real captured-image verdict
+# still happens before the normal release poll at the end of capture_done.
+recovery=capture[capture.index("if (!f && self->capture_recovery_pending)"):
+                 capture.index("if (!f || gx_sift_keypoints")]
+assert "FPI_MATCH_SUCCESS" not in recovery and "FPI_MATCH_FAIL" not in recovery
+assert capture.index("FPI_MATCH_SUCCESS") < capture.rindex("gx_poll_off, ssm")
+
 a=s.index("gx_verify_done (")
 b=s.index("gx_identify_done (",a)
 done=s[a:b]

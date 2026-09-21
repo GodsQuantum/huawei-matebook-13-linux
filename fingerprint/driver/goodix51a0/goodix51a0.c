@@ -105,14 +105,22 @@ struct _FpiDeviceGoodix51A0
   int           fdt_abs;     /* per-unit absolute floor, derived from baseline */
   int           timing_scale;/* protocol-delay multiplier in %, grows on desync */
   int           timing_saved;/* last value persisted to disk, to avoid rewrites */
+  int           capture_gap_scale; /* capture-step gap %, independent of TLS timing */
+  int           capture_gap_saved; /* last capture pacing value persisted to disk */
+  gboolean      capture_recovery_pending; /* transport failed; rebuild between presses */
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
+  gboolean      probe_prewarm;    /* enumeration optimization: short TLS budget, no staging fallback */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
                       DEVICE_GOODIX51A0, FpDevice)
 G_DEFINE_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FP_TYPE_DEVICE)
+
+static guint gx_capture_gap_us (FpiDeviceGoodix51A0 *self);
+static void gx_capture_transport_desync (FpiDeviceGoodix51A0 *self);
+static void gx_capture_pacing_success (FpiDeviceGoodix51A0 *self);
 
 static const FpIdEntry goodix51a0_id_table[] = {
   { .udev_types = FPI_DEVICE_UDEV_SUBTYPE_SPIDEV, .spi_acpi_id = "GXFP51A0" },
@@ -386,6 +394,7 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 
   fp_warn ("GXFP51A0 GET_IMAGE failed: no ACK/TLS after %d attempts",
            attempts);
+  gx_capture_transport_desync (self);
   return FALSE;
 }
 
@@ -1160,15 +1169,16 @@ gx_tls_teardown (FpiDeviceGoodix51A0 *self)
 }
 
 /* Exact 14115/51x7 capture recipes, as validated by the Linux imaging path.
- * The learned timing scale belongs to target/TLS recovery. Finger/background
- * capture was validated repeatedly at the nominal 30 ms step gap; multiplying
- * it by a recovered init scale only adds latency after a transient handshake. */
-static gboolean
-gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
-{
+ * 30 ms remains the default on the reference 2021 unit. Slower controllers can
+ * learn a capture-only pacing multiplier after a real GET_IMAGE transport
+ * desync; this is deliberately separate from TLS/init timing. */
 #ifndef GX_SEQ_GAP_US
 #define GX_SEQ_GAP_US 30000
 #endif
+
+static gboolean
+gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
+{
   struct gxfp_capture_recipe recipe;
   gboolean ok;
   gsize i;
@@ -1190,7 +1200,7 @@ gx_send_capture_recipe (FpiDeviceGoodix51A0 *self, gboolean background)
         return FALSE;
       fp_dbg ("chrono cmd=%02x drain=%ld us", packet->inner[0],
               (long) (g_get_monotonic_time () - t0));
-      g_usleep (GX_SEQ_GAP_US);
+      g_usleep (gx_capture_gap_us (self));
     }
   return TRUE;
 }
@@ -1248,9 +1258,23 @@ gx_retry_get_image_after_tls_timeout (FpiDeviceGoodix51A0 *self,
   fp_warn ("GXFP51A0 GET_IMAGE ACK arrived but TLS image timed out; retrying once");
   if (!gx_send_plain_drain (self, packet.inner, packet.inner_len,
                             &ack_seen, &tls_seen))
-    return -1;
+    {
+      if (!self->capture_recovery_pending)
+        gx_capture_transport_desync (self);
+      return -1;
+    }
 
-  return gx_take_tls_frame (self, rec, cap);
+  {
+    int raw = gx_take_tls_frame (self, rec, cap);
+
+    if (raw < 0 && !self->capture_recovery_pending)
+      {
+        fp_warn ("GXFP51A0 GET_IMAGE retry received no TLS image; "
+                 "marking capture transport desynchronised");
+        gx_capture_transport_desync (self);
+      }
+    return raw;
+  }
 }
 
 
@@ -1297,7 +1321,7 @@ gx_send_capture_cleanup (FpiDeviceGoodix51A0 *self)
             }
         }
 
-      g_usleep (GX_SEQ_GAP_US);
+      g_usleep (gx_capture_gap_us (self));
     }
 
   ok = TRUE;
@@ -1373,6 +1397,9 @@ gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px, gboolean background)
       fp_warn ("GXFP51A0 post-capture cleanup failed");
       return FALSE;
     }
+
+  if (!background)
+    gx_capture_pacing_success (self);
   return TRUE;
 }
 
@@ -1400,7 +1427,11 @@ gx_capture_avg (FpiDeviceGoodix51A0 *self, int nframes, guint16 *avg)
   for (f = 0; f < nframes; f++)
     {
       if (!gx_capture_frame (self, px, TRUE))
-        continue;
+        {
+          if (self->capture_recovery_pending)
+            return FALSE;
+          continue;
+        }
       for (i = 0; i < GOODIX_IMG_PIXELS; i++)
         acc[i] += px[i];
       got++;
@@ -1696,6 +1727,75 @@ gx_timing_save (int scale)
     g_chmod (GX_TIMING_FILE, 0600);
 }
 
+/* Capture pacing is learned independently from target/TLS timing. The nominal
+ * 30 ms gap remains the fast path. A slow unit only moves upward after an
+ * actual GET_IMAGE transport loss (two no-ACK/TLS attempts), and an elevated
+ * value is persisted only after a complete finger frame + cleanup succeeds. */
+#define GX_CAPTURE_TIMING_FILE "/var/lib/fprint/.goodix51a0-capture-timing"
+#define GX_CAPTURE_SCALE_MIN 100
+#define GX_CAPTURE_SCALE_MAX 300
+#define GX_CAPTURE_SCALE_STEP 50
+
+static int
+gx_capture_timing_load (void)
+{
+  g_autofree gchar *txt = NULL;
+  int v;
+
+  if (!g_file_get_contents (GX_CAPTURE_TIMING_FILE, &txt, NULL, NULL))
+    return GX_CAPTURE_SCALE_MIN;
+  v = atoi (txt);
+  return (v >= GX_CAPTURE_SCALE_MIN && v <= GX_CAPTURE_SCALE_MAX)
+           ? v : GX_CAPTURE_SCALE_MIN;
+}
+
+static void
+gx_capture_timing_save (int scale)
+{
+  g_autofree gchar *txt = g_strdup_printf ("%d\n", scale);
+
+  if (!g_file_set_contents (GX_CAPTURE_TIMING_FILE, txt, -1, NULL))
+    fp_warn ("could not persist capture timing scale to %s",
+             GX_CAPTURE_TIMING_FILE);
+  else
+    g_chmod (GX_CAPTURE_TIMING_FILE, 0600);
+}
+
+static guint
+gx_capture_gap_us (FpiDeviceGoodix51A0 *self)
+{
+  int scale = CLAMP (self->capture_gap_scale,
+                     GX_CAPTURE_SCALE_MIN, GX_CAPTURE_SCALE_MAX);
+
+  return (guint) ((guint64) GX_SEQ_GAP_US * (guint) scale / 100u);
+}
+
+static void
+gx_capture_transport_desync (FpiDeviceGoodix51A0 *self)
+{
+  int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
+
+  self->capture_gap_scale =
+    MIN (previous + GX_CAPTURE_SCALE_STEP, GX_CAPTURE_SCALE_MAX);
+  self->capture_recovery_pending = TRUE;
+
+  fp_warn ("GXFP51A0 capture transport desync: pacing %d%% -> %d%% "
+           "(%u us gap); full MCU/session recovery required",
+           previous, self->capture_gap_scale, gx_capture_gap_us (self));
+}
+
+static void
+gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
+{
+  if (self->capture_gap_scale > self->capture_gap_saved)
+    {
+      gx_capture_timing_save (self->capture_gap_scale);
+      self->capture_gap_saved = self->capture_gap_scale;
+      fp_info ("GXFP51A0 learned capture pacing %d%% persisted after "
+               "successful finger capture", self->capture_gap_scale);
+    }
+}
+
 /* Establishes the TLS channel. This is the expensive step, about half a
  * second, and it does not depend on when the finger arrives — so it can be
  * done once and kept. */
@@ -1705,7 +1805,8 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
   int att;
   gboolean diagnostic = g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") != NULL;
   gboolean capture_diagnostic = g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
-  int max_attempts = capture_diagnostic ? 2 : (diagnostic ? 1 : 5);
+  int max_attempts = self->probe_prewarm ? 2 :
+                     (capture_diagnostic ? 2 : (diagnostic ? 1 : 5));
 
   if (self->tls_up)
     return TRUE;
@@ -1767,7 +1868,8 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
    * disk while probing fresh boot staging. If the newly recovered candidate
    * reaches D4, gx_pmk_cache_save() atomically replaces the old file. If it
    * does not, the last-known-good cache remains available for a later boot. */
-  if (!self->tls_up && !diagnostic && self->psk_from_cache)
+  if (!self->tls_up && !diagnostic && !self->probe_prewarm &&
+      self->psk_from_cache)
     {
       fp_warn ("GXFP51A0 cached PMK could not establish TLS; trying fresh staging without deleting validated cache");
       gx_pmk_clear (self);
@@ -1950,6 +2052,7 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
 
   if (!gx_tls_session (self))
     return FALSE;
+
 
   /* The sensor drives GPIO48 level-high while a response is pending. The
    * first background capture must not race the tail of the TLS handshake:
@@ -2164,7 +2267,10 @@ gx_prepare_capture_context (FpiDeviceGoodix51A0 *self,
         return FALSE;
 
       if (gx_prepare_capture_context_once (self, FALSE))
-        return TRUE;
+        {
+          self->capture_recovery_pending = FALSE;
+          return TRUE;
+        }
 
       fp_warn ("GXFP51A0 capture-context preparation failed attempt=%d/%d",
                attempt, GX_PREPARE_ATTEMPTS);
@@ -2181,6 +2287,13 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
 {
   gboolean capture_diagnostic =
     g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
+
+  if (self->capture_recovery_pending)
+    {
+      fp_info ("GXFP51A0 rebuilding capture context after transport desync");
+      if (!gx_recover_capture_context (self))
+        return FALSE;
+    }
 
   /* Diagnostics deliberately retain their interactive preparation so the
    * research harness can observe each boundary. Normal fprintd clients are
@@ -2202,6 +2315,7 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
   if (!gx_prepare_capture_context (self, FALSE))
     return FALSE;
 
+  self->capture_recovery_pending = FALSE;
   self->production_ready = TRUE;
   return TRUE;
 }
@@ -2442,6 +2556,7 @@ enum {
 #define GX_POLL_MS     100     /* detection polling period */
 #define GX_POLL_MAX    300     /* about 30 s before giving up */
 #define GX_POLL_OFF    100     /* about 10 s to wait for release */
+#define GX_RECOVERY_OFF_POLLS 2 /* ~1 s worst-case with failed FDT probes */
 #define GX_VERIFY_MAX_ATTEMPTS 3 /* fixed budget; never score-proximity conditioned */
 
 /* ------------------------------------------------------------------ */
@@ -2653,12 +2768,21 @@ gx_poll_off (gpointer user_data)
       gx_fdt_mean (cur) >= self->fdt_abs)
     off = TRUE;
 
-  if (off || ++t->polls > GX_POLL_OFF)
+  if (off || ++t->polls >
+             (self->capture_recovery_pending ? GX_RECOVERY_OFF_POLLS
+                                             : GX_POLL_OFF))
     {
       fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
+
+      if (self->capture_recovery_pending)
+        {
+          fp_info ("GXFP51A0 finger released/timeout after transport desync; "
+                   "rebuilding session before another biometric press");
+          fpi_ssm_jump_to_state (ssm, GX_ST_SESSION);
+        }
       /* Next enrollment view, fixed-budget verify retry, or finish. */
-      if (t->verifying && !t->identifying && !t->match_reported &&
-          t->tries < GX_VERIFY_MAX_ATTEMPTS)
+      else if (t->verifying && !t->identifying && !t->match_reported &&
+               t->tries < GX_VERIFY_MAX_ATTEMPTS)
         {
           fp_info ("verify: finger released; waiting for retry press %d/%d",
                    t->tries + 1, GX_VERIFY_MAX_ATTEMPTS);
@@ -2768,6 +2892,19 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
         FP_DEVICE_ERROR_GENERAL, "capture-only diagnostic complete"));
       return;
     }
+
+      if (!f && self->capture_recovery_pending)
+        {
+          /* No authenticated image exists, so this is transport recovery, not
+           * a biometric no-match and must not consume the fixed verify budget.
+           * Ask for release, rebuild the session, then request a fresh press. */
+          fp_warn ("GXFP51A0 capture transport failed; recovering before "
+                   "another biometric attempt");
+          fpi_device_report_finger_status (dev, FP_FINGER_STATUS_PRESENT);
+          t->polls = 0;
+          self->poll_id = g_timeout_add (GX_POLL_MS, gx_poll_off, ssm);
+          return;
+        }
 
       if (!f || gx_sift_keypoints (f) < GX_MIN_CAPTURE_KEYPOINTS)
         {
@@ -3096,6 +3233,11 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   self->fdt_abs = GOODIX_FDT_ABS;
   self->timing_scale = gx_timing_load ();
   self->timing_saved = self->timing_scale;
+  if (self->capture_gap_scale < GX_CAPTURE_SCALE_MIN)
+    {
+      self->capture_gap_scale = gx_capture_timing_load ();
+      self->capture_gap_saved = self->capture_gap_scale;
+    }
 
   if (!gx_driverstate_install_windows (self))
     {
@@ -3133,13 +3275,16 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
       return FALSE;
     }
 
+  self->capture_recovery_pending = FALSE;
   self->production_ready = TRUE;
   self->warm_valid = TRUE;
-  fp_info ("GXFP51A0 production capture context ready; native warm state armed");
+  fp_info ("GXFP51A0 production capture context ready; native warm state armed "
+           "(capture pacing=%d%% gap=%u us)",
+           self->capture_gap_scale, gx_capture_gap_us (self));
   return TRUE;
 }
 
-#define GX_PROBE_PREWARM_ATTEMPTS 2
+#define GX_PROBE_PREWARM_ATTEMPTS 1
 
 static void
 gx_dev_probe (FpDevice *dev)
@@ -3161,6 +3306,7 @@ gx_dev_probe (FpDevice *dev)
 
   if (!diagnostic)
     {
+      self->probe_prewarm = TRUE;
       for (int attempt = 1; attempt <= GX_PROBE_PREWARM_ATTEMPTS; attempt++)
         {
           /* probe() is an enumeration-time optimization, not an authentication
@@ -3187,6 +3333,7 @@ gx_dev_probe (FpDevice *dev)
           if (attempt < GX_PROBE_PREWARM_ATTEMPTS)
             g_usleep (250 * 1000);
         }
+      self->probe_prewarm = FALSE;
     }
 
   if (!prewarmed)
@@ -3212,6 +3359,20 @@ gx_dev_open (FpDevice *dev)
     {
       fpi_device_open_complete (dev, err);
       return;
+    }
+
+  if (self->capture_recovery_pending)
+    {
+      fp_info ("GXFP51A0 pending capture recovery found at open; resetting "
+               "before cold preparation");
+      if (!gx_recover_capture_context (self))
+        {
+          gx_transport_close (self);
+          fpi_device_open_complete (
+            dev, fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO,
+                                           "capture transport recovery failed"));
+          return;
+        }
     }
 
   if (gx_warm_available (self))
@@ -3420,6 +3581,10 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
 {
   self->spi_fd = -1;
   self->irq_fd = -1;
+  self->capture_gap_scale = 0; /* loaded lazily from root-owned state */
+  self->capture_gap_saved = 0;
+  self->capture_recovery_pending = FALSE;
+  self->probe_prewarm = FALSE;
 }
 
 

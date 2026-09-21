@@ -14,6 +14,9 @@ assert "gxfp_build_get_image" in f
 assert "gx_send_plain_drain" in f
 assert "gx_take_tls_frame" in f
 assert "GET_IMAGE ACK arrived but TLS image timed out; retrying once" in f
+assert "GET_IMAGE retry received no TLS image" in f
+assert "gx_capture_transport_desync (self)" in f
+assert "capture_recovery_pending" in f
 a=s.index("gx_capture_frame (")
 b=s.index("gx_cmp_dbl", a)
 f=s[a:b]

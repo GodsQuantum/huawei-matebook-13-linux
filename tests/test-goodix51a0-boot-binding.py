@@ -41,7 +41,7 @@ assert "historical libfprint device ID" in driver
 assert "GX_WARM_TTL_US" not in driver
 assert "gx_warm_validate" in driver
 assert "native prewarm completed during libfprint probe" in driver
-assert "#define GX_PROBE_PREWARM_ATTEMPTS 2" in driver
+assert "#define GX_PROBE_PREWARM_ATTEMPTS 1" in driver
 assert "probe prewarm attempt %d/%d failed" in driver
 assert "gx_prepare_capture_context_once (self, FALSE)" in driver
 assert "gx51_wait_irq_gpio48_low (self->irq_fd, 250)" in driver
@@ -67,13 +67,13 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=23" in pkgbuild
+assert "pkgrel=24" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
-assert "systemctl restart fprintd.service" in pkginstall
+assert "systemctl restart --no-block fprintd.service" in pkginstall
 
 arch = ARCH.read_text()
 assert "native udev SPI binding and standard fprintd prewarm" in arch

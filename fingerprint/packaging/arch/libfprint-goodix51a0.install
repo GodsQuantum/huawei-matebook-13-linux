@@ -3,7 +3,7 @@ post_install() {
   udevadm trigger --subsystem-match=spi || true
   udevadm settle --timeout=3 || true
   systemctl daemon-reload || true
-  systemctl restart fprintd.service || true
+  systemctl restart --no-block fprintd.service || true
 }
 
 post_upgrade() {
