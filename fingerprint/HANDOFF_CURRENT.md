@@ -104,6 +104,13 @@ The final candidate passes the complete software baseline:
 
 Final state: `SOFTWARE_BASELINE=PASS`.
 
-## Publication plan
+## Publication status
 
-Push the candidate branch and publish `fingerprint-gxfp51a0-rel24-rc1` as a GitHub prerelease with package/source/checksum assets. Keep rel23 as stable/latest until issue #6 confirms the slow-transport behavior is fixed. Reply to issue #6 asking for only non-sensitive timing/log results; never request captures/templates/keys.
+- candidate branch pushed: `fingerprint-rel24-slow-transport`;
+- tested code commit/tag: `ff515ad1c90903a315e6c8d3a0bc33f4628aad03` / `fingerprint-gxfp51a0-rel24-rc1`;
+- GitHub prerelease published with Arch/CachyOS package, portable source bundle, INSTALL and SHA-256 manifest;
+- GitHub `Quality` and `Fingerprint candidate build` workflows: SUCCESS on `ff515ad`;
+- rel23 remains stable/Latest;
+- issue #6 reply posted with the prerelease link and a request for only non-sensitive timing/log validation on the MateBook 13 2020.
+
+Do not promote rel24 to stable/latest until the external 2020 validation is positive. If the reporter confirms the fix, re-run the complete gate on the final commit, promote the transport path to the next stable release, update the local OS & Drivers kit, then remove obsolete candidate-only artifacts.
