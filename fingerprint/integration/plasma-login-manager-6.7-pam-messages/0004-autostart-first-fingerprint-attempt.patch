@@ -1,0 +1,115 @@
+diff --git a/src/frontend/greeter/qml/Login.qml b/src/frontend/greeter/qml/Login.qml
+index 5b69e34..9437711 100644
+--- a/src/frontend/greeter/qml/Login.qml
++++ b/src/frontend/greeter/qml/Login.qml
+@@ -25,6 +25,12 @@ SessionManagementScreen {
+ 
+     property bool loginScreenUiVisible: false
+ 
++    // The login manager historically started the first fingerprint attempt as
++    // soon as the greeter became active. Keep that behavior without looping
++    // after a timeout: one automatic attempt per selected user/greeter.
++    property bool fingerprintAutoAttemptDone: false
++    property bool fingerprintAutoAttemptInFlight: false
++
+     //the y position that should be ensured visible when the on screen keyboard is visible
+     property int visibleBoundary: mapFromItem(loginButton, 0, 0).y
+     onHeightChanged: visibleBoundary = mapFromItem(loginButton, 0, 0).y + loginButton.height + Kirigami.Units.smallSpacing
+@@ -33,6 +39,34 @@ SessionManagementScreen {
+ 
+     signal loginRequest(string username, string password)
+ 
++    function maybeStartFingerprintLogin() {
++        if (fingerprintAutoAttemptDone
++            || !loginScreenUiVisible
++            || showUsernamePrompt
++            || !userList.selectedUser
++            || passwordBox.text.length !== 0) {
++            return;
++        }
++
++        fingerprintAutoAttemptDone = true;
++        Qt.callLater(() => {
++            // The user may have started typing before the queued call runs.
++            if (!loginScreenUiVisible
++                || showUsernamePrompt
++                || !userList.selectedUser
++                || passwordBox.text.length !== 0) {
++                return;
++            }
++            startLogin(true);
++        });
++    }
++
++    onLoginScreenUiVisibleChanged: {
++        if (loginScreenUiVisible) {
++            maybeStartFingerprintLogin();
++        }
++    }
++
+     onUserSelected: {
+         // Don't startLogin() here, because the signal is connected to the
+         // Escape key as well, for which it wouldn't make sense to trigger
+@@ -60,10 +94,12 @@ SessionManagementScreen {
+      * Login has been requested with the following username and password
+      * If username field is visible, it will be taken from that, otherwise from the "name" property of the currentIndex
+      */
+-    function startLogin() {
++    function startLogin(automaticFingerprint) {
+         const username = showUsernamePrompt ? userNameInput.text : userList.selectedUser
+         const password = passwordBox.text
+ 
++        fingerprintAutoAttemptInFlight = automaticFingerprint === true
++
+         footer.enabled = false
+         mainStack.enabled = false
+         userListComponent.userList.opacity = 0.75
+@@ -173,6 +209,7 @@ SessionManagementScreen {
+             }
+ 
+             passwordBox.showPassword = PlasmaLogin.GreeterState.showPassword;
++            Qt.callLater(root.maybeStartFingerprintLogin);
+         }
+ 
+         // Login -> GreeterState
+@@ -184,9 +221,14 @@ SessionManagementScreen {
+                     return;
+                 }
+ 
++                root.fingerprintAutoAttemptDone = false;
++                root.fingerprintAutoAttemptInFlight = false;
++
+                 if (PlasmaLogin.GreeterState.userListIndex != root.userList.currentIndex) {
+                     PlasmaLogin.GreeterState.userListIndex = root.userList.currentIndex;
+                 }
++
++                Qt.callLater(root.maybeStartFingerprintLogin);
+             }
+         }
+ 
+diff --git a/src/frontend/greeter/qml/Main.qml b/src/frontend/greeter/qml/Main.qml
+index 9ca7200..b53dfe3 100644
+--- a/src/frontend/greeter/qml/Main.qml
++++ b/src/frontend/greeter/qml/Main.qml
+@@ -426,6 +426,21 @@ Item {
+         }
+ 
+         function onLoginFailed() {
++            // The first greeter-visible fingerprint attempt is intentionally
++            // non-interactive. If it times out or no print is enrolled, return
++            // immediately to the normal password UI instead of showing a
++            // spurious generic login failure.
++            if (userListComponent.fingerprintAutoAttemptInFlight) {
++                userListComponent.fingerprintAutoAttemptInFlight = false;
++                notificationMessage = "";
++                notificationResetTimer.stop();
++
++                footer.enabled = true;
++                mainStack.enabled = true;
++                userListComponent.userList.opacity = 1;
++                return;
++            }
++
+             notificationMessage = i18nd("plasma_login", "Login Failed");
+             // Only failures time out; started here rather than on every change.
+             notificationResetTimer.start();

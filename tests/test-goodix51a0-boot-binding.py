@@ -18,6 +18,7 @@ PLM_PKGBUILD = PLM_INTEGRATION / "PKGBUILD"
 PLM_PATCH1 = PLM_INTEGRATION / "0001-show-pam-authentication-messages.patch"
 PLM_PATCH2 = PLM_INTEGRATION / "0002-stop-notification-timer-for-pam-message.patch"
 PLM_PATCH3 = PLM_INTEGRATION / "0003-enable-fprintd-for-plasmalogin.patch"
+PLM_PATCH4 = PLM_INTEGRATION / "0004-autostart-first-fingerprint-attempt.patch"
 
 actual = "acpi:GXFP51A0:GXFP51A0:"
 legacy = "acpi:GXFP51A0:"
@@ -81,14 +82,20 @@ plm_pkgbuild = PLM_PKGBUILD.read_text()
 plm_patch1 = PLM_PATCH1.read_text()
 plm_patch2 = PLM_PATCH2.read_text()
 plm_patch3 = PLM_PATCH3.read_text()
+plm_patch4 = PLM_PATCH4.read_text()
 assert "pkgver=6.7.4" in plm_pkgbuild
-assert "pkgrel=3.1" in plm_pkgbuild
+assert "pkgrel=3.2" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
+assert "0004-autostart-first-fingerprint-attempt.patch" in plm_pkgbuild
 assert "function onInformationMessage(message)" in plm_patch1
 assert "notificationResetTimer.stop();" in plm_patch2
 assert "pam_fprintd.so max-tries=1 timeout=12" in plm_patch3
+assert "maybeStartFingerprintLogin" in plm_patch4
+assert "fingerprintAutoAttemptDone" in plm_patch4
+assert "fingerprintAutoAttemptInFlight" in plm_patch4
+assert "startLogin(true)" in plm_patch4
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall

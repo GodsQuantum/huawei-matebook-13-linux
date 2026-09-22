@@ -9,7 +9,7 @@ Updated: 2026-09-22.
 - current login-integration candidate branch: `fingerprint-rel25-login-integration`
 - installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-25`
 - installed fprintd: `1.94.5-2.1`
-- installed Plasma Login Manager compatibility package: `6.7.4-3.1`
+- installed Plasma Login Manager compatibility package: `6.7.4-3.2`
 - libfprint base: v1.94.100
 - target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware GF_ST411SEC_APP_14115
 
@@ -54,15 +54,21 @@ The compatibility package is based on official Plasma Login Manager 6.7.4 and ap
 2. KDE upstream notification-timer follow-up.
 3. Arch PAM profile addition:
    `auth sufficient pam_fprintd.so max-tries=1 timeout=12`
+4. A bounded compatibility patch that starts exactly one fingerprint-first PAM
+   attempt when the selected-user greeter becomes visible with an empty password
+   field. This restores the previously observed UI: the PAM cue appears without
+   pressing Enter. A timeout returns to the normal password UI and does not loop.
 
-The package version is `6.7.4-3.1`, so a later upstream Plasma Login Manager release can replace it normally.
+The package version is `6.7.4-3.2`. Upstream 6.7.5 was checked and still lacks
+the PAM-message connection, so it must not silently replace this compatibility
+build until the equivalent functionality lands upstream.
 
 No local `/etc/pam.d/plasmalogin` override is required anymore.
 
 ## Current reference-machine validation
 
 Installed successfully without reboot:
-- `plasma-login-manager 6.7.4-3.1`
+- `plasma-login-manager 6.7.4-3.2`
 - `libfprint-goodix51a0 1.94.100.goodix51a0-25`
 - `fprintd 1.94.5-2.1`
 
@@ -79,7 +85,7 @@ Integrity:
 
 Build/package SHA-256:
 - rel25 driver package: `2b37442f0cf77111686be932df6e8c186280e46c48e7e3d18af0428a83d3dabc`
-- Plasma Login Manager 6.7.4-3.1 package: `d876b47daa9c28bc4d524b430900d181fa0bb0d3caada1ce611c82186e39329f`
+- Plasma Login Manager 6.7.4-3.2 package: `f9b01dd7946c18a6bb530347b32abf0debd17883400c0eb583de7bd3890a9097`
 
 ## Verification status
 
@@ -97,6 +103,7 @@ The package-specific regression test additionally requires:
 - `Before=display-manager.service`
 - the two exact upstream KDE PAM-message patches
 - package-managed pam_fprintd profile
+- the bounded `0004` auto-attempt patch and its one-attempt/no-loop state
 
 ## Remaining human validation
 
@@ -104,8 +111,9 @@ Do not re-enroll.
 
 The only remaining checks require leaving the current graphical session:
 1. log out;
-2. start authentication for the selected user;
-3. verify that the small PAM line asking for the fingerprint is visible;
+2. do not type or press Enter;
+3. verify that the greeter automatically starts fingerprint authentication and
+   shows the small PAM line asking for the fingerprint under the password field;
 4. authenticate with an already-enrolled finger;
 5. later reboot manually and repeat the same test at cold boot.
 
@@ -135,7 +143,7 @@ Cleanup completed on the reference machine after rel25 installation:
 
 Local reinstall kit in OS & Drivers now contains only rel25-rc1 artifacts:
 - rel25 Arch/CachyOS driver package;
-- Plasma Login Manager 6.7.4-3.1 fingerprint-prompt compatibility package;
+- Plasma Login Manager 6.7.4-3.2 fingerprint-prompt/auto-attempt compatibility package;
 - rel25-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
