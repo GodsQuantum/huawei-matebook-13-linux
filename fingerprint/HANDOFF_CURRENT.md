@@ -175,6 +175,35 @@ Next human step is logout only: do not press Enter or type a password; the fresh
 greeter should automatically begin one fingerprint attempt and show the small
 PAM fingerprint line. Cold-boot validation follows later by manual reboot only.
 
+## 2026-09-22 14:42 logout validation update
+
+Human logout test result: the rel25 Plasma Login Manager fix works at the UI/PAM layer.
+The fingerprint prompt appeared automatically without typing or pressing Enter.
+Authentication then failed below PAM, during GXFP51A0 GET_IMAGE/TLS capture transport.
+
+No template was lost. All three enrollments remain present. Do not re-enroll.
+
+Simple spidev rebind and the exact validated GPIO264 reset + rebind did not restore
+reliable TLS in the already degraded boot. A reversible rel23 A/B test also could not
+recover that degraded state, so no rel23-vs-rel25 conclusion may be drawn from it.
+The exact rel25-rc1 package was restored and all A/B build/snapshot residue was cleaned.
+
+Important correlation: this boot started cleanly at 08:56 with rel24 already installed;
+TLS failure appears after the package-driven fprintd restart later in the boot, and the
+14:18 biometric capture then entered a transport desynchronisation that bounded recovery
+could not clear.
+
+Full evidence and next-step rationale:
+`fingerprint/handoff/HANDOFF_2026-09-22_1442_REL25_LOGOUT_TRANSPORT_FAILURE.md`
+
+Next step is now a **manual cold reboot by Arezki** as a diagnostic baseline. The assistant
+must not reboot Pegasus. On the first fresh greeter, type nothing, press no key, verify the
+automatic fingerprint prompt and try one existing enrolled finger. Collect logs immediately
+after login and before any fprintd restart.
+
+Even if cold-boot login succeeds, do not promote rel25 yet: restart/recovery robustness
+must be explained or fixed first.
+
 ## New-session bootstrap prompt
 
 The exact reusable prompt is stored next to this handoff in:
