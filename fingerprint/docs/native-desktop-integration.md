@@ -18,6 +18,7 @@ KDE / GNOME / PAM / command-line clients
 The production driver exposes the standard libfprint lifecycle:
 
 - `open` / `close`
+- `suspend` / `resume`
 - `enroll`
 - one-to-one `verify`
 - one-to-many `identify`
@@ -35,17 +36,25 @@ know which template to choose.
 
 ## Lifecycle policy
 
-Opening the hardware and obtaining a clean biometric capture context are
-separate concerns.
+Enumeration and biometric preparation are deliberately separate.
 
-`open` establishes the hardware handles and may opportunistically prepare the
-TLS/background/FDT context. A transient image/TLS timeout during that prewarm
-does **not** make the device disappear from fprintd. The actual biometric
-operation performs a bounded whole-session retry from a reset protocol
-boundary.
+`probe` is passive with respect to the sensor protocol: it checks only that
+the host transport can be opened and closed. It never resets the MCU, starts
+TLS, captures a background image or calibrates FDT.
 
-This avoids desktop-specific workarounds while keeping initialization failures
-bounded and observable.
+A real `open`/Claim owns sensor preparation. It starts from a deterministic
+MCU boundary, performs bounded TLS/background/FDT preparation, and reports a
+protocol error if that preparation cannot be completed. It never reports an
+open device while the capture context is known to be unusable.
+
+A validated warm context may survive an ordinary Claim/Release for low latency,
+but never blindly survives a power-state boundary. Native libfprint
+`suspend`/`resume` callbacks invalidate it during active use, and an
+idle-suspend fallback detects elapsed sleep from the
+`CLOCK_BOOTTIME - CLOCK_MONOTONIC` delta at the next Claim.
+
+This keeps lifecycle recovery inside libfprint instead of installing a
+desktop-specific resume service.
 
 ## Authentication latency
 

@@ -111,7 +111,8 @@ struct _FpiDeviceGoodix51A0
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
-  gboolean      probe_prewarm;    /* enumeration optimization: short TLS budget, no staging fallback */
+  gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
+  gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -1805,8 +1806,7 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
   int att;
   gboolean diagnostic = g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") != NULL;
   gboolean capture_diagnostic = g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
-  int max_attempts = self->probe_prewarm ? 2 :
-                     (capture_diagnostic ? 2 : (diagnostic ? 1 : 5));
+  int max_attempts = capture_diagnostic ? 2 : (diagnostic ? 1 : 5);
 
   if (self->tls_up)
     return TRUE;
@@ -1868,8 +1868,7 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
    * disk while probing fresh boot staging. If the newly recovered candidate
    * reaches D4, gx_pmk_cache_save() atomically replaces the old file. If it
    * does not, the last-known-good cache remains available for a later boot. */
-  if (!self->tls_up && !diagnostic && !self->probe_prewarm &&
-      self->psk_from_cache)
+  if (!self->tls_up && !diagnostic && self->psk_from_cache)
     {
       fp_warn ("GXFP51A0 cached PMK could not establish TLS; trying fresh staging without deleting validated cache");
       gx_pmk_clear (self);
@@ -3183,24 +3182,59 @@ gx_transport_open (FpDevice *dev, GError **error)
   return TRUE;
 }
 
-static void
-gx_warm_discard (FpiDeviceGoodix51A0 *self)
+#define GX_SLEEP_DELTA_STALE_US (250 * 1000)
+
+static gint64
+gx_sleep_delta_us (void)
 {
+  struct timespec boot = { 0, }, mono = { 0, };
+
+  if (clock_gettime (CLOCK_BOOTTIME, &boot) != 0 ||
+      clock_gettime (CLOCK_MONOTONIC, &mono) != 0)
+    return 0;
+
+  return ((gint64) boot.tv_sec - (gint64) mono.tv_sec) * G_USEC_PER_SEC +
+         ((gint64) boot.tv_nsec - (gint64) mono.tv_nsec) / 1000;
+}
+
+static gboolean
+gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
+{
+  gint64 now;
+
+  if (!self->warm_valid || self->warm_sleep_delta_us <= 0)
+    return FALSE;
+
+  now = gx_sleep_delta_us ();
+  return now > 0 &&
+         now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US;
+}
+
+static void
+gx_warm_abandon (FpiDeviceGoodix51A0 *self)
+{
+  /* Host-only invalidation.  Use this after suspend or another lifecycle
+   * boundary where sensor-side TLS state cannot be trusted: never send a
+   * close_notify over a session that may no longer exist. */
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
   self->have_fdt = FALSE;
   self->bg_dirty = FALSE;
   self->tls_rxlen = 0;
   self->tls_rxpos = 0;
-  if (self->tls_up && self->spi_fd >= 0 && self->irq_fd >= 0)
-    gx_tls_teardown (self);
-  else
-    {
-      self->tls_up = FALSE;
-      g_clear_pointer (&self->tls, gx_tls_free);
-    }
+  self->tls_up = FALSE;
+  self->warm_sleep_delta_us = 0;
+  g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
+}
+
+static void
+gx_warm_discard (FpiDeviceGoodix51A0 *self)
+{
+  if (self->tls_up && self->spi_fd >= 0 && self->irq_fd >= 0)
+    gx_tls_teardown (self);
+  gx_warm_abandon (self);
 }
 
 static gboolean
@@ -3265,9 +3299,12 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
       g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
     return FALSE;
 
-  if (!gx_prepare_capture_context_once (self, FALSE))
+  /* Claim/open is the authoritative preparation boundary.  Unlike rel24/25
+   * probe prewarm, this uses the bounded recovery wrapper, including a fresh
+   * MCU boundary between attempts and the production PMK fallback. */
+  if (!gx_prepare_capture_context (self, FALSE))
     {
-      fp_warn ("GXFP51A0 probe prewarm preparation failed; deferring bounded recovery to the biometric action");
+      fp_warn ("GXFP51A0 cold preparation failed after bounded recovery");
       gx_invalidate_capture_context (self);
       gx_tls_teardown (self);
       gx_pmk_clear (self);
@@ -3278,73 +3315,31 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   self->capture_recovery_pending = FALSE;
   self->production_ready = TRUE;
   self->warm_valid = TRUE;
+  self->warm_sleep_delta_us = gx_sleep_delta_us ();
   fp_info ("GXFP51A0 production capture context ready; native warm state armed "
            "(capture pacing=%d%% gap=%u us)",
            self->capture_gap_scale, gx_capture_gap_us (self));
   return TRUE;
 }
 
-#define GX_PROBE_PREWARM_ATTEMPTS 1
-
 static void
 gx_dev_probe (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GError *err = NULL;
-  gint64 t0 = g_get_monotonic_time ();
-  gboolean prewarmed = FALSE;
-  gboolean diagnostic =
-    g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") ||
-    g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") ||
-    g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY");
 
+  /* Enumeration must be passive.  rel24/25 performed a complete TLS +
+   * background GET_IMAGE transaction here, before any biometric Claim.  A
+   * transport miss could therefore desynchronise the MCU before the greeter
+   * ever asked for a fingerprint.  Validate only host-side transport
+   * availability in probe(); the real Claim/open owns sensor initialisation. */
   if (!gx_transport_open (dev, &err))
     {
       fpi_device_probe_complete (dev, NULL, NULL, err);
       return;
     }
 
-  if (!diagnostic)
-    {
-      self->probe_prewarm = TRUE;
-      for (int attempt = 1; attempt <= GX_PROBE_PREWARM_ATTEMPTS; attempt++)
-        {
-          /* probe() is an enumeration-time optimization, not an authentication
-           * operation. Every attempt starts from a deterministic MCU boundary;
-           * this prevents stale TLS state from a crashed/restarted daemon from
-           * leaking into the next preparation. */
-          gx_gpio_reset (self);
-
-          if (gx_cold_prepare (self))
-            {
-              prewarmed = TRUE;
-              self->production_ready = FALSE;
-              gx_pmk_clear (self);
-              fp_info ("GXFP51A0 native prewarm completed during libfprint probe "
-                       "in %d ms (attempt %d/%d)",
-                       (int) ((g_get_monotonic_time () - t0) / 1000),
-                       attempt, GX_PROBE_PREWARM_ATTEMPTS);
-              break;
-            }
-
-          fp_warn ("GXFP51A0 probe prewarm attempt %d/%d failed",
-                   attempt, GX_PROBE_PREWARM_ATTEMPTS);
-          gx_warm_discard (self);
-          if (attempt < GX_PROBE_PREWARM_ATTEMPTS)
-            g_usleep (250 * 1000);
-        }
-      self->probe_prewarm = FALSE;
-    }
-
-  if (!prewarmed)
-    {
-      gx_warm_discard (self);
-      if (!diagnostic)
-        fp_warn ("GXFP51A0 probe prewarm unavailable; device remains usable through the cold open path");
-    }
-
   gx_transport_close (self);
-  /* Keep the historical libfprint device ID so existing fprintd templates remain visible. */
   fpi_device_probe_complete (dev, NULL, NULL, NULL);
 }
 
@@ -3353,12 +3348,32 @@ gx_dev_open (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GError *err = NULL;
+  gboolean cold_boundary_done = FALSE;
+  gboolean slept = gx_warm_crossed_sleep (self);
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
+
+  /* An idle libfprint device may not receive the driver suspend vfunc.  Detect
+   * that case before reopening hardware handles, while stale TLS can still be
+   * discarded host-side without sending anything to the sensor. */
+  if (slept || self->force_cold_reset)
+    {
+      fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
+      gx_warm_abandon (self);
+      self->capture_recovery_pending = FALSE;
+      had_warm = FALSE;
+    }
 
   if (!gx_transport_open (dev, &err))
     {
       fpi_device_open_complete (dev, err);
       return;
+    }
+
+  if (slept || self->force_cold_reset)
+    {
+      gx_gpio_reset (self);
+      self->force_cold_reset = FALSE;
+      cold_boundary_done = TRUE;
     }
 
   if (self->capture_recovery_pending)
@@ -3373,6 +3388,7 @@ gx_dev_open (FpDevice *dev)
                                            "capture transport recovery failed"));
           return;
         }
+      cold_boundary_done = TRUE;
     }
 
   if (gx_warm_available (self))
@@ -3388,15 +3404,29 @@ gx_dev_open (FpDevice *dev)
       fp_warn ("GXFP51A0 warm context did not answer; falling back to cold preparation");
       gx_warm_discard (self);
       gx_gpio_reset (self);
+      cold_boundary_done = TRUE;
     }
   else if (had_warm)
     {
       fp_info ("GXFP51A0 incomplete warm context; returning to cold preparation");
       gx_warm_discard (self);
       gx_gpio_reset (self);
+      cold_boundary_done = TRUE;
     }
 
-  (void) gx_cold_prepare (self);
+  if (!cold_boundary_done)
+    gx_gpio_reset (self);
+
+  if (!gx_cold_prepare (self))
+    {
+      gx_warm_abandon (self);
+      gx_transport_close (self);
+      fpi_device_open_complete (
+        dev, fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO,
+                                       "GXFP51A0 cold preparation failed"));
+      return;
+    }
+
   fpi_device_open_complete (dev, NULL);
 }
 
@@ -3407,7 +3437,8 @@ gx_dev_close (FpDevice *dev)
 
   g_clear_handle_id (&self->poll_id, g_source_remove);
 
-  if (self->production_ready && self->warm_valid && self->tls_up &&
+  if (!self->force_cold_reset &&
+      self->production_ready && self->warm_valid && self->tls_up &&
       self->tls && self->have_fdt && self->bg_frame)
     {
       self->production_ready = FALSE;
@@ -3418,10 +3449,44 @@ gx_dev_close (FpDevice *dev)
       return;
     }
 
-  gx_warm_discard (self);
+  if (self->force_cold_reset)
+    gx_warm_abandon (self);
+  else
+    gx_warm_discard (self);
   gx_transport_close (self);
   fpi_device_close_complete (dev, NULL);
 }
+
+static void
+gx_dev_suspend (FpDevice *dev)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+
+  /* fprintd already subscribes to logind PrepareForSleep and calls the native
+   * libfprint suspend API.  Do not perform sensor I/O while the machine is
+   * entering sleep; just make warm state non-reusable. */
+  self->force_cold_reset = TRUE;
+  self->warm_valid = FALSE;
+  self->production_ready = FALSE;
+  fp_info ("GXFP51A0 suspend: warm TLS/FDT context invalidated");
+  fpi_device_suspend_complete (dev, NULL);
+}
+
+static void
+gx_dev_resume (FpDevice *dev)
+{
+  GCancellable *current = fpi_device_get_cancellable (dev);
+  g_autoptr(GCancellable) action_cancellable =
+    current ? g_object_ref (current) : NULL;
+
+  /* Clear libfprint's suspended state before cancelling an in-flight action;
+   * fprintd can then Release/close it normally.  The following Claim will hit
+   * force_cold_reset and build a fresh sensor session. */
+  fpi_device_resume_complete (dev, NULL);
+  if (action_cancellable)
+    g_cancellable_cancel (action_cancellable);
+}
+
 
 
 /* --- verification completion --------------------------------------- */
@@ -3584,7 +3649,8 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_gap_scale = 0; /* loaded lazily from root-owned state */
   self->capture_gap_saved = 0;
   self->capture_recovery_pending = FALSE;
-  self->probe_prewarm = FALSE;
+  self->warm_sleep_delta_us = 0;
+  self->force_cold_reset = FALSE;
 }
 
 
@@ -3593,7 +3659,10 @@ fpi_device_goodix51a0_finalize (GObject *object)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (object);
 
-  gx_warm_discard (self);
+  if (self->force_cold_reset)
+    gx_warm_abandon (self);
+  else
+    gx_warm_discard (self);
   gx_transport_close (self);
   G_OBJECT_CLASS (fpi_device_goodix51a0_parent_class)->finalize (object);
 }
@@ -3616,6 +3685,8 @@ fpi_device_goodix51a0_class_init (FpiDeviceGoodix51A0Class *klass)
   dev_class->probe = gx_dev_probe;
   dev_class->open = gx_dev_open;
   dev_class->close = gx_dev_close;
+  dev_class->suspend = gx_dev_suspend;
+  dev_class->resume = gx_dev_resume;
   dev_class->enroll = gx_dev_enroll;
   dev_class->verify = gx_dev_verify;
   dev_class->identify = gx_dev_identify;

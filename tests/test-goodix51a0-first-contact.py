@@ -49,7 +49,8 @@ assert "send_index < 2" in evk
 assert "cached_n = 0" in evk
 assert re.search(r"g_usleep\s*\(\s*5000\s*\)",evk)
 
-# rel23 factors transport and first-contact preparation out of open().
+# rel26 keeps libfprint enumeration passive. The real Claim/open owns
+# first-contact preparation and must propagate a preparation failure.
 # Preserve the validated Windows ordering inside gx_cold_prepare: DriverState
 # must be attempted before its reviewed reset fallback.
 first_ds=cold.find("gx_driverstate_install_windows")
@@ -57,8 +58,10 @@ first_reset=cold.find("gx_gpio_reset")
 assert first_ds>=0 and first_reset>first_ds
 assert cold.count("gx_driverstate_install_windows")==1
 assert "gx_transport_open (dev, &err)" in op
-assert "gx_cold_prepare (self)" in op
-assert "gx_cold_prepare (self)" in probe
+assert "if (!gx_cold_prepare (self))" in op
+assert "gx_transport_open (dev, &err)" in probe
+assert "gx_transport_close (self)" in probe
+assert "gx_cold_prepare (self)" not in probe
 
 assert "gx_target_configure" in text
 assert "gxfp_derive_calibration" in text

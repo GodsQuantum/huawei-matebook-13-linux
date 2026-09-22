@@ -38,7 +38,7 @@ echo "==> Installing libfprint-goodix51a0 and fprintd"
 sudo pacman -S --needed --noconfirm fprintd
 sudo pacman -U --needed --noconfirm "$PKG"
 
-echo "==> Verifying native udev SPI binding and standard fprintd prewarm"
+echo "==> Verifying native udev SPI binding and Claim-time fingerprint preparation"
 sudo udevadm control --reload
 sudo udevadm trigger --subsystem-match=spi
 sudo udevadm settle --timeout=3 || true

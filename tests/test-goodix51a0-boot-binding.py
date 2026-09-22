@@ -43,18 +43,31 @@ assert "FPI_DEVICE_UDEV_SUBTYPE_SPIDEV" in driver
 assert '.spi_acpi_id = "GXFP51A0"' in driver
 assert "dev_class->probe = gx_dev_probe;" in driver
 assert "fpi_device_probe_complete (dev, NULL, NULL, NULL);" in driver
-assert "historical libfprint device ID" in driver
 assert "GX_WARM_TTL_US" not in driver
 assert "gx_warm_validate" in driver
-assert "native prewarm completed during libfprint probe" in driver
-assert "#define GX_PROBE_PREWARM_ATTEMPTS 1" in driver
-assert "probe prewarm attempt %d/%d failed" in driver
-assert "gx_prepare_capture_context_once (self, FALSE)" in driver
+
+# rel26: enumeration is host-transport-only. No TLS/background/FDT prewarm may
+# run before a real Claim, because Pegasus 2021 proved that a failed prewarm can
+# desynchronise GET_IMAGE before the greeter ever asks for a fingerprint.
+assert "probe_prewarm" not in driver
+assert "GX_PROBE_PREWARM_ATTEMPTS" not in driver
+assert "Enumeration must be passive" in driver
+assert "if (!gx_cold_prepare (self))" in driver
+assert "gx_prepare_capture_context (self, FALSE)" in driver
+assert "GXFP51A0 cold preparation failed" in driver
+
+# Native lifecycle invalidation: active suspend uses libfprint hooks; idle
+# suspend is caught from CLOCK_BOOTTIME-vs-MONOTONIC at the next Claim.
+assert "dev_class->suspend = gx_dev_suspend;" in driver
+assert "dev_class->resume = gx_dev_resume;" in driver
+assert "CLOCK_BOOTTIME" in driver
+assert "CLOCK_MONOTONIC" in driver
+assert "gx_warm_crossed_sleep" in driver
+assert "gx_warm_abandon" in driver
+assert "force_cold_reset" in driver
+
 assert "gx51_wait_irq_gpio48_low (self->irq_fd, 250)" in driver
 assert "first background capture must not race the tail of the TLS handshake" in driver
-assert "deferring bounded recovery to the biometric action" in driver
-assert "probe() is an enumeration-time optimization" in driver
-assert "falling back to cold preparation" in driver
 assert "reset_before_cold" not in driver
 assert "warm_expire" not in driver
 assert re.search(r"^#define\s+GX_MATCH_THRESHOLD\s+7\s*$", driver, re.M)
@@ -73,7 +86,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=25" in pkgbuild
+assert "pkgrel=26" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
@@ -101,7 +114,7 @@ assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall
 
 arch = ARCH.read_text()
-assert "native udev SPI binding and standard fprintd prewarm" in arch
+assert "native udev SPI binding and Claim-time fingerprint preparation" in arch
 assert "/usr/lib/fprintd --no-timeout" in arch
 assert "gxfp51a0-spidev-bind" not in arch
 
@@ -123,4 +136,4 @@ assert "BIND_SERVICE=" not in uninstall
 assert not (ROOT / "fingerprint/system/gxfp51a0-spidev-bind").exists()
 assert not (ROOT / "fingerprint/system/gxfp51a0-spidev-bind.service").exists()
 
-print("GOODIX51A0_NATIVE_SPI_PREWARM_SOURCE_TEST=PASS")
+print("GOODIX51A0_NATIVE_SPI_LIFECYCLE_SOURCE_TEST=PASS")

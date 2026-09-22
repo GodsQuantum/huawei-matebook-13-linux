@@ -67,6 +67,16 @@ Enumeration prewarm is also kept soft and short: one outer probe attempt, at mos
 
 rel25 keeps the rel24 transport behavior and fixes the graphical-login integration found during cold-boot validation on Plasma Login Manager 6.7.4. The fprintd drop-in now has `Before=display-manager.service`, so the reader is fully enumerated before the greeter starts. For Plasma Login Manager 6.7.4, `fingerprint/integration/plasma-login-manager-6.7-pam-messages/` provides a package-managed compatibility build containing KDE upstream commits `8f6c2d32` and `db5e466d`, which display PAM authentication information in the greeter and keep active prompts visible. The same package carries the `pam_fprintd` rule, avoiding local `/etc/pam.d` overrides. Existing enrollments remain compatible and are not touched.
 
+### rel26 candidate: Claim-time preparation and lifecycle recovery
+
+A MateBook 13 2021 cold-boot regression exposed a bad boundary in rel24/25: libfprint `probe()` performed TLS plus a background `GET_IMAGE` before any biometric client had claimed the device. If that opportunistic capture lost its TLS image, the MCU could already be desynchronised when the login greeter asked for the first fingerprint.
+
+rel26 makes enumeration passive: `probe()` verifies only that the host SPI/GPIO transport can be opened and closed. Sensor reset, TLS, background capture and FDT calibration now belong to the real libfprint `open()`/Claim path, which uses the bounded whole-session recovery path and reports a protocol error instead of falsely completing `open()` after failed preparation.
+
+The candidate also implements native libfprint suspend/resume callbacks and invalidates a retained warm context across sleep. Because an idle libfprint device may not receive a driver suspend callback, the next Claim also compares `CLOCK_BOOTTIME` with `CLOCK_MONOTONIC`; a detected sleep boundary forces a clean MCU reset before reuse.
+
+Matcher policy is unchanged: template v4 / SIGFM v3, threshold 7, 20 enrollment views and at most three independent verification presses. Existing rel23/24/25 enrollments remain format-compatible; do not re-enroll merely because transport preparation failed.
+
 
 ### Arch / CachyOS
 

@@ -248,8 +248,9 @@ Rollback:
 
 The installer did not modify PAM, KDE or GNOME configuration.
 It uses only the generated libfprint udev SPI rule and the standard fprintd
-service. fprintd starts early for native libfprint prewarm and stays alive with
---no-timeout; no GXFP-specific daemon/service is installed.
+service. fprintd starts early so the greeter can discover fingerprint support and
+stays alive with --no-timeout; sensor/TLS preparation occurs only on a real
+Claim/open, and no GXFP-specific daemon/service is installed.
 Enroll through your desktop settings or:
   fprintd-enroll -f right-index-finger
 EOF
