@@ -7,19 +7,21 @@ Updated: 2026-09-22.
 - stable public release / main: `fingerprint-gxfp51a0-rel23`
 - transport candidate: `fingerprint-gxfp51a0-rel24-rc1`
 - superseded login-integration candidate: `fingerprint-rel25-login-integration`
-- current lifecycle/recovery candidate branch: `fingerprint-rel26-lifecycle-recovery`
-- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-26`
+- superseded lifecycle/recovery candidate: `fingerprint-rel26-lifecycle-recovery`
+- current S3 recovery candidate branch: `fingerprint-rel27-s3-recovery`
+- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-27`
 - installed fprintd: `1.94.5-2.1`
 - installed Plasma Login Manager compatibility package: `6.7.4-3.2`
 - libfprint base: v1.94.100
 - target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware GF_ST411SEC_APP_14115
 
-rel26 keeps rel24 biometric/transport policy and rel25 graphical-login integration,
-but removes invasive sensor prewarm from libfprint `probe()`, propagates failed
-Claim-time preparation, and adds native suspend/resume plus idle-sleep invalidation.
+rel27 keeps the rel26 passive-probe/Claim-time architecture and fixes the first
+idle-S3 boundary: zero or slightly negative BOOTTIME-MONOTONIC baselines are
+valid, active suspend follows upstream libfprint cancellation semantics, and
+post-S3 unpersisted pacing is discarded before a cold reset/rebuild.
 
 Canonical latest evidence:
-`fingerprint/handoff/HANDOFF_2026-09-22_1938_REL26_LIFECYCLE_CANDIDATE.md`
+`fingerprint/handoff/HANDOFF_2026-09-22_2035_REL27_S3_RECOVERY.md`
 
 Do not re-enroll yet. The rel25 cold-boot failure occurred before the matcher,
 while all three template-v4 enrollments remained visible.

@@ -77,6 +77,26 @@ The candidate also implements native libfprint suspend/resume callbacks and inva
 
 Matcher policy is unchanged: template v4 / SIGFM v3, threshold 7, 20 enrollment views and at most three independent verification presses. Existing rel23/24/25 enrollments remain format-compatible; do not re-enroll merely because transport preparation failed.
 
+### rel27 candidate: first-S3 detection fix
+
+A real idle suspend/resume on the 2021 reference machine exposed a rel26 bug in the
+Claim-time sleep detector. Before the first suspend of a boot,
+`CLOCK_BOOTTIME - CLOCK_MONOTONIC` is legitimately zero or slightly negative
+because the clocks are sampled sequentially. rel26 incorrectly treated
+`<= 0` as an invalid baseline, so the first S3 could reuse stale TLS/FDT state.
+
+rel27 tracks clock validity separately from the numeric delta, so a zero or
+negative pre-suspend baseline remains valid. When the delta advances by more
+than 250 ms, the next Claim abandons stale TLS host-side, discards unpersisted
+capture-pacing escalation, resets the MCU and rebuilds the full context.
+
+The active-action suspend path is also aligned with the upstream libfprint
+contract: because ST411 cannot safely continue a capture across S3, the driver
+returns `FP_DEVICE_ERROR_NOT_SUPPORTED` from suspend. libfprint then cancels
+the active action before sleep; the next Claim performs a cold reset.
+
+No matcher/template/enrollment parameters changed.
+
 
 ### Arch / CachyOS
 

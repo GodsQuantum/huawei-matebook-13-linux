@@ -28,30 +28,41 @@ resume=fn("gx_dev_resume")
 klass=fn("fpi_device_goodix51a0_class_init")
 
 assert "CLOCK_BOOTTIME" in sleep and "CLOCK_MONOTONIC" in sleep
+assert "gint64 *out" in sleep
+assert "warm_sleep_clock_valid" in s
 assert "GX_SLEEP_DELTA_STALE_US" in s
-assert "warm_sleep_delta_us" in cross
+
+# A valid pre-first-suspend baseline may be zero or slightly negative because
+# BOOTTIME and MONOTONIC are sampled sequentially. Never use sign as validity.
+assert "warm_sleep_delta_us <= 0" not in cross
+assert "now > 0" not in cross
+assert "!self->warm_sleep_clock_valid" in cross
+assert "now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US" in cross
+assert "sleep boundary detected" in cross
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
 assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
+assert "self->warm_sleep_clock_valid = FALSE" in abandon
 
-# Idle-suspend detection runs before opening hardware handles.
+# Idle-suspend detection runs before opening hardware handles and resets any
+# unpersisted pacing escalation caused by the dead S3 session.
 assert "gx_warm_crossed_sleep (self)" in open_
 assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_open")
 assert "gx_gpio_reset (self)" in open_
-assert "force_cold_reset" in open_
+assert "self->capture_gap_scale = 0" in open_
+assert "self->capture_gap_saved = 0" in open_
 
-# Active suspend uses native libfprint lifecycle and defers cancellation until resume.
-assert "fpi_device_suspend_complete (dev, NULL)" in suspend
+# For an active action, upstream libfprint requires an error when the action
+# cannot safely continue across suspend; NOT_SUPPORTED triggers cancellation.
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" in suspend
+assert "fpi_device_suspend_complete" in suspend
 assert "self->force_cold_reset = TRUE" in suspend
 assert "fpi_device_resume_complete (dev, NULL)" in resume
-assert "g_cancellable_cancel" in resume
-assert resume.index("fpi_device_resume_complete") < resume.index("g_cancellable_cancel")
+assert "g_cancellable_cancel" not in resume
 
 assert "dev_class->suspend = gx_dev_suspend" in klass
 assert "dev_class->resume = gx_dev_resume" in klass
-
-# Close after a suspend must abandon stale TLS without sensor traffic.
 assert "if (self->force_cold_reset)" in close
 assert "gx_warm_abandon (self)" in close
 PY2

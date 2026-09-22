@@ -112,6 +112,7 @@ struct _FpiDeviceGoodix51A0
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
+  gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
 };
 
@@ -3184,30 +3185,41 @@ gx_transport_open (FpDevice *dev, GError **error)
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
 
-static gint64
-gx_sleep_delta_us (void)
+static gboolean
+gx_sleep_delta_us (gint64 *out)
 {
   struct timespec boot = { 0, }, mono = { 0, };
 
+  g_return_val_if_fail (out != NULL, FALSE);
+
   if (clock_gettime (CLOCK_BOOTTIME, &boot) != 0 ||
       clock_gettime (CLOCK_MONOTONIC, &mono) != 0)
-    return 0;
+    return FALSE;
 
-  return ((gint64) boot.tv_sec - (gint64) mono.tv_sec) * G_USEC_PER_SEC +
+  *out = ((gint64) boot.tv_sec - (gint64) mono.tv_sec) * G_USEC_PER_SEC +
          ((gint64) boot.tv_nsec - (gint64) mono.tv_nsec) / 1000;
+  return TRUE;
 }
 
 static gboolean
 gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
 {
-  gint64 now;
+  gint64 now = 0;
 
-  if (!self->warm_valid || self->warm_sleep_delta_us <= 0)
+  if (!self->warm_valid || !self->warm_sleep_clock_valid)
     return FALSE;
 
-  now = gx_sleep_delta_us ();
-  return now > 0 &&
-         now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US;
+  if (!gx_sleep_delta_us (&now))
+    return FALSE;
+
+  if (now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US)
+    {
+      fp_info ("GXFP51A0 sleep boundary detected: boottime-monotonic advanced by %d ms",
+               (int) ((now - self->warm_sleep_delta_us) / 1000));
+      return TRUE;
+    }
+
+  return FALSE;
 }
 
 static void
@@ -3224,6 +3236,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->tls_rxpos = 0;
   self->tls_up = FALSE;
   self->warm_sleep_delta_us = 0;
+  self->warm_sleep_clock_valid = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -3315,7 +3328,8 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   self->capture_recovery_pending = FALSE;
   self->production_ready = TRUE;
   self->warm_valid = TRUE;
-  self->warm_sleep_delta_us = gx_sleep_delta_us ();
+  self->warm_sleep_clock_valid =
+    gx_sleep_delta_us (&self->warm_sleep_delta_us);
   fp_info ("GXFP51A0 production capture context ready; native warm state armed "
            "(capture pacing=%d%% gap=%u us)",
            self->capture_gap_scale, gx_capture_gap_us (self));
@@ -3360,6 +3374,11 @@ gx_dev_open (FpDevice *dev)
       fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
+      /* A dead S3 session is not evidence that the SPI controller needs slower
+       * capture pacing. Forget any unpersisted in-process escalation and reload
+       * only a value validated by a successful complete capture. */
+      self->capture_gap_scale = 0;
+      self->capture_gap_saved = 0;
       had_warm = FALSE;
     }
 
@@ -3462,29 +3481,24 @@ gx_dev_suspend (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
 
-  /* fprintd already subscribes to logind PrepareForSleep and calls the native
-   * libfprint suspend API.  Do not perform sensor I/O while the machine is
-   * entering sleep; just make warm state non-reusable. */
+  /* The ST411 does not preserve TLS/FDT state across S3, so an interactive
+   * action cannot safely continue after resume.  libfprint explicitly asks
+   * such drivers to return NOT_SUPPORTED: it cancels the current action before
+   * forwarding the suspend result to fprintd, which accepts this condition. */
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
-  fp_info ("GXFP51A0 suspend: warm TLS/FDT context invalidated");
-  fpi_device_suspend_complete (dev, NULL);
+  fp_info ("GXFP51A0 suspend: cancelling active action; cold reset required after resume");
+  fpi_device_suspend_complete (
+    dev, fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED));
 }
 
 static void
 gx_dev_resume (FpDevice *dev)
 {
-  GCancellable *current = fpi_device_get_cancellable (dev);
-  g_autoptr(GCancellable) action_cancellable =
-    current ? g_object_ref (current) : NULL;
-
-  /* Clear libfprint's suspended state before cancelling an in-flight action;
-   * fprintd can then Release/close it normally.  The following Claim will hit
-   * force_cold_reset and build a fresh sensor session. */
+  /* The suspended action was cancelled by libfprint.  A following Claim sees
+   * force_cold_reset and reconstructs the sensor session from a clean boundary. */
   fpi_device_resume_complete (dev, NULL);
-  if (action_cancellable)
-    g_cancellable_cancel (action_cancellable);
 }
 
 
@@ -3650,6 +3664,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_gap_saved = 0;
   self->capture_recovery_pending = FALSE;
   self->warm_sleep_delta_us = 0;
+  self->warm_sleep_clock_valid = FALSE;
   self->force_cold_reset = FALSE;
 }
 
