@@ -114,6 +114,7 @@ struct _FpiDeviceGoodix51A0
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
+  gint64        warm_last_activity_us; /* monotonic time of last validated sensor activity */
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
@@ -1847,6 +1848,7 @@ gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
     self->capture_clean_streak = 0;
 
   self->capture_retry_seen = FALSE;
+  self->warm_last_activity_us = g_get_monotonic_time ();
 }
 
 /* Establishes the TLS channel. This is the expensive step, about half a
@@ -3235,6 +3237,7 @@ gx_transport_open (FpDevice *dev, GError **error)
 }
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
+#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
 
 static gboolean
 gx_sleep_delta_us (gint64 *out)
@@ -3273,6 +3276,25 @@ gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
   return FALSE;
 }
 
+static gboolean
+gx_warm_idle_expired (FpiDeviceGoodix51A0 *self)
+{
+  gint64 now;
+
+  if (!self->warm_valid || self->warm_last_activity_us <= 0)
+    return FALSE;
+
+  now = g_get_monotonic_time ();
+  if (now - self->warm_last_activity_us > GX_WARM_IDLE_TTL_US)
+    {
+      fp_info ("GXFP51A0 warm context idle for %d s; forcing cold rebuild",
+               (int) ((now - self->warm_last_activity_us) / G_USEC_PER_SEC));
+      return TRUE;
+    }
+
+  return FALSE;
+}
+
 static void
 gx_warm_abandon (FpiDeviceGoodix51A0 *self)
 {
@@ -3286,6 +3308,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->tls_rxlen = 0;
   self->tls_rxpos = 0;
   self->tls_up = FALSE;
+  self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
@@ -3317,8 +3340,9 @@ gx_warm_validate (FpiDeviceGoodix51A0 *self)
   if (gx_fdt_probe (self, cur) != 0)
     return FALSE;
 
+  self->warm_last_activity_us = g_get_monotonic_time ();
   fp_info ("GXFP51A0 warm context validated in %d ms (FDT mean=%d drop=%d)",
-           (int) ((g_get_monotonic_time () - t0) / 1000),
+           (int) ((self->warm_last_activity_us - t0) / 1000),
            gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur));
   return TRUE;
 }
@@ -3380,6 +3404,7 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   self->capture_pacing_suppressed = FALSE;
   self->production_ready = TRUE;
   self->warm_valid = TRUE;
+  self->warm_last_activity_us = g_get_monotonic_time ();
   self->warm_sleep_clock_valid =
     gx_sleep_delta_us (&self->warm_sleep_delta_us);
   fp_info ("GXFP51A0 production capture context ready; native warm state armed "
@@ -3416,14 +3441,15 @@ gx_dev_open (FpDevice *dev)
   GError *err = NULL;
   gboolean cold_boundary_done = FALSE;
   gboolean slept = gx_warm_crossed_sleep (self);
+  gboolean expired = gx_warm_idle_expired (self);
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
 
   /* An idle libfprint device may not receive the driver suspend vfunc.  Detect
    * that case before reopening hardware handles, while stale TLS can still be
    * discarded host-side without sending anything to the sensor. */
-  if (slept || self->force_cold_reset)
+  if (slept || expired || self->force_cold_reset)
     {
-      fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
+      fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
       /* A dead S3 session is not evidence that the SPI controller needs slower
@@ -3443,7 +3469,7 @@ gx_dev_open (FpDevice *dev)
       return;
     }
 
-  if (slept || self->force_cold_reset)
+  if (slept || expired || self->force_cold_reset)
     {
       gx_gpio_reset (self);
       self->force_cold_reset = FALSE;
@@ -3721,6 +3747,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_retry_seen = FALSE;
   self->capture_pacing_suppressed = FALSE;
   self->capture_recovery_pending = FALSE;
+  self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
   self->force_cold_reset = FALSE;
