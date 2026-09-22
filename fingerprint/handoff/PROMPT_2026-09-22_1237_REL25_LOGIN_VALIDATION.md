@@ -18,8 +18,7 @@ Commence impérativement par lire EN ENTIER, dans cet ordre :
 
 État à préserver :
 - branche candidate : `fingerprint-rel25-login-integration`
-- HEAD attendu : `d455738ab4254ecb170fe8e3b909587306310b7b`
-- remote de branche attendu au même commit
+- branche locale doit être propre et synchronisée avec `origin/fingerprint-rel25-login-integration`
 - `libfprint-goodix51a0 1.94.100.goodix51a0-25`
 - `fprintd 1.94.5-2.1`
 - `plasma-login-manager 6.7.4-3.2`
