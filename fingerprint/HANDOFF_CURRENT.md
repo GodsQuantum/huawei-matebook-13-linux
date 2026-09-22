@@ -149,5 +149,5 @@ Local reinstall kit in OS & Drivers now contains only rel25-rc1 artifacts:
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.
 
-Code commit pushed on the candidate branch: `4604d42`.
+Automatic-login compatibility implementation commit pushed on the candidate branch: `dfd439e`.
 The final visible-greeter/logout and cold-boot tests are still human-interactive and must be performed before promotion to stable.
