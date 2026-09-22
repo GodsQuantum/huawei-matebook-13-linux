@@ -47,6 +47,7 @@ sudo systemctl restart fprintd.service
 
 test -L /usr/lib/systemd/system/graphical.target.wants/fprintd.service
 systemctl cat fprintd.service | grep -Fq '/usr/lib/fprintd --no-timeout'
+systemctl cat fprintd.service | grep -Fq 'Before=display-manager.service'
 test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
 
 DEVICE="$(busctl --system call \

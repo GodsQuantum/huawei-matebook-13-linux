@@ -63,6 +63,10 @@ The first confirmed MateBook 13 2020 ST411/14115 report showed that rel23 can au
 
 Enumeration prewarm is also kept soft and short: one outer probe attempt, at most two cached-PMK TLS tries, and no fresh-staging fallback. If that optimization fails, fprintd still becomes available and the normal biometric open path retains the full bounded recovery. rel24-rc1 keeps template v4, SIGFM v3, threshold 7, 20 enrollment views and at most three independent verification presses unchanged.
 
+### rel25-rc1: Plasma Login integration candidate
+
+rel25 keeps the rel24 transport behavior and fixes the graphical-login integration found during cold-boot validation on Plasma Login Manager 6.7.4. The fprintd drop-in now has `Before=display-manager.service`, so the reader is fully enumerated before the greeter starts. For Plasma Login Manager 6.7.4, `fingerprint/integration/plasma-login-manager-6.7-pam-messages/` provides a package-managed compatibility build containing KDE upstream commits `8f6c2d32` and `db5e466d`, which display PAM authentication information in the greeter and keep active prompts visible. The same package carries the `pam_fprintd` rule, avoiding local `/etc/pam.d` overrides. Existing enrollments remain compatible and are not touched.
+
 
 ### Arch / CachyOS
 

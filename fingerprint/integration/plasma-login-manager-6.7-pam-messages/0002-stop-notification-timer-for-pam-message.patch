@@ -1,0 +1,39 @@
+From db5e466d3c3816f2cac627ca66cea9c6734f7ecc Mon Sep 17 00:00:00 2001
+From: Nicandros Nic <nicandris@pm.me>
+Date: Wed, 9 Sep 2026 16:07:38 +0200
+Subject: [PATCH] greeter: Stop the notification timer when a PAM message
+ arrives
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+notificationResetTimer is started by onLoginFailed and is only ever
+stopped by firing. If PAM sends an information message while that 3
+second timeout is still pending — a retry after a failed attempt, where
+pam_u2f's "cue" asks for a touch again — the timer fires and clears the
+cue the user is still acting on.
+
+Stop the timer before showing the message, so it lives until
+handleLoginRequest() clears it on the next attempt, as intended.
+
+CCBUG: 513560
+---
+ src/frontend/greeter/qml/Main.qml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/frontend/greeter/qml/Main.qml b/src/frontend/greeter/qml/Main.qml
+index e4891dfb..ae440c0d 100644
+--- a/src/frontend/greeter/qml/Main.qml
++++ b/src/frontend/greeter/qml/Main.qml
+@@ -372,6 +372,8 @@ Item {
+         // e.g. pam_u2f's "cue" asking the user to touch their key. Not auto-cleared
+         // like "Login Failed" is: handleLoginRequest() clears it on the next attempt.
+         function onInformationMessage(message) {
++            // A reset pending from an earlier failure would clear this one early.
++            notificationResetTimer.stop();
+             notificationMessage = message;
+         }
+ 
+-- 
+2.55.0
+

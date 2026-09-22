@@ -190,6 +190,7 @@ sudo mkdir -p "$DROPIN_DIR"
 cat > "$TMP_STATE/dropin" <<EOF
 [Unit]
 After=systemd-udev-trigger.service
+Before=display-manager.service
 
 [Service]
 ExecStartPre=-$UDEVADM_BIN settle --timeout=3

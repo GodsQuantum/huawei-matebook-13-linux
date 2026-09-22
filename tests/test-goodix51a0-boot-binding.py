@@ -13,6 +13,11 @@ BUILD = ROOT / "fingerprint/scripts/build-libfprint-v1.94.100.sh"
 PKGBUILD = ROOT / "fingerprint/packaging/arch/PKGBUILD"
 PKGINSTALL = ROOT / "fingerprint/packaging/arch/libfprint-goodix51a0.install"
 DROPIN = ROOT / "fingerprint/packaging/arch/fprintd-goodix51a0.conf"
+PLM_INTEGRATION = ROOT / "fingerprint/integration/plasma-login-manager-6.7-pam-messages"
+PLM_PKGBUILD = PLM_INTEGRATION / "PKGBUILD"
+PLM_PATCH1 = PLM_INTEGRATION / "0001-show-pam-authentication-messages.patch"
+PLM_PATCH2 = PLM_INTEGRATION / "0002-stop-notification-timer-for-pam-message.patch"
+PLM_PATCH3 = PLM_INTEGRATION / "0003-enable-fprintd-for-plasmalogin.patch"
 
 actual = "acpi:GXFP51A0:GXFP51A0:"
 legacy = "acpi:GXFP51A0:"
@@ -58,7 +63,7 @@ assert "GPP_D16" not in driver
 
 dropin = DROPIN.read_text()
 assert "After=systemd-udev-trigger.service" in dropin
-assert "Before=display-manager.service" not in dropin
+assert "Before=display-manager.service" in dropin
 assert "ExecStart=/usr/lib/fprintd --no-timeout" in dropin
 assert "TimeoutStartSec=40s" in dropin
 assert "DeviceAllow=char-gpiochip rw" in dropin
@@ -67,10 +72,23 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=24" in pkgbuild
+assert "pkgrel=25" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
+
+plm_pkgbuild = PLM_PKGBUILD.read_text()
+plm_patch1 = PLM_PATCH1.read_text()
+plm_patch2 = PLM_PATCH2.read_text()
+plm_patch3 = PLM_PATCH3.read_text()
+assert "pkgver=6.7.4" in plm_pkgbuild
+assert "pkgrel=3.1" in plm_pkgbuild
+assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
+assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
+assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
+assert "function onInformationMessage(message)" in plm_patch1
+assert "notificationResetTimer.stop();" in plm_patch2
+assert "pam_fprintd.so max-tries=1 timeout=12" in plm_patch3
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall
@@ -85,7 +103,7 @@ assert "UDEV_RULE_FILE=" in linux
 assert "EARLY_WANTS_LINK=" in linux
 assert "--no-timeout" in linux
 assert "TimeoutStartSec=40s" in linux
-assert "Before=display-manager.service" not in linux
+assert "Before=display-manager.service" in linux
 assert "LimitCORE=0" in linux
 assert "BIND_HELPER=" not in linux
 assert "BIND_SERVICE=" not in linux

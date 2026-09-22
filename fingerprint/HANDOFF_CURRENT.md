@@ -1,116 +1,124 @@
 # Current handoff — GXFP51A0 / GF3658 ST411
 
-Updated: 2026-09-21.
+Updated: 2026-09-22.
 
-## Stable and candidate
+## Stable and candidates
 
-- stable public release: `fingerprint-gxfp51a0-rel23`
-- stable main before this candidate: `c99522c0a00245e30fed7d050b1314b678f04694`
-- compatibility candidate: rel24-rc1 / package `libfprint-goodix51a0 1.94.100.goodix51a0-24`
+- stable public release / main: `fingerprint-gxfp51a0-rel23`
+- transport candidate: `fingerprint-gxfp51a0-rel24-rc1`
+- current login-integration candidate branch: `fingerprint-rel25-login-integration`
+- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-25`
+- installed fprintd: `1.94.5-2.1`
+- installed Plasma Login Manager compatibility package: `6.7.4-3.1`
 - libfprint base: v1.94.100
-- fprintd validated line: 1.94.5
-- exact validated target: GXFP51A0, GF3658/ST411, chip 0x2504
-- validated firmware: GF_ST411SEC_APP_14115
+- target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware GF_ST411SEC_APP_14115
 
-rel23 remains the stable/latest release until the MateBook 13 2020 reporter validates rel24-rc1. rel24-rc1 is installed on the 2021 Pegasus reference machine and keeps all existing template-v4 enrollments visible.
+rel25 keeps the rel24 slow-transport recovery unchanged and fixes the graphical-login integration discovered during reboot/logout validation.
 
-## Why rel24-rc1 exists
+## Login regression diagnosis
 
-GitHub issue #6 provided the first confirmed MateBook 13 2020 WRTB-WXX9 ST411/14115 data point. rel23 authenticates correctly there (reported genuine score 27, impostor score 3 at fixed threshold 7), but capture is about 760 ms and the transport can enter repeated GET_IMAGE/FDT no-ACK states, causing multi-second PAM delays.
+The fingerprint templates were never lost. The reference machine still exposes:
+- left-index-finger
+- right-middle-finger
+- right-index-finger
 
-Pegasus also reproduced the related exhausted-retry signature where GET_IMAGE receives its cleartext ACK but the TLS image still never arrives.
+The login journal proved that PAM/fprintd emitted `Placez votre doigt sur le lecteur d’empreintes`, but Plasma Login Manager 6.7.4 did not render it.
 
-## rel24 transport policy
+Exact upstream KDE fixes:
+- `8f6c2d3205df3a0aab5c156d3b7e2950eda8beb0` — show PAM authentication messages in the greeter.
+- `db5e466d3c3816f2cac627ca66cea9c6734f7ecc` — stop an old failure timer from clearing an active PAM prompt.
 
-Capture pacing is deliberately independent from the existing target/TLS timing scale.
+The 6.7.4 greeter backend already forwarded `informationMessage`; its QML simply had no connection to the existing notification text.
 
-- nominal capture step gap remains 30 ms / 100%;
-- an exhausted GET_IMAGE transport failure raises capture pacing by 50 percentage points;
-- capture pacing is clamped to 100–300% (30–90 ms);
-- both `no ACK/TLS after retries` and `ACK but no TLS image after retry` mark transport desynchronisation;
-- the next retry starts from a full MCU reset/session rebuild;
-- a transport failure is not a biometric decision and does not increment the fixed verification attempt counter;
-- learned capture pacing is persisted only after a complete successful finger capture;
-- the separate TLS/init timing state cannot inflate capture pacing.
+## rel23 ordering bug fixed in rel25
 
-This preserves the 2021 fast path while allowing genuinely slow units to adapt.
+rel23 removed the rel22 custom binder and correctly switched to native udev/spidev/libfprint prewarm, but its packaging comment claimed fprintd was ordered before the display manager while the drop-in did not actually contain that ordering.
 
-## Boot/prewarm policy
+Cold-boot evidence showed Plasma Login Manager becoming active just before fprintd finished enumeration.
 
-Enumeration-time prewarm is an optimization, not a service-availability requirement.
+rel25 adds:
+`Before=display-manager.service`
 
-rel24-rc1 therefore uses:
+The installed unit now resolves this to:
+`Before=plasmalogin.service`
 
-- one outer probe prewarm attempt;
-- at most two cached-PMK TLS attempts during probe;
-- no fresh-staging fallback during probe;
-- normal fprintd availability even if prewarm fails;
-- the full existing 5-attempt TLS + stale-cache/fresh-staging bounded recovery only on the real biometric/open path.
+This preserves the native path and does not restore the obsolete GXFP-specific binder.
 
-The Arch/CachyOS package restarts fprintd with `systemctl restart --no-block`, so package transactions no longer wait for sensor prewarm.
+## Package-managed Plasma Login integration
 
-## Pegasus runtime validation
+Source:
+`fingerprint/integration/plasma-login-manager-6.7-pam-messages/`
 
-Final rel24 candidate installed on Pegasus without reboot.
+The compatibility package is based on official Plasma Login Manager 6.7.4 and applies:
+1. KDE upstream PAM-message display fix.
+2. KDE upstream notification-timer follow-up.
+3. Arch PAM profile addition:
+   `auth sufficient pam_fprintd.so max-tries=1 timeout=12`
 
-Observed:
+The package version is `6.7.4-3.1`, so a later upstream Plasma Login Manager release can replace it normally.
 
-- package revision: `1.94.100.goodix51a0-24`;
-- package integrity: 32 files, 0 altered;
-- fprintd: active with `--no-timeout`;
-- existing enrollments: left index, right middle, right index;
-- persisted TLS timing on this machine: 300%;
-- persisted capture timing: absent, proving TLS timing no longer contaminates the 30 ms capture default;
-- five non-biometric list/Claim-style accesses: about 30–40 ms;
-- degraded probe state: prewarm stopped after 2/2 cached-PMK TLS tries and fprintd still entered active state instead of hitting the 40 s systemd timeout;
-- package reinstall transaction with asynchronous service restart: about 10–11 s.
+No local `/etc/pam.d/plasmalogin` override is required anymore.
 
-No new manual fingerprint pose was required for this validation.
+## Current reference-machine validation
 
-## Matcher and template invariants
+Installed successfully without reboot:
+- `plasma-login-manager 6.7.4-3.1`
+- `libfprint-goodix51a0 1.94.100.goodix51a0-25`
+- `fprintd 1.94.5-2.1`
 
-Unchanged from rel23:
+Integrity:
+- Plasma Login Manager: 209 files, 0 altered.
+- libfprint-goodix51a0: 32 files, 0 altered.
+- fprintd active with `--no-timeout`.
+- all three prior enrollments remain visible.
+- package-managed PAM profile contains pam_fprintd.
+- `/etc/pam.d/plasmalogin`: absent.
+- old PAM backup: absent.
+- rel22 binder binary/service: absent.
+- fprintd ordering resolves to `Before=plasmalogin.service`.
 
-- production matcher: C FAST-9 + BRIEF-256 + cross-check + rigid RANSAC;
-- fixed acceptance threshold: 7 inliers;
-- enrollment: 20 views;
-- verification: max three independent complete presses;
-- no weak-score accumulation;
-- pixel/ZNCC remains diagnostic-only;
-- template v4 / SIGFM v3 remains compatible.
+Build/package SHA-256:
+- rel25 driver package: `2b37442f0cf77111686be932df6e8c186280e46c48e7e3d18af0428a83d3dabc`
+- Plasma Login Manager 6.7.4-3.1 package: `d876b47daa9c28bc4d524b430900d181fa0bb0d3caada1ce611c82186e39329f`
+
+## Verification status
+
+The full software baseline passed after updating the obsolete rel23 test assumption:
+- shell syntax
+- native SPI/udev/prewarm source gates
+- research and safety suite
+- matcher/template gates
+- source manifest
+- reproducible libfprint v1.94.100 build
+- no release biometric dump hook
+- no sensor I/O/GPIO/MMIO/firmware action during software build
+
+The package-specific regression test additionally requires:
+- `Before=display-manager.service`
+- the two exact upstream KDE PAM-message patches
+- package-managed pam_fprintd profile
+
+## Remaining human validation
+
+Do not re-enroll.
+
+The only remaining checks require leaving the current graphical session:
+1. log out;
+2. start authentication for the selected user;
+3. verify that the small PAM line asking for the fingerprint is visible;
+4. authenticate with an already-enrolled finger;
+5. later reboot manually and repeat the same test at cold boot.
+
+Do not reboot the machine automatically.
 
 ## Safety/privacy invariants
 
-- never touch GPIO112/GPP_D16;
-- GPIO264 is MCU reset and remains low during operation;
+- never touch GPIO112 / GPP_D16;
+- GPIO264 remains MCU reset and low in normal operation;
 - no firmware flashing;
-- no release biometric dump hook;
-- never publish PMK/PSK, biometric captures/templates, machine IDs, serials, private fixtures, proprietary firmware or Windows binaries;
-- no reboot without explicit user authorization.
+- threshold 7, template v4 / SIGFM v3, 20 enrollment views and max-three verify presses remain unchanged;
+- never publish biometric captures/templates, PMK/PSK, serials, machine identifiers, private fixtures, proprietary firmware or Windows binaries.
 
-## Release validation
+## Publication policy
 
-The final candidate passes the complete software baseline:
-
-- research/safety tests;
-- first-contact and native SPI binding tests;
-- new adaptive capture pacing/recovery tests;
-- short-soft prewarm tests;
-- source manifest;
-- reproducible libfprint v1.94.100 build;
-- generated udev support;
-- FAST/BRIEF/RANSAC and identify gates;
-- release biometric dump hook absent.
-
-Final state: `SOFTWARE_BASELINE=PASS`.
-
-## Publication status
-
-- candidate branch pushed: `fingerprint-rel24-slow-transport`;
-- tested code commit/tag: `ff515ad1c90903a315e6c8d3a0bc33f4628aad03` / `fingerprint-gxfp51a0-rel24-rc1`;
-- GitHub prerelease published with Arch/CachyOS package, portable source bundle, INSTALL and SHA-256 manifest;
-- GitHub `Quality` and `Fingerprint candidate build` workflows: SUCCESS on `ff515ad`;
-- rel23 remains stable/Latest;
-- issue #6 reply posted with the prerelease link and a request for only non-sensitive timing/log validation on the MateBook 13 2020.
-
-Do not promote rel24 to stable/latest until the external 2020 validation is positive. If the reporter confirms the fix, re-run the complete gate on the final commit, promote the transport path to the next stable release, update the local OS & Drivers kit, then remove obsolete candidate-only artifacts.
+rel23 remains stable/Latest until candidate validation is complete. rel24 remains the transport prerelease for the MateBook 13 2020 report. rel25 should remain a candidate until the visible-login prompt and cold-boot authentication are confirmed on the reference machine.
