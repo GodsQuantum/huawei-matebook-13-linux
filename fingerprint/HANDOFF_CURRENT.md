@@ -151,3 +151,26 @@ Local reinstall kit in OS & Drivers now contains only rel25-rc1 artifacts:
 
 Automatic-login compatibility implementation commit pushed on the candidate branch: `dfd439e`.
 The final visible-greeter/logout and cold-boot tests are still human-interactive and must be performed before promotion to stable.
+
+## Final rel25 machine-purity audit
+
+Final non-interactive validation after cleanup:
+- rel25 boot/login source regression test: PASS;
+- libfprint-goodix51a0: 32 files, 0 altered;
+- plasma-login-manager: 209 files, 0 altered;
+- no failed systemd units;
+- no legacy GXFP binder service/binary;
+- no /etc/pam.d/plasmalogin override;
+- package-managed PAM contains pam_fprintd.so;
+- fprintd resolves Before=plasmalogin.service;
+- no project-specific residue in /etc, /usr/local, user cache/state or /tmp;
+- temporary build dependencies and their project cache artifacts are absent;
+- no pacman orphans remain;
+- intermediate fingerprint-development and build-dependency Snapper snapshots were deleted;
+- normal timeline snapshots and the final PLM 6.7.4-3.2 rollback pair 860/861 were retained;
+- all three existing enrollments remain intact.
+
+The corrected 6.7.4-3.2 greeter has not yet been human-validated after installation.
+Next human step is logout only: do not press Enter or type a password; the fresh
+greeter should automatically begin one fingerprint attempt and show the small
+PAM fingerprint line. Cold-boot validation follows later by manual reboot only.
