@@ -122,3 +122,24 @@ Do not reboot the machine automatically.
 ## Publication policy
 
 rel23 remains stable/Latest until candidate validation is complete. rel24 remains the transport prerelease for the MateBook 13 2020 report. rel25 should remain a candidate until the visible-login prompt and cold-boot authentication are confirmed on the reference machine.
+
+## Final cleanup / local kit
+
+Cleanup completed on the reference machine after rel25 installation:
+- temporary build dependencies removed: cmake, cppdap, extra-cmake-modules, ninja, rhash;
+- their exact downloaded pacman cache files removed;
+- build trees, research binaries, src/pkg directories and /tmp work directories removed;
+- repository working tree clean after commit/push;
+- no GXFP-specific file remains in /etc, /usr/local or user cache/state outside legitimate package/runtime state;
+- legitimate retained runtime state is only /var/lib/fprint enrollment/PMK/timing data and pacman metadata.
+
+Local reinstall kit in OS & Drivers now contains only rel25-rc1 artifacts:
+- rel25 Arch/CachyOS driver package;
+- Plasma Login Manager 6.7.4-3.1 fingerprint-prompt compatibility package;
+- rel25-rc1 public source archive;
+- INSTALL.txt;
+- SHA256SUMS.txt;
+- one-shot INSTALL-GXFP51A0.sh.
+
+Code commit pushed on the candidate branch: `4604d42`.
+The final visible-greeter/logout and cold-boot tests are still human-interactive and must be performed before promotion to stable.
