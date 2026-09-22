@@ -53,8 +53,13 @@ but never blindly survives a power-state boundary. Native libfprint
 idle-suspend fallback detects elapsed sleep from the
 `CLOCK_BOOTTIME - CLOCK_MONOTONIC` delta at the next Claim.
 
-This keeps lifecycle recovery inside libfprint instead of installing a
-desktop-specific resume service.
+For systems where deep sleep removes sensor power, the package also installs a
+small system-level resume integration. A `sleep.target` hook schedules an
+asynchronous worker which briefly performs the standard fprintd `Claim("")`.
+This drives the same libfprint open/close lifecycle early enough to rebuild
+TLS/background/FDT before the lock-screen finger normally arrives. It does not
+restart fprintd, does not perform verification/enrollment, and never blocks the
+resume target on a slow sensor.
 
 ## Authentication latency
 

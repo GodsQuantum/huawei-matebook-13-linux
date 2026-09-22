@@ -97,6 +97,32 @@ the active action before sleep; the next Claim performs a cold reset.
 
 No matcher/template/enrollment parameters changed.
 
+### rel28 candidate: post-resume prewarm and reversible pacing
+
+Two additional MateBook 13 2020 controls closed the remaining resume ambiguity.
+With `deep` S3 the fingerprint rail drops and the MCU session is lost; with
+`s2idle` the same driver and enrollment resume normally because the rail stays
+powered. The failure is therefore a power-state lifecycle problem, not an
+enrollment or matcher defect.
+
+rel28 retains rel27 Claim-time recovery as a fallback, but no longer waits for
+the user's first fingerprint attempt to rebuild background/FDT after sleep.
+A package-owned `sleep.target` hook schedules an asynchronous worker on resume.
+The worker performs a brief standard fprintd `Claim("")`; opening the device
+rebuilds TLS/background/FDT while the sensor should still be untouched, and the
+D-Bus owner disappearing immediately releases the device while retaining the
+validated warm context. It never restarts fprintd and the sleep hook does not
+wait for the potentially slow rebuild.
+
+Capture pacing is also no longer a one-way persisted ratchet:
+- a lifecycle/S3 recovery desync is explicitly excluded from pacing learning;
+- a GET_IMAGE retry never counts as a clean capture;
+- after 16 consecutive complete no-retry captures, an elevated pacing value
+  decays by one 50-point step and the lower value is persisted.
+
+The default remains 100% / 30 ms, the cap remains 300%, and matcher/template
+policy is unchanged.
+
 
 ### Arch / CachyOS
 
@@ -113,7 +139,8 @@ The installer:
 3. installs `libfprint-goodix51a0` and `fprintd`;
 4. grants fprintd only the additional gpiochip device access needed by this
    driver;
-5. reloads udev and restarts fprintd.
+5. installs the package-owned post-resume prewarm hook/worker;
+6. reloads udev and restarts fprintd.
 
 It **does not modify PAM, KDE or GNOME configuration**.
 

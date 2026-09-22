@@ -8,20 +8,22 @@ Updated: 2026-09-22.
 - transport candidate: `fingerprint-gxfp51a0-rel24-rc1`
 - superseded login-integration candidate: `fingerprint-rel25-login-integration`
 - superseded lifecycle/recovery candidate: `fingerprint-rel26-lifecycle-recovery`
-- current S3 recovery candidate branch: `fingerprint-rel27-s3-recovery`
-- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-27`
+- superseded S3 recovery candidate: `fingerprint-rel27-s3-recovery`
+- current post-resume candidate branch: `fingerprint-rel28-resume-prewarm`
+- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-28`
 - installed fprintd: `1.94.5-2.1`
 - installed Plasma Login Manager compatibility package: `6.7.4-3.2`
 - libfprint base: v1.94.100
 - target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware GF_ST411SEC_APP_14115
 
-rel27 keeps the rel26 passive-probe/Claim-time architecture and fixes the first
-idle-S3 boundary: zero or slightly negative BOOTTIME-MONOTONIC baselines are
-valid, active suspend follows upstream libfprint cancellation semantics, and
-post-S3 unpersisted pacing is discarded before a cold reset/rebuild.
+rel28 keeps rel27 lifecycle recovery and adds an asynchronous package-owned
+post-resume fprintd Claim so TLS/background/FDT are rebuilt before the user's
+first lock-screen touch. Lifecycle/S3 desync no longer escalates persistent
+capture pacing, and elevated pacing decays after 16 consecutive no-retry
+captures.
 
 Canonical latest evidence:
-`fingerprint/handoff/HANDOFF_2026-09-22_2035_REL27_S3_RECOVERY.md`
+`fingerprint/handoff/HANDOFF_2026-09-22_2110_REL28_RESUME_PREWARM.md`
 
 Do not re-enroll yet. The rel25 cold-boot failure occurred before the matcher,
 while all three template-v4 enrollments remained visible.
@@ -140,22 +142,21 @@ Do not reboot the machine automatically.
 
 ## Publication policy
 
-rel23 remains stable/Latest until candidate validation is complete. rel24 remains the transport prerelease for the MateBook 13 2020 report. rel25 should remain a candidate until the visible-login prompt and cold-boot authentication are confirmed on the reference machine.
+rel23 remains stable/Latest until candidate validation is complete. rel24 remains the published transport prerelease. rel25-rel27 are superseded development candidates. rel28 must pass normal lock/logout plus real deep-S3 resume authentication on the 2021 reference machine before any stable promotion.
 
 ## Final cleanup / local kit
 
-Cleanup completed on the reference machine after rel25 installation:
-- temporary build dependencies removed: cmake, cppdap, extra-cmake-modules, ninja, rhash;
-- their exact downloaded pacman cache files removed;
-- build trees, research binaries, src/pkg directories and /tmp work directories removed;
-- repository working tree clean after commit/push;
-- no GXFP-specific file remains in /etc, /usr/local or user cache/state outside legitimate package/runtime state;
-- legitimate retained runtime state is only /var/lib/fprint enrollment/PMK/timing data and pacman metadata.
+Current cleanup rule for the reference machine:
+- build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
+- repository working tree must be clean after commit/push;
+- no ad-hoc GXFP service or local PAM override is allowed;
+- the package-owned rel28 resume hook/worker under /usr/lib/systemd is legitimate runtime state, not temporary glue;
+- legitimate persistent runtime state remains /var/lib/fprint enrollment/PMK/timing data and pacman metadata.
 
-Local reinstall kit in OS & Drivers now contains only rel25-rc1 artifacts:
-- rel25 Arch/CachyOS driver package;
+The local reinstall kit in OS & Drivers must track the final rel28 candidate:
+- rel28 Arch/CachyOS driver package;
 - Plasma Login Manager 6.7.4-3.2 fingerprint-prompt/auto-attempt compatibility package;
-- rel25-rc1 public source archive;
+- rel28-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.

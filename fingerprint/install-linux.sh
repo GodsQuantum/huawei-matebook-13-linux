@@ -9,6 +9,11 @@ DROPIN_FILE="$DROPIN_DIR/60-goodix51a0-local-lib.conf"
 UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
 EARLY_WANTS_DIR="/etc/systemd/system/graphical.target.wants"
 EARLY_WANTS_LINK="$EARLY_WANTS_DIR/fprintd.service"
+RESUME_HELPER_FILE="/usr/local/libexec/gxfp51a0-resume-prewarm"
+RESUME_UNIT_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm.service"
+RESUME_WORKER_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm-worker.service"
+RESUME_WANTS_DIR="/etc/systemd/system/sleep.target.wants"
+RESUME_WANTS_LINK="$RESUME_WANTS_DIR/gxfp51a0-resume-prewarm.service"
 INSTALL_DEPS=1
 BUILD_ONLY=0
 
@@ -175,6 +180,8 @@ mkdir -p "$TMP_STATE/backup"
   cd "$STAGE"
   find usr/local -mindepth 1 -printf '/%p\n' | sort
 ) > "$TMP_STATE/manifest"
+printf '%s\n' "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" >> "$TMP_STATE/manifest"
+sort -u -o "$TMP_STATE/manifest" "$TMP_STATE/manifest"
 
 while IFS= read -r path; do
   if [[ -e "$path" || -L "$path" ]]; then
@@ -205,8 +212,20 @@ EOF
 sudo install -m 0644 "$TMP_STATE/dropin" "$DROPIN_FILE"
 sudo install -Dm0644 "$UDEV_RULE_SRC" "$UDEV_RULE_FILE"
 
-# Remove rel22 portable-install glue if upgrading in place. rel23 relies on the
-# generated libfprint udev rule and the standard fprintd service only.
+sudo install -Dm0755 "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm" \
+  "$RESUME_HELPER_FILE"
+sudo install -Dm0644 \
+  "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm.service" \
+  "$RESUME_UNIT_FILE"
+sed "s#/usr/libexec/gxfp51a0-resume-prewarm#$RESUME_HELPER_FILE#" \
+  "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm-worker.service" \
+  > "$TMP_STATE/resume-prewarm-worker.service"
+sudo install -Dm0644 "$TMP_STATE/resume-prewarm-worker.service" "$RESUME_WORKER_FILE"
+sudo mkdir -p "$RESUME_WANTS_DIR"
+sudo ln -sfn "$RESUME_UNIT_FILE" "$RESUME_WANTS_LINK"
+
+# Remove rel22 portable-install glue if upgrading in place. rel28 relies on the
+# generated libfprint udev rule, standard fprintd, and one post-resume Claim helper.
 sudo rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
   /etc/systemd/system/gxfp51a0-spidev-bind.service
 
@@ -249,8 +268,9 @@ Rollback:
 The installer did not modify PAM, KDE or GNOME configuration.
 It uses only the generated libfprint udev SPI rule and the standard fprintd
 service. fprintd starts early so the greeter can discover fingerprint support and
-stays alive with --no-timeout; sensor/TLS preparation occurs only on a real
-Claim/open, and no GXFP-specific daemon/service is installed.
+stays alive with --no-timeout. Normal sensor/TLS preparation occurs on a real
+Claim/open; after system sleep a package-owned oneshot briefly Claims the reader
+so background/FDT calibration finishes before the lock-screen finger arrives.
 Enroll through your desktop settings or:
   fprintd-enroll -f right-index-finger
 EOF

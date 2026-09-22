@@ -1,0 +1,15 @@
+[Unit]
+Description=Schedule Goodix GXFP51A0 prewarm after system sleep
+Documentation=https://github.com/GodsQuantum/huawei-matebook-13-linux
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=/usr/bin/systemctl --no-block start gxfp51a0-resume-prewarm-worker.service
+TimeoutStopSec=5s
+
+[Install]
+WantedBy=sleep.target

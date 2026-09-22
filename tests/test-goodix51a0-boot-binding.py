@@ -13,6 +13,9 @@ BUILD = ROOT / "fingerprint/scripts/build-libfprint-v1.94.100.sh"
 PKGBUILD = ROOT / "fingerprint/packaging/arch/PKGBUILD"
 PKGINSTALL = ROOT / "fingerprint/packaging/arch/libfprint-goodix51a0.install"
 DROPIN = ROOT / "fingerprint/packaging/arch/fprintd-goodix51a0.conf"
+RESUME_HELPER = ROOT / "fingerprint/integration/resume-prewarm/gxfp51a0-resume-prewarm"
+RESUME_UNIT = ROOT / "fingerprint/integration/resume-prewarm/gxfp51a0-resume-prewarm.service"
+RESUME_WORKER = ROOT / "fingerprint/integration/resume-prewarm/gxfp51a0-resume-prewarm-worker.service"
 PLM_INTEGRATION = ROOT / "fingerprint/integration/plasma-login-manager-6.7-pam-messages"
 PLM_PKGBUILD = PLM_INTEGRATION / "PKGBUILD"
 PLM_PATCH1 = PLM_INTEGRATION / "0001-show-pam-authentication-messages.patch"
@@ -86,10 +89,27 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=27" in pkgbuild
+assert "pkgrel=28" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
+assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
+
+resume_helper = RESUME_HELPER.read_text()
+resume_unit = RESUME_UNIT.read_text()
+resume_worker = RESUME_WORKER.read_text()
+assert 'GetDefaultDevice' in resume_helper
+assert 'Claim s ""' in resume_helper
+assert 'restart fprintd' not in resume_helper
+assert 'try-restart fprintd' not in resume_helper
+assert 'Before=sleep.target' in resume_unit
+assert 'RemainAfterExit=yes' in resume_unit
+assert 'systemctl --no-block start gxfp51a0-resume-prewarm-worker.service' in resume_unit
+assert 'TimeoutStopSec=5s' in resume_unit
+assert 'WantedBy=sleep.target' in resume_unit
+assert 'ExecStart=/usr/libexec/gxfp51a0-resume-prewarm' in resume_worker
+assert 'TimeoutStartSec=50s' in resume_worker
+assert 'NoNewPrivileges=yes' in resume_worker
 
 plm_pkgbuild = PLM_PKGBUILD.read_text()
 plm_patch1 = PLM_PATCH1.read_text()

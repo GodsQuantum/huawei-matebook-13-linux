@@ -107,6 +107,9 @@ struct _FpiDeviceGoodix51A0
   int           timing_saved;/* last value persisted to disk, to avoid rewrites */
   int           capture_gap_scale; /* capture-step gap %, independent of TLS timing */
   int           capture_gap_saved; /* last capture pacing value persisted to disk */
+  guint         capture_clean_streak; /* consecutive complete frames without GET_IMAGE retry */
+  gboolean      capture_retry_seen; /* current frame needed a GET_IMAGE/TLS retry */
+  gboolean      capture_pacing_suppressed; /* lifecycle loss is not pacing evidence */
   gboolean      capture_recovery_pending; /* transport failed; rebuild between presses */
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
@@ -388,6 +391,7 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 
       if (attempt < attempts)
         {
+          self->capture_retry_seen = TRUE;
           fp_warn ("GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=%d/%d",
                    attempt + 1, attempts);
           g_usleep (8000 * self->timing_scale / 100);
@@ -1257,6 +1261,7 @@ gx_retry_get_image_after_tls_timeout (FpiDeviceGoodix51A0 *self,
   if (!gxfp_build_get_image (&packet))
     return -1;
 
+  self->capture_retry_seen = TRUE;
   fp_warn ("GXFP51A0 GET_IMAGE ACK arrived but TLS image timed out; retrying once");
   if (!gx_send_plain_drain (self, packet.inner, packet.inner_len,
                             &ack_seen, &tls_seen))
@@ -1342,6 +1347,7 @@ gx_capture_frame (FpiDeviceGoodix51A0 *self, guint16 *px, gboolean background)
   g_autofree guint8 *img = g_malloc (GOODIX_RX_MAX);
   int total = 0;
 
+  self->capture_retry_seen = FALSE;
   gint64 tA = g_get_monotonic_time ();
   if (!gx_send_capture_recipe (self, background))
     return FALSE;
@@ -1737,6 +1743,7 @@ gx_timing_save (int scale)
 #define GX_CAPTURE_SCALE_MIN 100
 #define GX_CAPTURE_SCALE_MAX 300
 #define GX_CAPTURE_SCALE_STEP 50
+#define GX_CAPTURE_CLEAN_DECAY_STREAK 16
 
 static int
 gx_capture_timing_load (void)
@@ -1777,9 +1784,22 @@ gx_capture_transport_desync (FpiDeviceGoodix51A0 *self)
 {
   int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
 
+  self->capture_clean_streak = 0;
+  self->capture_recovery_pending = TRUE;
+
+  /* S3/hibernate destroys the MCU session.  A desync while rebuilding that
+   * lifecycle boundary says nothing about the steady-state capture gap, so it
+   * must never ratchet the persistent pacing value upward. */
+  if (self->capture_pacing_suppressed)
+    {
+      fp_warn ("GXFP51A0 lifecycle recovery desync: pacing remains %d%% "
+               "(%u us gap); full MCU/session recovery required",
+               previous, gx_capture_gap_us (self));
+      return;
+    }
+
   self->capture_gap_scale =
     MIN (previous + GX_CAPTURE_SCALE_STEP, GX_CAPTURE_SCALE_MAX);
-  self->capture_recovery_pending = TRUE;
 
   fp_warn ("GXFP51A0 capture transport desync: pacing %d%% -> %d%% "
            "(%u us gap); full MCU/session recovery required",
@@ -1796,6 +1816,37 @@ gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
       fp_info ("GXFP51A0 learned capture pacing %d%% persisted after "
                "successful finger capture", self->capture_gap_scale);
     }
+
+  if (self->capture_retry_seen)
+    {
+      self->capture_clean_streak = 0;
+      self->capture_retry_seen = FALSE;
+      return;
+    }
+
+  if (self->capture_gap_scale > GX_CAPTURE_SCALE_MIN)
+    {
+      self->capture_clean_streak++;
+      if (self->capture_clean_streak >= GX_CAPTURE_CLEAN_DECAY_STREAK)
+        {
+          int previous = self->capture_gap_scale;
+
+          self->capture_gap_scale =
+            MAX (GX_CAPTURE_SCALE_MIN,
+                 previous - GX_CAPTURE_SCALE_STEP);
+          gx_capture_timing_save (self->capture_gap_scale);
+          self->capture_gap_saved = self->capture_gap_scale;
+          self->capture_clean_streak = 0;
+          fp_info ("GXFP51A0 capture pacing decayed after %d clean captures: "
+                   "%d%% -> %d%% (%u us gap)",
+                   GX_CAPTURE_CLEAN_DECAY_STREAK, previous,
+                   self->capture_gap_scale, gx_capture_gap_us (self));
+        }
+    }
+  else
+    self->capture_clean_streak = 0;
+
+  self->capture_retry_seen = FALSE;
 }
 
 /* Establishes the TLS channel. This is the expensive step, about half a
@@ -3326,6 +3377,7 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
     }
 
   self->capture_recovery_pending = FALSE;
+  self->capture_pacing_suppressed = FALSE;
   self->production_ready = TRUE;
   self->warm_valid = TRUE;
   self->warm_sleep_clock_valid =
@@ -3379,6 +3431,9 @@ gx_dev_open (FpDevice *dev)
        * only a value validated by a successful complete capture. */
       self->capture_gap_scale = 0;
       self->capture_gap_saved = 0;
+      self->capture_clean_streak = 0;
+      self->capture_retry_seen = FALSE;
+      self->capture_pacing_suppressed = TRUE;
       had_warm = FALSE;
     }
 
@@ -3662,6 +3717,9 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->irq_fd = -1;
   self->capture_gap_scale = 0; /* loaded lazily from root-owned state */
   self->capture_gap_saved = 0;
+  self->capture_clean_streak = 0;
+  self->capture_retry_seen = FALSE;
+  self->capture_pacing_suppressed = FALSE;
   self->capture_recovery_pending = FALSE;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
