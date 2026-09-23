@@ -1,12 +1,12 @@
 pkgname=libfprint-goodix51a0
 pkgver=1.94.100.goodix51a0
-pkgrel=29
+pkgrel=30
 pkgdesc="libfprint 1.94.100 with experimental Goodix GXFP51A0 SPI driver"
 arch=('x86_64')
 url="https://fprint.freedesktop.org/"
 install=libfprint-goodix51a0.install
 license=('LGPL-2.1-or-later')
-depends=('glib2' 'glibc' 'libgcc' 'libgudev' 'libgusb' 'openssl' 'pixman' 'kmod' 'systemd')
+depends=('bash' 'glib2' 'glibc' 'libgcc' 'libgudev' 'libgusb' 'openssl' 'pixman' 'kmod' 'systemd')
 makedepends=('git' 'python' 'pkgconf' 'cairo')
 provides=('libfprint=1.94.100' 'libfprint-2.so')
 conflicts=('libfprint')
@@ -38,6 +38,18 @@ package() {
   install -Dm644 "$_fp_root/integration/resume-prewarm/gxfp51a0-resume-prewarm-worker.service" \
     "$pkgdir/usr/lib/systemd/system/gxfp51a0-resume-prewarm-worker.service"
 
+  install -Dm755 "$_fp_root/integration/warm-keepalive/gxfp51a0-warm-keepalive" \
+    "$pkgdir/usr/libexec/gxfp51a0-warm-keepalive"
+  install -Dm644 "$_fp_root/integration/warm-keepalive/gxfp51a0-warm-keepalive.service" \
+    "$pkgdir/usr/lib/systemd/system/gxfp51a0-warm-keepalive.service"
+  install -Dm644 "$_fp_root/integration/warm-keepalive/gxfp51a0-warm-keepalive.timer" \
+    "$pkgdir/usr/lib/systemd/system/gxfp51a0-warm-keepalive.timer"
+
+  install -Dm755 "$_fp_root/integration/kde-lockscreen/gxfp51a0-kde-lockscreen-integrate" \
+    "$pkgdir/usr/libexec/gxfp51a0-kde-lockscreen-integrate"
+  install -Dm644 "$_fp_root/integration/kde-lockscreen/90-gxfp51a0-kde-lockscreen.hook" \
+    "$pkgdir/usr/share/libalpm/hooks/90-gxfp51a0-kde-lockscreen.hook"
+
   # fprintd is available before the greeter, but libfprint probe() remains
   # passive. A package-owned sleep.target helper briefly Claims the reader
   # after resume so the normal open/close lifecycle rebuilds background/FDT
@@ -48,6 +60,9 @@ package() {
   install -d "$pkgdir/usr/lib/systemd/system/sleep.target.wants"
   ln -s ../gxfp51a0-resume-prewarm.service \
     "$pkgdir/usr/lib/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service"
+  install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
+  ln -s ../gxfp51a0-warm-keepalive.timer \
+    "$pkgdir/usr/lib/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer"
 
   if [[ -f "$build_root/libfprint-v1.94.100/COPYING" ]]; then
     install -Dm644 "$build_root/libfprint-v1.94.100/COPYING" \

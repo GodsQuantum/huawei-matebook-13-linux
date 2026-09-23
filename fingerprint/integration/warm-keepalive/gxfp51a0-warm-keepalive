@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+TAG="gxfp51a0-warm-keepalive"
+log_info() { logger -t "$TAG" -- "$*"; }
+
+found=0
+for modalias in /sys/bus/spi/devices/*/modalias; do
+  [[ -r "$modalias" ]] || continue
+  if grep -q 'GXFP51A0' "$modalias"; then found=1; break; fi
+done
+(( found )) || exit 0
+
+systemctl --quiet is-active fprintd.service || exit 0
+raw="$(busctl --system call net.reactivated.Fprint \
+  /net/reactivated/Fprint/Manager net.reactivated.Fprint.Manager \
+  GetDefaultDevice 2>/dev/null || true)"
+device="$(sed -n 's/^o "\(.*\)"$/\1/p' <<<"$raw")"
+[[ -n "$device" ]] || exit 0
+
+if timeout 45s busctl --system call net.reactivated.Fprint "$device" \
+  net.reactivated.Fprint.Device Claim s "" >/dev/null 2>&1; then
+  log_info "periodic fprintd Claim completed; warm context refreshed"
+else
+  log_info "periodic refresh skipped or busy"
+fi
+exit 0

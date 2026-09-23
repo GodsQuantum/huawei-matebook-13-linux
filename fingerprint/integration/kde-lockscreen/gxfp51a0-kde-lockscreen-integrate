@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+TARGET="${GXFP51A0_KDE_LOCKSCREEN_QML:-/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml}"
+MARKER="GXFP51A0 instant fingerprint integration"
+mode="${1:---apply}"
+
+[[ -f "$TARGET" ]] || exit 0
+grep -Fq 'id: lockScreenRoot' "$TARGET" || exit 0
+grep -Fq 'authenticator.startAuthenticating();' "$TARGET" || exit 0
+
+if grep -Fq "$MARKER" "$TARGET"; then
+  [[ "$mode" != "--remove" ]] && exit 0
+fi
+
+tmp="$(mktemp "${TARGET}.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+
+case "$mode" in
+  --apply)
+    if grep -Fq "$MARKER" "$TARGET"; then exit 0; fi
+    if awk '/Component\.onCompleted: *\{/{b=1;n=0} b{n++; if ($0 ~ /authenticator\.startAuthenticating\(\)/) found=1; if(n>12)b=0} END{exit !found}' "$TARGET"; then
+      exit 0
+    fi
+    awk '
+      $0 == "        Component.onCompleted: launchAnimation.start();" {
+        print "        Component.onCompleted: {"
+        print "            launchAnimation.start();"
+        print "            // GXFP51A0 instant fingerprint integration: arm PAM immediately"
+        print "            // while keeping the lock-screen UI visually idle."
+        print "            authenticator.startAuthenticating();"
+        print "        }"
+        changed=1
+        next
+      }
+      { print }
+      END { if (!changed) exit 42 }
+    ' "$TARGET" > "$tmp" || {
+      echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no lockscreen patch applied" >&2
+      exit 42
+    }
+    ;;
+  --remove)
+    awk '
+      $0 == "        Component.onCompleted: {" { hold=$0; next }
+      hold != "" && $0 == "            launchAnimation.start();" { hold=hold "\n" $0; next }
+      hold != "" && $0 ~ /GXFP51A0 instant fingerprint integration/ { hold=hold "\n" $0; mark=1; next }
+      hold != "" && mark && $0 ~ /while keeping the lock-screen UI visually idle/ { hold=hold "\n" $0; next }
+      hold != "" && mark && $0 == "            authenticator.startAuthenticating();" { hold=hold "\n" $0; next }
+      hold != "" && mark && $0 == "        }" {
+        print "        Component.onCompleted: launchAnimation.start();"
+        hold=""; mark=0; changed=1; next
+      }
+      hold != "" { print hold; hold=""; mark=0 }
+      { print }
+      END { if (hold != "") print hold }
+    ' "$TARGET" > "$tmp"
+    ;;
+  --check)
+    grep -Fq "$MARKER" "$TARGET" && exit 0
+    awk '/Component\.onCompleted: *\{/{b=1;n=0} b{n++; if ($0 ~ /authenticator\.startAuthenticating\(\)/) found=1; if(n>12)b=0} END{exit !found}' "$TARGET"
+    exit $?
+    ;;
+  *) echo "usage: $0 [--apply|--remove|--check]" >&2; exit 2 ;;
+esac
+
+chmod --reference="$TARGET" "$tmp"
+chown --reference="$TARGET" "$tmp"
+mv -f "$tmp" "$TARGET"
+trap - EXIT

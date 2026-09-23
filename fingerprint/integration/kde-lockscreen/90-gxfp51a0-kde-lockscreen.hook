@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = plasma-desktop
+
+[Action]
+Description = Reapplying GXFP51A0 KDE lockscreen fingerprint integration...
+When = PostTransaction
+Exec = /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply

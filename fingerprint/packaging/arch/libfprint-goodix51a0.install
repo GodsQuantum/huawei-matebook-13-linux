@@ -1,9 +1,20 @@
+pre_remove() {
+  if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
+    /usr/libexec/gxfp51a0-kde-lockscreen-integrate --remove || true
+  fi
+}
+
 post_install() {
   udevadm control --reload || true
   udevadm trigger --subsystem-match=spi || true
   udevadm settle --timeout=3 || true
   systemctl daemon-reload || true
   systemctl restart --no-block fprintd.service || true
+  if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
+    /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply || true
+  fi
+  systemctl start --no-block gxfp51a0-warm-keepalive.timer || true
+  systemctl start --no-block gxfp51a0-warm-keepalive.service || true
 }
 
 post_upgrade() {

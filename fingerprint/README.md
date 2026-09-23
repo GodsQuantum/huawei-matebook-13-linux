@@ -5,7 +5,7 @@ Huawei MateBook 13 2021 family.
 
 > Français: [README.FR.md](README.FR.md) · 简体中文: [README.ZH-CN.md](README.ZH-CN.md)
 
-## Status — 2026-09-20
+## Status — 2026-09-23
 
 Hardware-validated target:
 
@@ -123,6 +123,35 @@ Capture pacing is also no longer a one-way persisted ratchet:
 The default remains 100% / 30 ms, the cap remains 300%, and matcher/template
 policy is unchanged.
 
+### rel29 candidate: stale warm-session expiry
+
+A successful reference-machine lock test showed that template-v4 enrollments from
+earlier releases remain valid. A separate failure after several hours without
+system sleep proved that a retained TLS/background/FDT context can become stale
+even when no suspend boundary is crossed.
+
+rel29 records the last validated sensor activity and treats a warm context idle
+for more than five minutes as a lifecycle boundary. The next Claim abandons that
+host-side state and performs the normal bounded cold rebuild before capture.
+This does not change the matcher, templates, enrollment count or threshold.
+
+### rel30 candidate: always-ready lock screen
+
+rel30 keeps the rel29 five-minute safety expiry but refreshes an idle warm
+context every three minutes with a package-owned fprintd Claim. The refresh does
+not start Verify or Enroll and simply exercises the normal open/close lifecycle
+while the reader is free. Busy readers are skipped.
+
+On KDE Plasma 6.7.5, the stock lock screen starts authentication only after its
+idle UI becomes visible, which normally requires mouse/keyboard activity.
+rel30 installs a small reversible integration that calls the existing
+authenticator.startAuthenticating() at lock-screen component creation, so PAM
+fingerprint authentication is armed before the first finger touch while the UI
+may remain visually idle. A pacman hook reapplies this one-file integration
+after plasma-desktop upgrades and package removal restores the stock line.
+
+The KDE integration is conditional; non-Plasma desktops keep their native
+greeter/PAM behavior.
 
 ### Arch / CachyOS
 
@@ -140,9 +169,16 @@ The installer:
 4. grants fprintd only the additional gpiochip device access needed by this
    driver;
 5. installs the package-owned post-resume prewarm hook/worker;
-6. reloads udev and restarts fprintd.
+6. installs the 3-minute warm-context keepalive timer;
+7. when KDE Plasma 6.7.5 is present, installs the reversible instant-auth
+   lock-screen integration and its pacman reapply hook;
+8. when Plasma Login Manager 6.7.5 is installed, builds/installs the
+   package-managed fingerprint PAM-message compatibility package;
+9. reloads udev and restarts fprintd.
 
-It **does not modify PAM, KDE or GNOME configuration**.
+Non-KDE desktops are left unchanged. On KDE, one package-owned
+LockScreenUi.qml file is intentionally patched by the integration helper and
+restored on driver removal.
 
 Then enroll through your desktop settings or standard fprintd:
 

@@ -89,10 +89,13 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=29" in pkgbuild
+assert "pkgrel=30" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
+assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" in pkgbuild
+assert "gxfp51a0-kde-lockscreen-integrate" in pkgbuild
+assert "90-gxfp51a0-kde-lockscreen.hook" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
 
 resume_helper = RESUME_HELPER.read_text()
@@ -116,7 +119,7 @@ plm_patch1 = PLM_PATCH1.read_text()
 plm_patch2 = PLM_PATCH2.read_text()
 plm_patch3 = PLM_PATCH3.read_text()
 plm_patch4 = PLM_PATCH4.read_text()
-assert "pkgver=6.7.4" in plm_pkgbuild
+assert "pkgver=6.7.5" in plm_pkgbuild
 assert "pkgrel=3.2" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
@@ -132,9 +135,11 @@ assert "startLogin(true)" in plm_patch4
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall
+assert "gxfp51a0-kde-lockscreen-integrate --apply" in pkginstall
+assert "gxfp51a0-warm-keepalive.timer" in pkginstall
 
 arch = ARCH.read_text()
-assert "native udev SPI binding and Claim-time fingerprint preparation" in arch
+assert "native udev SPI binding, warm readiness and desktop integration" in arch
 assert "/usr/lib/fprintd --no-timeout" in arch
 assert "gxfp51a0-spidev-bind" not in arch
 
@@ -145,11 +150,15 @@ assert "--no-timeout" in linux
 assert "TimeoutStartSec=40s" in linux
 assert "Before=display-manager.service" in linux
 assert "LimitCORE=0" in linux
+assert "KEEPALIVE_HELPER_FILE=" in linux
+assert "KDE_HELPER_FILE=" in linux
 assert "BIND_HELPER=" not in linux
 assert "BIND_SERVICE=" not in linux
 
 uninstall = UNINSTALL.read_text()
 assert "created-early-wants" in uninstall
+assert "gxfp51a0-kde-lockscreen-integrate --remove" in uninstall
+assert "gxfp51a0-warm-keepalive.timer" in uninstall
 assert "BIND_HELPER=" not in uninstall
 assert "BIND_SERVICE=" not in uninstall
 

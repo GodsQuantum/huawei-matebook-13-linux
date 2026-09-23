@@ -13,6 +13,11 @@ fi
   exit 3
 }
 
+if [[ -x /usr/local/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
+  /usr/local/libexec/gxfp51a0-kde-lockscreen-integrate --remove || true
+fi
+systemctl stop gxfp51a0-warm-keepalive.timer gxfp51a0-warm-keepalive.service 2>/dev/null || true
+
 mapfile -t paths < "$STATE_DIR/manifest"
 for ((i=${#paths[@]}-1; i>=0; i--)); do
   path="${paths[i]}"

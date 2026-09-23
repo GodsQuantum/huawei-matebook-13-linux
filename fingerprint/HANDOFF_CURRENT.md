@@ -1,32 +1,79 @@
 # Current handoff — GXFP51A0 / GF3658 ST411
 
-Updated: 2026-09-22.
+Updated: 2026-09-23.
 
 ## Stable and candidates
 
-- stable public release / main: `fingerprint-gxfp51a0-rel23`
-- transport candidate: `fingerprint-gxfp51a0-rel24-rc1`
-- superseded login-integration candidate: `fingerprint-rel25-login-integration`
-- superseded lifecycle/recovery candidate: `fingerprint-rel26-lifecycle-recovery`
-- superseded S3 recovery candidate: `fingerprint-rel27-s3-recovery`
-- current post-resume candidate branch: `fingerprint-rel28-resume-prewarm`
-- installed reference package: `libfprint-goodix51a0 1.94.100.goodix51a0-28`
-- installed fprintd: `1.94.5-2.1`
-- installed Plasma Login Manager compatibility package: `6.7.4-3.2`
+- stable public release / main: fingerprint-gxfp51a0-rel23
+- published transport prerelease: fingerprint-gxfp51a0-rel24-rc1
+- rel25-rel28: superseded development candidates
+- rel29: stale warm-context expiry candidate, functionally validated at lock
+- current branch: fingerprint-rel30-instant-kde-auth
+- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-30
+- installed fprintd: 1.94.5-2.1
+- current Plasma desktop: 6.7.5-1.1
+- Plasma Login Manager compatibility target: 6.7.5-3.2
 - libfprint base: v1.94.100
-- target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware GF_ST411SEC_APP_14115
+- target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware
+  GF_ST411SEC_APP_14115
 
-rel28 keeps rel27 lifecycle recovery and adds an asynchronous package-owned
-post-resume fprintd Claim so TLS/background/FDT are rebuilt before the user's
-first lock-screen touch. Lifecycle/S3 desync no longer escalates persistent
-capture pacing, and elevated pacing decays after 16 consecutive no-retry
-captures.
+### Human evidence now established
 
-Canonical latest evidence:
-`fingerprint/handoff/HANDOFF_2026-09-22_2110_REL28_RESUME_PREWARM.md`
+- rel28 lock failure occurred before matching because GET_IMAGE/TLS transport
+  was stale.
+- rel29 added a five-minute warm-context expiry.
+- after a clean prewarm, rel29 lock authentication succeeded using the
+  existing right-index enrollment. Re-enrollment is therefore not required.
+- a second enrolled finger also authenticated once KScreenLocker made its PAM
+  prompt active.
+- observed UX defect: with the lock screen visually idle, placing a finger alone
+  did nothing until mouse movement made the UI visible. Plasma 6.7.5 stock QML
+  starts authenticator.startAuthenticating() from onUiVisibleChanged.
 
-Do not re-enroll yet. The rel25 cold-boot failure occurred before the matcher,
-while all three template-v4 enrollments remained visible.
+### rel30 architecture
+
+rel30 keeps all rel29 driver/matcher behavior and adds two package-owned
+integration layers:
+
+1. gxfp51a0-warm-keepalive.timer
+   - OnBootSec=20s
+   - OnUnitActiveSec=3min
+   - performs only fprintd Claim
+   - never starts Verify or Enroll
+   - keeps the rel29 five-minute warm TTL from expiring during normal idle use.
+
+2. KDE Plasma lock-screen instant authentication
+   - helper: /usr/libexec/gxfp51a0-kde-lockscreen-integrate
+   - validated target:
+     /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml
+   - arms the already-existing authenticator in Component.onCompleted
+   - keeps the UI visually idle; no synthetic mouse/keyboard input
+   - pacman hook reapplies after plasma-desktop upgrade
+   - driver removal restores the stock Component.onCompleted line.
+
+This KDE patch intentionally makes exactly one plasma-desktop file differ from
+the distro package checksum while installed. That difference is expected,
+versioned and reversible; it is not temporary residue.
+
+Matcher/template policy remains unchanged: template v4 / SIGFM v3, threshold 7,
+20 enrollment views, maximum three independent verification presses.
+
+### External-repo refresh — 2026-09-23
+
+Latest tracked activity was re-read before freezing rel30:
+- GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
+  lifecycle evidence.
+- szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
+  work already reviewed; its issue #1 is closed and points users to this driver.
+- Sigfrodr/libfprint-goodixtls issue #5: latest comment at 2026-09-22 22:53 CEST
+  confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
+  supports a common local-only matcher evaluation harness.
+- berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
+  commits requiring a rel30 port.
+
+Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
+harness that emits only aggregate statistics. Do not retune threshold 7 from
+single-user anecdotes and never export captures or templates.
 
 ## Login regression diagnosis
 

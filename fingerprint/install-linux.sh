@@ -14,6 +14,12 @@ RESUME_UNIT_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm.service"
 RESUME_WORKER_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm-worker.service"
 RESUME_WANTS_DIR="/etc/systemd/system/sleep.target.wants"
 RESUME_WANTS_LINK="$RESUME_WANTS_DIR/gxfp51a0-resume-prewarm.service"
+KEEPALIVE_HELPER_FILE="/usr/local/libexec/gxfp51a0-warm-keepalive"
+KEEPALIVE_UNIT_FILE="/etc/systemd/system/gxfp51a0-warm-keepalive.service"
+KEEPALIVE_TIMER_FILE="/etc/systemd/system/gxfp51a0-warm-keepalive.timer"
+KEEPALIVE_WANTS_DIR="/etc/systemd/system/timers.target.wants"
+KEEPALIVE_WANTS_LINK="$KEEPALIVE_WANTS_DIR/gxfp51a0-warm-keepalive.timer"
+KDE_HELPER_FILE="/usr/local/libexec/gxfp51a0-kde-lockscreen-integrate"
 INSTALL_DEPS=1
 BUILD_ONLY=0
 
@@ -180,7 +186,9 @@ mkdir -p "$TMP_STATE/backup"
   cd "$STAGE"
   find usr/local -mindepth 1 -printf '/%p\n' | sort
 ) > "$TMP_STATE/manifest"
-printf '%s\n' "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" >> "$TMP_STATE/manifest"
+printf '%s\n' "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" \
+  "$KEEPALIVE_HELPER_FILE" "$KEEPALIVE_UNIT_FILE" "$KEEPALIVE_TIMER_FILE" "$KEEPALIVE_WANTS_LINK" \
+  "$KDE_HELPER_FILE" >> "$TMP_STATE/manifest"
 sort -u -o "$TMP_STATE/manifest" "$TMP_STATE/manifest"
 
 while IFS= read -r path; do
@@ -224,7 +232,21 @@ sudo install -Dm0644 "$TMP_STATE/resume-prewarm-worker.service" "$RESUME_WORKER_
 sudo mkdir -p "$RESUME_WANTS_DIR"
 sudo ln -sfn "$RESUME_UNIT_FILE" "$RESUME_WANTS_LINK"
 
-# Remove rel22 portable-install glue if upgrading in place. rel28 relies on the
+sudo install -Dm0755 "$ROOT/integration/warm-keepalive/gxfp51a0-warm-keepalive" \
+  "$KEEPALIVE_HELPER_FILE"
+sed "s#/usr/libexec/gxfp51a0-warm-keepalive#$KEEPALIVE_HELPER_FILE#" \
+  "$ROOT/integration/warm-keepalive/gxfp51a0-warm-keepalive.service" \
+  > "$TMP_STATE/warm-keepalive.service"
+sudo install -Dm0644 "$TMP_STATE/warm-keepalive.service" "$KEEPALIVE_UNIT_FILE"
+sudo install -Dm0644 "$ROOT/integration/warm-keepalive/gxfp51a0-warm-keepalive.timer" \
+  "$KEEPALIVE_TIMER_FILE"
+sudo mkdir -p "$KEEPALIVE_WANTS_DIR"
+sudo ln -sfn "$KEEPALIVE_TIMER_FILE" "$KEEPALIVE_WANTS_LINK"
+
+sudo install -Dm0755 "$ROOT/integration/kde-lockscreen/gxfp51a0-kde-lockscreen-integrate" \
+  "$KDE_HELPER_FILE"
+
+# Remove rel22 portable-install glue if upgrading in place. rel30 relies on the
 # generated libfprint udev rule, standard fprintd, and one post-resume Claim helper.
 sudo rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
   /etc/systemd/system/gxfp51a0-spidev-bind.service
@@ -248,6 +270,12 @@ sudo udevadm trigger --subsystem-match=spi
 sudo udevadm settle
 sudo systemctl daemon-reload
 sudo systemctl restart fprintd.service
+sudo systemctl start gxfp51a0-warm-keepalive.timer
+sudo systemctl start gxfp51a0-warm-keepalive.service
+if [[ -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml ]]; then
+  sudo "$KDE_HELPER_FILE" --apply
+  sudo "$KDE_HELPER_FILE" --check
+fi
 
 DEVICE="$(busctl --system call \
   net.reactivated.Fprint \
@@ -265,12 +293,13 @@ Runtime library directory: $LIBDIR
 Rollback:
   sudo $STATE_DIR/uninstall.sh
 
-The installer did not modify PAM, KDE or GNOME configuration.
-It uses only the generated libfprint udev SPI rule and the standard fprintd
-service. fprintd starts early so the greeter can discover fingerprint support and
-stays alive with --no-timeout. Normal sensor/TLS preparation occurs on a real
-Claim/open; after system sleep a package-owned oneshot briefly Claims the reader
-so background/FDT calibration finishes before the lock-screen finger arrives.
+It uses the generated libfprint udev SPI rule and standard fprintd. fprintd
+starts early and stays alive with --no-timeout. A package-owned periodic Claim
+refreshes the warm transport/FDT context without starting Verify or Enroll.
+After system sleep, a oneshot Claims the reader so background calibration
+finishes before the first finger arrives. If KDE Plasma's validated lockscreen
+is present, its existing authenticator is armed at component creation instead
+of waiting for mouse or keyboard activity. Other desktops are left unchanged.
 Enroll through your desktop settings or:
   fprintd-enroll -f right-index-finger
 EOF

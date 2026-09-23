@@ -1,6 +1,6 @@
-# Plasma Login Manager 6.7.4 fingerprint-login compatibility package
+# Plasma Login Manager 6.7.5 fingerprint-login compatibility package
 
-Compatibility package for Plasma Login Manager 6.7.4 on Arch/CachyOS.
+Compatibility package for Plasma Login Manager 6.7.5 on Arch/CachyOS.
 
 It backports two upstream KDE fixes:
 - `8f6c2d3205df3a0aab5c156d3b7e2950eda8beb0` — show PAM authentication messages in the greeter.
@@ -19,6 +19,6 @@ therefore appears under the password field without pressing Enter first. If the
 attempt times out, the normal password UI is restored without an artificial
 generic “Login Failed” message.
 
-The package is versioned `6.7.4-3.2`. It keeps the integration package-managed:
+The package is versioned `6.7.5-3.2`. It keeps the integration package-managed:
 no `/etc/pam.d/plasmalogin` override is required, and it never contains or
 modifies fingerprint templates.
