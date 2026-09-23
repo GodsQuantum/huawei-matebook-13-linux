@@ -1,0 +1,22 @@
+[Unit]
+Description=Prepare Goodix GXFP51A0 before graphical login
+Documentation=https://github.com/GodsQuantum/huawei-matebook-13-linux
+Requires=fprintd.service
+After=fprintd.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gxfp51a0-boot-prewarm
+TimeoutStartSec=55s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=graphical.target

@@ -10,8 +10,9 @@ Updated: 2026-09-23.
 - rel29: stale warm-context expiry candidate, functionally validated at lock
 - rel30: superseded first instant-lock attempt; revealed FDT-only false-ready state
 - rel31: image-ready transport candidate; KDE startup race found in human testing
-- current branch: fingerprint-rel32-kde-window-ready-auth
-- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-32
+- rel32: one-press direct lock validated; cold-boot greeter exposed un-prewarmed sensor
+- current branch: fingerprint-rel33-coldboot-prewarm
+- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-33
 - installed fprintd: 1.94.5-2.1
 - current Plasma desktop: 6.7.5-1.1
 - Plasma Login Manager compatibility target: 6.7.5-3.2
@@ -50,6 +51,12 @@ Updated: 2026-09-23.
   single press with no mouse or keyboard interaction.
 - the temporary root-only enrollment rollback archive in /run was removed only
   after that successful rel32 validation.
+- first rel32 cold-boot validation failed. Boot journal proved fprintd was active
+  at 10:27:45 CEST and Plasma Login Manager at 10:27:49, so daemon ordering was
+  already correct. The greeter auto-started PAM at 10:27:52, but the sensor's
+  first real open/cold preparation ran then; the fingerprint prompt appeared
+  only at 10:27:57 and timed out at 10:28:09. The problem was cold sensor
+  preparation happening inside the first login attempt, not a missing PAM rule.
 
 ### rel31 architecture
 
@@ -112,9 +119,35 @@ versioned and reversible; it is not temporary residue.
 Matcher/template policy remains unchanged: template v4 / SIGFM v3, threshold 7,
 20 enrollment views, maximum three independent verification presses.
 
+### rel33 cold-boot architecture
+
+rel33 keeps the rel32 driver, matcher, enrollments and KDE lockscreen unchanged.
+It adds only an early boot preparation layer:
+
+1. gxfp51a0-boot-prewarm.service
+   - pulled in by graphical.target;
+   - Requires/After=fprintd.service;
+   - Before=display-manager.service;
+   - waits up to 5 seconds for fprintd to expose the default device;
+   - performs a bounded 45-second Claim, never Verify or Enroll;
+   - failures are logged and return success so password login is never bricked.
+
+2. Verified ordering on the installed system
+   - boot-prewarm Before=plasmalogin.service and graphical.target;
+   - plasmalogin.service After=gxfp51a0-boot-prewarm.service;
+   - graphical.target wants fprintd, boot-prewarm and plasmalogin.
+
+3. Controlled cold-state simulation
+   - warm keepalive timer stopped;
+   - fprintd restarted to discard in-process warm state;
+   - boot-prewarm completed in 4703 ms with Result=success;
+   - log: cold-boot fprintd Claim completed; sensor ready before display manager;
+   - keepalive timer restored active;
+   - post-prewarm fprintd-verify immediately reached the waiting-for-finger state.
+
 ### External-repo refresh — 2026-09-23
 
-Latest tracked activity was re-read again before freezing rel32:
+Latest tracked external activity was re-read before rel33; rel33 changes only local boot prewarm:
 - GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
   lifecycle evidence.
 - szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
@@ -123,7 +156,7 @@ Latest tracked activity was re-read again before freezing rel32:
   confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
   supports a common local-only matcher evaluation harness.
 - berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
-  commits requiring a rel32 driver port.
+  commits requiring a rel33 driver port.
 
 Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
 harness that emits only aggregate statistics. Do not retune threshold 7 from
@@ -244,11 +277,10 @@ Do not reboot the machine automatically.
 ## Publication policy
 
 rel23 remains stable/Latest until candidate validation is complete. rel24 remains
-the published transport prerelease. rel25-rel31 are superseded development
-candidates. rel32 has passed direct lock authentication with no mouse/key and
-a single immediate finger press. Real deep-S3 resume authentication and
-first-cold-boot authentication on the 2021 reference machine remain before
-stable promotion.
+the published transport prerelease. rel25-rel32 are superseded development
+candidates. rel33 preserves the validated one-press direct lock behavior and
+adds pre-display-manager cold-boot sensor preparation. A new cold-boot human
+login test and real deep-S3 resume authentication remain before stable promotion.
 
 ## Final cleanup / local kit
 
@@ -256,7 +288,7 @@ Current cleanup rule for the reference machine:
 - build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
 - repository working tree must be clean after commit/push;
 - no ad-hoc GXFP service or local PAM override is allowed;
-- package-owned rel32 resume-prewarm, warm-keepalive and KDE integration files
+- package-owned rel33 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
   under /usr/lib are legitimate runtime state, not temporary glue;
 - the single modified Plasma LockScreenUi.qml is expected while the rel32 KDE
   integration is installed and must be restored byte-for-byte by package removal;
@@ -264,15 +296,15 @@ Current cleanup rule for the reference machine:
 - the temporary /run enrollment rollback copy was removed after the successful
   rel32 one-press direct-lock validation.
 
-The local reinstall kit in OS & Drivers must track rel32:
-- rel32 Arch/CachyOS driver package;
+The local reinstall kit in OS & Drivers must track rel33:
+- rel33 Arch/CachyOS driver package;
 - Plasma Login Manager 6.7.5-3.2 fingerprint-prompt/auto-attempt package;
-- exact rel32-rc1 public source archive;
+- exact rel33-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.
 
-The remaining direct-lock, deep-S3 and cold-boot checks are human-interactive.
+Direct-lock is validated. The remaining deep-S3 and rel33 cold-boot checks are human-interactive.
 Never reboot Pegasus automatically.
 
 ## Final rel25 machine-purity audit

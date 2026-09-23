@@ -9,6 +9,9 @@ DROPIN_FILE="$DROPIN_DIR/60-goodix51a0-local-lib.conf"
 UDEV_RULE_FILE="/etc/udev/rules.d/70-libfprint-goodix51a0-local.rules"
 EARLY_WANTS_DIR="/etc/systemd/system/graphical.target.wants"
 EARLY_WANTS_LINK="$EARLY_WANTS_DIR/fprintd.service"
+BOOT_HELPER_FILE="/usr/local/libexec/gxfp51a0-boot-prewarm"
+BOOT_UNIT_FILE="/etc/systemd/system/gxfp51a0-boot-prewarm.service"
+BOOT_WANTS_LINK="$EARLY_WANTS_DIR/gxfp51a0-boot-prewarm.service"
 RESUME_HELPER_FILE="/usr/local/libexec/gxfp51a0-resume-prewarm"
 RESUME_UNIT_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm.service"
 RESUME_WORKER_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm-worker.service"
@@ -186,7 +189,8 @@ mkdir -p "$TMP_STATE/backup"
   cd "$STAGE"
   find usr/local -mindepth 1 -printf '/%p\n' | sort
 ) > "$TMP_STATE/manifest"
-printf '%s\n' "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" \
+printf '%s\n' "$BOOT_HELPER_FILE" "$BOOT_UNIT_FILE" "$BOOT_WANTS_LINK" \
+  "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" \
   "$KEEPALIVE_HELPER_FILE" "$KEEPALIVE_UNIT_FILE" "$KEEPALIVE_TIMER_FILE" "$KEEPALIVE_WANTS_LINK" \
   "$KDE_HELPER_FILE" >> "$TMP_STATE/manifest"
 sort -u -o "$TMP_STATE/manifest" "$TMP_STATE/manifest"
@@ -220,6 +224,13 @@ EOF
 sudo install -m 0644 "$TMP_STATE/dropin" "$DROPIN_FILE"
 sudo install -Dm0644 "$UDEV_RULE_SRC" "$UDEV_RULE_FILE"
 
+sudo install -Dm0755 "$ROOT/integration/boot-prewarm/gxfp51a0-boot-prewarm" \
+  "$BOOT_HELPER_FILE"
+sed "s#/usr/libexec/gxfp51a0-boot-prewarm#$BOOT_HELPER_FILE#" \
+  "$ROOT/integration/boot-prewarm/gxfp51a0-boot-prewarm.service" \
+  > "$TMP_STATE/boot-prewarm.service"
+sudo install -Dm0644 "$TMP_STATE/boot-prewarm.service" "$BOOT_UNIT_FILE"
+
 sudo install -Dm0755 "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm" \
   "$RESUME_HELPER_FILE"
 sudo install -Dm0644 \
@@ -246,8 +257,9 @@ sudo ln -sfn "$KEEPALIVE_TIMER_FILE" "$KEEPALIVE_WANTS_LINK"
 sudo install -Dm0755 "$ROOT/integration/kde-lockscreen/gxfp51a0-kde-lockscreen-integrate" \
   "$KDE_HELPER_FILE"
 
-# Remove rel22 portable-install glue if upgrading in place. rel32 relies on the
-# generated libfprint udev rule, standard fprintd, and one post-resume Claim helper.
+# Remove rel22 portable-install glue if upgrading in place. rel33 relies on the
+# generated libfprint udev rule, standard fprintd, bounded boot/resume prewarm,
+# and the periodic warm keepalive.
 sudo rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
   /etc/systemd/system/gxfp51a0-spidev-bind.service
 
@@ -263,6 +275,7 @@ if [[ ! -e "$EARLY_WANTS_LINK" && ! -L "$EARLY_WANTS_LINK" ]]; then
   sudo ln -s "$FPRINTD_UNIT" "$EARLY_WANTS_LINK"
   printf '%s\n' "$EARLY_WANTS_LINK" | sudo tee "$STATE_DIR/created-early-wants" >/dev/null
 fi
+sudo ln -sfn "$BOOT_UNIT_FILE" "$BOOT_WANTS_LINK"
 
 sudo ldconfig
 sudo udevadm control --reload
@@ -294,12 +307,13 @@ Rollback:
   sudo $STATE_DIR/uninstall.sh
 
 It uses the generated libfprint udev SPI rule and standard fprintd. fprintd
-starts early and stays alive with --no-timeout. A package-owned periodic Claim
-refreshes the warm transport/FDT context without starting Verify or Enroll.
-After system sleep, a oneshot Claims the reader so background calibration
-finishes before the first finger arrives. If KDE Plasma's validated lockscreen
-is present, its existing authenticator is armed at component creation instead
-of waiting for mouse or keyboard activity. Other desktops are left unchanged.
+starts early and stays alive with --no-timeout. Before graphical login, a
+bounded oneshot fully Claims the reader so TLS/background/FDT preparation
+finishes before Plasma Login Manager appears. A package-owned periodic Claim
+then refreshes the warm context without starting Verify or Enroll. After system
+sleep, a separate oneshot Claims the reader before the first finger arrives.
+If KDE Plasma's validated lockscreen is present, the package-managed integration
+arms authentication only after its Window is ready. Other desktops are unchanged.
 Enroll through your desktop settings or:
   fprintd-enroll -f right-index-finger
 EOF

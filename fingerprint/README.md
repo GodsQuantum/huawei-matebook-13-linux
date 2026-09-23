@@ -179,6 +179,26 @@ lock UX: lock the session, immediately place the enrolled right index before any
 prompt is visible, and unlock succeeds on the first press with no mouse or
 keyboard interaction.
 
+### rel33 candidate: cold-boot prewarm
+
+The first rel32 cold-boot test showed that service ordering alone was not
+sufficient. On the reference machine fprintd became active at 10:27:45 CEST and
+Plasma Login Manager at 10:27:49, but the first PAM fingerprint attempt at
+10:27:52 triggered the first real sensor open. Cold TLS/background/FDT
+preparation took about five seconds, so the fingerprint prompt appeared only at
+10:27:57 and eventually timed out.
+
+rel33 adds a package-owned gxfp51a0-boot-prewarm.service. It is pulled in by
+graphical.target, Requires/After fprintd.service, and is ordered
+Before=display-manager.service. Its bounded Claim performs the normal driver
+open/close lifecycle before the greeter is allowed to start. Failure is logged
+but never blocks password login indefinitely.
+
+A controlled cold-state simulation (restart fprintd, then run boot prewarm)
+completed in 4.703 seconds with Result=success and the log
+"sensor ready before display manager". After that prewarm, fprintd-verify
+immediately reached Verify started / Verifying without another cold preparation.
+
 ### Arch / CachyOS
 
 From the repository root:
@@ -194,13 +214,14 @@ The installer:
 3. installs `libfprint-goodix51a0` and `fprintd`;
 4. grants fprintd only the additional gpiochip device access needed by this
    driver;
-5. installs the package-owned post-resume prewarm hook/worker;
-6. installs the 3-minute warm-context keepalive timer;
-7. when KDE Plasma 6.7.5 is present, installs the reversible instant-auth
+5. installs an early cold-boot prewarm ordered before the display manager;
+6. installs the package-owned post-resume prewarm hook/worker;
+7. installs the 3-minute warm-context keepalive timer;
+8. when KDE Plasma 6.7.5 is present, installs the reversible window-ready
    lock-screen integration and its pacman reapply hook;
-8. when Plasma Login Manager 6.7.5 is installed, builds/installs the
+9. when Plasma Login Manager 6.7.5 is installed, builds/installs the
    package-managed fingerprint PAM-message compatibility package;
-9. reloads udev and restarts fprintd.
+10. reloads udev and restarts fprintd.
 
 Non-KDE desktops are left unchanged. On KDE, one package-owned
 LockScreenUi.qml file is intentionally patched by the integration helper and

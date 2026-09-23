@@ -1,6 +1,6 @@
 pkgname=libfprint-goodix51a0
 pkgver=1.94.100.goodix51a0
-pkgrel=32
+pkgrel=33
 pkgdesc="libfprint 1.94.100 with experimental Goodix GXFP51A0 SPI driver"
 arch=('x86_64')
 url="https://fprint.freedesktop.org/"
@@ -31,6 +31,11 @@ package() {
   install -Dm644 "$startdir/fprintd-goodix51a0.conf" \
     "$pkgdir/usr/lib/systemd/system/fprintd.service.d/50-goodix51a0-runtime.conf"
 
+  install -Dm755 "$_fp_root/integration/boot-prewarm/gxfp51a0-boot-prewarm" \
+    "$pkgdir/usr/libexec/gxfp51a0-boot-prewarm"
+  install -Dm644 "$_fp_root/integration/boot-prewarm/gxfp51a0-boot-prewarm.service" \
+    "$pkgdir/usr/lib/systemd/system/gxfp51a0-boot-prewarm.service"
+
   install -Dm755 "$_fp_root/integration/resume-prewarm/gxfp51a0-resume-prewarm" \
     "$pkgdir/usr/libexec/gxfp51a0-resume-prewarm"
   install -Dm644 "$_fp_root/integration/resume-prewarm/gxfp51a0-resume-prewarm.service" \
@@ -51,12 +56,14 @@ package() {
     "$pkgdir/usr/share/libalpm/hooks/90-gxfp51a0-kde-lockscreen.hook"
 
   # fprintd is available before the greeter, but libfprint probe() remains
-  # passive. A package-owned sleep.target helper briefly Claims the reader
-  # after resume so the normal open/close lifecycle rebuilds background/FDT
-  # before a lock-screen finger can contaminate calibration.
+  # passive. Prewarm the reader once before the display manager and again after
+  # resume so TLS/background/FDT preparation finishes before the first finger.
+  # A separate periodic Claim keeps that validated context from aging out.
   install -d "$pkgdir/usr/lib/systemd/system/graphical.target.wants"
   ln -s ../fprintd.service \
     "$pkgdir/usr/lib/systemd/system/graphical.target.wants/fprintd.service"
+  ln -s ../gxfp51a0-boot-prewarm.service \
+    "$pkgdir/usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service"
   install -d "$pkgdir/usr/lib/systemd/system/sleep.target.wants"
   ln -s ../gxfp51a0-resume-prewarm.service \
     "$pkgdir/usr/lib/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service"
