@@ -3334,17 +3334,39 @@ gx_warm_available (FpiDeviceGoodix51A0 *self)
 static gboolean
 gx_warm_validate (FpiDeviceGoodix51A0 *self)
 {
+  g_autofree guint16 *probe = g_new (guint16, GOODIX_IMG_PIXELS);
+  gboolean previous_pacing_suppression = self->capture_pacing_suppressed;
+  gboolean ok = FALSE;
   int cur[GXFP_FDT_ZONE_COUNT];
   gint64 t0 = g_get_monotonic_time ();
 
+  /* Failure while validating a retained lifecycle context is evidence that the
+   * session went stale, not that steady-state capture pacing is too fast. */
+  self->capture_pacing_suppressed = TRUE;
+
   if (gx_fdt_probe (self, cur) != 0)
-    return FALSE;
+    goto out;
+
+  /* FDT alone can remain responsive while the TLS image path is already stale.
+   * Prove the exact path Verify will need before advertising the reader as
+   * ready. This background-mode frame is discarded immediately: no biometric
+   * template or matcher state is produced. */
+  if (!gx_capture_frame (self, probe, TRUE))
+    {
+      fp_warn ("GXFP51A0 warm FDT answered but GET_IMAGE/TLS validation failed");
+      goto out;
+    }
 
   self->warm_last_activity_us = g_get_monotonic_time ();
-  fp_info ("GXFP51A0 warm context validated in %d ms (FDT mean=%d drop=%d)",
+  fp_info ("GXFP51A0 warm context image-validated in %d ms "
+           "(FDT mean=%d drop=%d)",
            (int) ((self->warm_last_activity_us - t0) / 1000),
            gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur));
-  return TRUE;
+  ok = TRUE;
+
+out:
+  self->capture_pacing_suppressed = previous_pacing_suppression;
+  return ok;
 }
 
 static gboolean
@@ -3501,8 +3523,8 @@ gx_dev_open (FpDevice *dev)
           return;
         }
 
-      fp_warn ("GXFP51A0 warm context did not answer; falling back to cold preparation");
-      gx_warm_discard (self);
+      fp_warn ("GXFP51A0 warm context failed full readiness validation; falling back to cold preparation");
+      gx_warm_abandon (self);
       gx_gpio_reset (self);
       cold_boundary_done = TRUE;
     }

@@ -8,8 +8,9 @@ Updated: 2026-09-23.
 - published transport prerelease: fingerprint-gxfp51a0-rel24-rc1
 - rel25-rel28: superseded development candidates
 - rel29: stale warm-context expiry candidate, functionally validated at lock
-- current branch: fingerprint-rel30-instant-kde-auth
-- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-30
+- rel30: superseded first instant-lock attempt; revealed FDT-only false-ready state
+- current branch: fingerprint-rel31-image-ready-lock
+- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-31
 - installed fprintd: 1.94.5-2.1
 - current Plasma desktop: 6.7.5-1.1
 - Plasma Login Manager compatibility target: 6.7.5-3.2
@@ -29,26 +30,39 @@ Updated: 2026-09-23.
 - observed UX defect: with the lock screen visually idle, placing a finger alone
   did nothing until mouse movement made the UI visible. Plasma 6.7.5 stock QML
   starts authenticator.startAuthenticating() from onUiVisibleChanged.
+- first rel30 direct-lock test failed: fprintd did start immediately, proving the
+  early QML hook fired, but the prompt remained hidden and GET_IMAGE/FDT retries
+  showed that a recent Claim-only keepalive had accepted an image-path-stale
+  context. This directly motivated rel31.
 
-### rel30 architecture
+### rel31 architecture
 
-rel30 keeps all rel29 driver/matcher behavior and adds two package-owned
-integration layers:
+rel31 keeps the rel29 lifecycle safeguards and the rel30 package-owned keepalive,
+but closes the false-ready state seen in the human rel30 lock test:
 
-1. gxfp51a0-warm-keepalive.timer
+1. Full warm readiness
+   - FDT success alone is insufficient.
+   - gx_warm_validate() must also complete one encrypted background GET_IMAGE.
+   - the validation frame is discarded and never enters biometric matching.
+   - failure abandons stale TLS host-side and resets/rebuilds before Verify.
+   - readiness failures cannot escalate persistent capture pacing.
+
+2. gxfp51a0-warm-keepalive.timer
    - OnBootSec=20s
    - OnUnitActiveSec=3min
    - performs only fprintd Claim
    - never starts Verify or Enroll
-   - keeps the rel29 five-minute warm TTL from expiring during normal idle use.
+   - now exercises the full FDT + GET_IMAGE warm-readiness path.
 
-2. KDE Plasma lock-screen instant authentication
+3. KDE Plasma lock-screen instant authentication
    - helper: /usr/libexec/gxfp51a0-kde-lockscreen-integrate
    - validated target:
      /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml
-   - arms the already-existing authenticator in Component.onCompleted
-   - keeps the UI visually idle; no synthetic mouse/keyboard input
-   - pacman hook reapplies after plasma-desktop upgrade
+   - Component.onCompleted sets uiVisible=true.
+   - stock KDE onUiVisibleChanged performs startAuthenticating().
+   - prompt is visible immediately; there is no duplicate direct auth call.
+   - rel30 patch is migrated automatically on package upgrade.
+   - pacman hook reapplies after plasma-desktop upgrade.
    - driver removal restores the stock Component.onCompleted line.
 
 This KDE patch intentionally makes exactly one plasma-desktop file differ from
@@ -60,7 +74,7 @@ Matcher/template policy remains unchanged: template v4 / SIGFM v3, threshold 7,
 
 ### External-repo refresh — 2026-09-23
 
-Latest tracked activity was re-read before freezing rel30:
+Latest tracked activity was re-read again before freezing rel31:
 - GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
   lifecycle evidence.
 - szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
@@ -69,7 +83,7 @@ Latest tracked activity was re-read before freezing rel30:
   confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
   supports a common local-only matcher evaluation harness.
 - berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
-  commits requiring a rel30 port.
+  commits requiring a rel31 port.
 
 Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
 harness that emits only aggregate statistics. Do not retune threshold 7 from
@@ -189,7 +203,11 @@ Do not reboot the machine automatically.
 
 ## Publication policy
 
-rel23 remains stable/Latest until candidate validation is complete. rel24 remains the published transport prerelease. rel25-rel27 are superseded development candidates. rel28 must pass normal lock/logout plus real deep-S3 resume authentication on the 2021 reference machine before any stable promotion.
+rel23 remains stable/Latest until candidate validation is complete. rel24 remains
+the published transport prerelease. rel25-rel30 are superseded development
+candidates. rel31 must pass direct lock authentication with no mouse/key,
+real deep-S3 resume authentication, and first-cold-boot authentication on the
+2021 reference machine before stable promotion.
 
 ## Final cleanup / local kit
 
@@ -197,19 +215,22 @@ Current cleanup rule for the reference machine:
 - build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
 - repository working tree must be clean after commit/push;
 - no ad-hoc GXFP service or local PAM override is allowed;
-- the package-owned rel28 resume hook/worker under /usr/lib/systemd is legitimate runtime state, not temporary glue;
+- package-owned rel31 resume-prewarm, warm-keepalive and KDE integration files
+  under /usr/lib are legitimate runtime state, not temporary glue;
+- the single modified Plasma LockScreenUi.qml is expected while the rel31 KDE
+  integration is installed and must be restored by package removal;
 - legitimate persistent runtime state remains /var/lib/fprint enrollment/PMK/timing data and pacman metadata.
 
-The local reinstall kit in OS & Drivers must track the final rel28 candidate:
-- rel28 Arch/CachyOS driver package;
-- Plasma Login Manager 6.7.4-3.2 fingerprint-prompt/auto-attempt compatibility package;
-- rel28-rc1 public source archive;
+The local reinstall kit in OS & Drivers must track rel31:
+- rel31 Arch/CachyOS driver package;
+- Plasma Login Manager 6.7.5-3.2 fingerprint-prompt/auto-attempt package;
+- exact rel31-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.
 
-Automatic-login compatibility implementation commit pushed on the candidate branch: `dfd439e`.
-The final visible-greeter/logout and cold-boot tests are still human-interactive and must be performed before promotion to stable.
+The remaining direct-lock, deep-S3 and cold-boot checks are human-interactive.
+Never reboot Pegasus automatically.
 
 ## Final rel25 machine-purity audit
 

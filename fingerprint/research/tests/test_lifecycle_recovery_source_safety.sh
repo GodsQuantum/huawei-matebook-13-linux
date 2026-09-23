@@ -22,6 +22,7 @@ sleep=fn("gx_sleep_delta_us")
 cross=fn("gx_warm_crossed_sleep")
 idle=fn("gx_warm_idle_expired")
 abandon=fn("gx_warm_abandon")
+warm=fn("gx_warm_validate")
 open_=fn("gx_dev_open")
 close=fn("gx_dev_close")
 suspend=fn("gx_dev_suspend")
@@ -55,6 +56,18 @@ assert "slept || expired || self->force_cold_reset" in open_
 assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
 assert "self->warm_sleep_clock_valid = FALSE" in abandon
+
+# A retained context is only "ready" after proving the same encrypted image
+# transport that Verify will use. FDT-only validation is insufficient.
+assert "gx_fdt_probe (self, cur)" in warm
+assert "gx_capture_frame (self, probe, TRUE)" in warm
+assert "warm context image-validated" in warm
+assert "capture_pacing_suppressed = TRUE" in warm
+assert "capture_pacing_suppressed = previous_pacing_suppression" in warm
+assert "warm context failed full readiness validation" in open_
+failed=open_.split("warm context failed full readiness validation",1)[1]
+assert "gx_warm_abandon (self)" in failed
+assert "gx_warm_discard (self)" not in failed.split("else if",1)[0]
 
 # Idle-suspend detection runs before opening hardware handles and resets any
 # unpersisted pacing escalation caused by the dead S3 session.

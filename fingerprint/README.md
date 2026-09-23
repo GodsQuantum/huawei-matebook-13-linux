@@ -135,20 +135,25 @@ for more than five minutes as a lifecycle boundary. The next Claim abandons that
 host-side state and performs the normal bounded cold rebuild before capture.
 This does not change the matcher, templates, enrollment count or threshold.
 
-### rel30 candidate: always-ready lock screen
+### rel31 candidate: image-ready lock screen
 
-rel30 keeps the rel29 five-minute safety expiry but refreshes an idle warm
-context every three minutes with a package-owned fprintd Claim. The refresh does
-not start Verify or Enroll and simply exercises the normal open/close lifecycle
-while the reader is free. Busy readers are skipped.
+rel31 keeps the rel29 five-minute safety expiry and the rel30 three-minute
+Claim keepalive, but fixes the false-ready condition exposed by the first rel30
+lock test. A retained context is no longer accepted merely because FDT answers:
+the warm-validation path must also complete one encrypted background-mode
+GET_IMAGE/TLS frame. That frame is discarded immediately and never reaches the
+matcher or template store. If image validation fails, the stale TLS state is
+abandoned host-side and the driver performs the normal reset/cold rebuild before
+Verify is allowed to continue. Validation failure is explicitly excluded from
+capture-pacing learning.
 
-On KDE Plasma 6.7.5, the stock lock screen starts authentication only after its
-idle UI becomes visible, which normally requires mouse/keyboard activity.
-rel30 installs a small reversible integration that calls the existing
-authenticator.startAuthenticating() at lock-screen component creation, so PAM
-fingerprint authentication is armed before the first finger touch while the UI
-may remain visually idle. A pacman hook reapplies this one-file integration
-after plasma-desktop upgrades and package removal restores the stock line.
+On KDE Plasma 6.7.5, rel31 also changes the lock-screen integration from an
+extra direct authenticator call to the native KDE state machine: the existing
+lock UI is made visible at Component.onCompleted, and stock
+onUiVisibleChanged starts PAM. The prompt is therefore visible immediately and
+there is no duplicate/too-early authentication call. A pacman hook migrates the
+older rel30 patch automatically, reapplies this one-file integration after
+plasma-desktop upgrades, and package removal restores the stock line.
 
 The KDE integration is conditional; non-Plasma desktops keep their native
 greeter/PAM behavior.
