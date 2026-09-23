@@ -11,8 +11,9 @@ Updated: 2026-09-23.
 - rel30: superseded first instant-lock attempt; revealed FDT-only false-ready state
 - rel31: image-ready transport candidate; KDE startup race found in human testing
 - rel32: one-press direct lock validated; cold-boot greeter exposed un-prewarmed sensor
-- current branch: fingerprint-rel33-coldboot-prewarm
-- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-33
+- rel33: boot prewarm ordering validated; first cold-boot biometric attempt still failed during redundant warm validation
+- current branch: fingerprint-rel34-fresh-warm-handoff
+- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-34
 - installed fprintd: 1.94.5-2.1
 - current Plasma desktop: 6.7.5-1.1
 - Plasma Login Manager compatibility target: 6.7.5-3.2
@@ -57,6 +58,14 @@ Updated: 2026-09-23.
   first real open/cold preparation ran then; the fingerprint prompt appeared
   only at 10:27:57 and timed out at 10:28:09. The problem was cold sensor
   preparation happening inside the first login attempt, not a missing PAM rule.
+- rel33 cold-boot human validation also failed. This time boot-prewarm completed
+  successfully at 11:27:12 before Plasma Login Manager. PAM fingerprint started
+  at 11:27:16 and prompted at 11:27:17, but a GET_IMAGE retry appeared at
+  11:27:23 and PLM reported fingerprint recognition failure at 11:27:24.
+  Source review showed the next gx_dev_open still ran rel31 full warm validation
+  and therefore issued a redundant background GET_IMAGE only seconds after the
+  successful boot-prewarm, exactly while the user could already have a finger
+  placed. This directly motivated rel34.
 
 ### rel31 architecture
 
@@ -145,9 +154,37 @@ It adds only an early boot preparation layer:
    - keepalive timer restored active;
    - post-prewarm fprintd-verify immediately reached the waiting-for-finger state.
 
+### rel34 fresh-handoff architecture
+
+rel34 keeps rel33 boot-prewarm and all rel32 KDE/matcher behavior. The driver
+adds warm_handoff_ready plus a 10-second one-shot handoff window:
+
+1. A healthy gx_dev_close that stashes a complete warm context arms one fresh
+   handoff unless capture recovery is pending.
+2. The next gx_dev_open consumes the token exactly once.
+3. If the token age is <=10 seconds and no sleep/idle/recovery boundary was
+   detected, the driver reuses the already validated context without another
+   background GET_IMAGE.
+4. If the token is absent or older than 10 seconds, rel31 full warm validation
+   remains mandatory.
+5. gx_warm_abandon, initialization and recovery boundaries clear the token.
+
+Runtime proof with G_MESSAGES_DEBUG=all, no human finger:
+- forced cold state by restarting fprintd;
+- boot-prewarm completed and close logged fresh one-shot handoff;
+- immediate fprintd-verify reopened 88 ms later;
+- logs: consuming fresh warm handoff / skipping redundant background GET_IMAGE /
+  reusing freshly validated native warm context;
+- Verify immediately reached FP_FINGER_STATUS_NEEDED and wait-on;
+- no GET_IMAGE occurred in that handoff interval;
+- after >10 seconds the next Claim logged warm context image-validated and
+  performed the full background validation again;
+- temporary debug drop-in was removed, fprintd restarted, boot-prewarm rerun,
+  and keepalive timer restored active.
+
 ### External-repo refresh — 2026-09-23
 
-Latest tracked external activity was re-read before rel33; rel33 changes only local boot prewarm:
+Latest tracked external activity remains unchanged for rel34; rel34 changes only the local fresh-handoff lifecycle:
 - GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
   lifecycle evidence.
 - szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
@@ -156,7 +193,7 @@ Latest tracked external activity was re-read before rel33; rel33 changes only lo
   confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
   supports a common local-only matcher evaluation harness.
 - berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
-  commits requiring a rel33 driver port.
+  commits requiring a rel34 driver port.
 
 Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
 harness that emits only aggregate statistics. Do not retune threshold 7 from
@@ -277,10 +314,11 @@ Do not reboot the machine automatically.
 ## Publication policy
 
 rel23 remains stable/Latest until candidate validation is complete. rel24 remains
-the published transport prerelease. rel25-rel32 are superseded development
-candidates. rel33 preserves the validated one-press direct lock behavior and
-adds pre-display-manager cold-boot sensor preparation. A new cold-boot human
-login test and real deep-S3 resume authentication remain before stable promotion.
+the published transport prerelease. rel25-rel33 are superseded development
+candidates. rel34 preserves boot-prewarm and the validated one-press direct-lock
+behavior while removing the redundant immediate warm-validation capture. A new
+cold-boot human login test and real deep-S3 resume authentication remain before
+stable promotion.
 
 ## Final cleanup / local kit
 
@@ -288,7 +326,7 @@ Current cleanup rule for the reference machine:
 - build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
 - repository working tree must be clean after commit/push;
 - no ad-hoc GXFP service or local PAM override is allowed;
-- package-owned rel33 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
+- package-owned rel34 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
   under /usr/lib are legitimate runtime state, not temporary glue;
 - the single modified Plasma LockScreenUi.qml is expected while the rel32 KDE
   integration is installed and must be restored byte-for-byte by package removal;
@@ -296,15 +334,15 @@ Current cleanup rule for the reference machine:
 - the temporary /run enrollment rollback copy was removed after the successful
   rel32 one-press direct-lock validation.
 
-The local reinstall kit in OS & Drivers must track rel33:
-- rel33 Arch/CachyOS driver package;
+The local reinstall kit in OS & Drivers must track rel34:
+- rel34 Arch/CachyOS driver package;
 - Plasma Login Manager 6.7.5-3.2 fingerprint-prompt/auto-attempt package;
-- exact rel33-rc1 public source archive;
+- exact rel34-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.
 
-Direct-lock is validated. The remaining deep-S3 and rel33 cold-boot checks are human-interactive.
+Direct-lock is validated. The remaining deep-S3 and rel34 cold-boot checks are human-interactive.
 Never reboot Pegasus automatically.
 
 ## Final rel25 machine-purity audit

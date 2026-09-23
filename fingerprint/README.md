@@ -199,6 +199,30 @@ completed in 4.703 seconds with Result=success and the log
 "sensor ready before display manager". After that prewarm, fprintd-verify
 immediately reached Verify started / Verifying without another cold preparation.
 
+### rel34 candidate: fresh validated handoff
+
+The first rel33 cold-boot test proved the boot prewarm itself was working:
+gxfp51a0-boot-prewarm finished at 11:27:12 CEST and Plasma Login Manager started
+after it. PAM fingerprint began at 11:27:16. However, the next device open still
+ran rel31's full warm validation, including another background GET_IMAGE, while
+the user had already placed a finger. That first login attempt later hit a
+GET_IMAGE retry and Plasma Login Manager reported fingerprint recognition
+failure.
+
+rel34 adds a one-shot fresh-handoff token inside the driver. When a healthy
+prepared device is closed, the next open may consume that token for at most 10
+seconds and reuse the already validated TLS/background/FDT context without
+issuing a redundant background GET_IMAGE. The token is consumed exactly once,
+is cleared on lifecycle invalidation/recovery, and never bypasses sleep or
+5-minute idle expiry handling. Older contexts continue through rel31's complete
+FDT + encrypted GET_IMAGE validation.
+
+Runtime validation on the reference machine proved both paths:
+- cold restart -> boot-prewarm -> immediate Verify: token consumed at 88 ms,
+  no background GET_IMAGE before FP_FINGER_STATUS_NEEDED;
+- after waiting beyond 10 seconds, the next Claim returned to
+  warm context image-validated with a real background capture.
+
 ### Arch / CachyOS
 
 From the repository root:

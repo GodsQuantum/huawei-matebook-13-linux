@@ -114,6 +114,7 @@ struct _FpiDeviceGoodix51A0
   gboolean      bg_dirty;    /* background taken with a finger down */
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
+  gboolean      warm_handoff_ready; /* one fresh validated open may skip redundant GET_IMAGE */
   gint64        warm_last_activity_us; /* monotonic time of last validated sensor activity */
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
@@ -3238,6 +3239,12 @@ gx_transport_open (FpDevice *dev, GError **error)
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
 #define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
+/* A completed Claim/Open may be followed immediately by another client Claim,
+ * especially boot-prewarm -> login.  Re-running a background GET_IMAGE in that
+ * narrow handoff window is redundant and can collide with a finger already
+ * placed on the reader.  The token below is one-shot and much shorter than the
+ * normal warm TTL; older contexts still take the full rel31 validation path. */
+#define GX_WARM_HANDOFF_TTL_US (10 * G_USEC_PER_SEC)
 
 static gboolean
 gx_sleep_delta_us (gint64 *out)
@@ -3295,6 +3302,31 @@ gx_warm_idle_expired (FpiDeviceGoodix51A0 *self)
   return FALSE;
 }
 
+static gboolean
+gx_warm_consume_fresh_handoff (FpiDeviceGoodix51A0 *self)
+{
+  gint64 age;
+
+  if (!self->warm_handoff_ready)
+    return FALSE;
+
+  /* One-shot means one-shot even when stale: never let an old token become
+   * useful again after a later clock/accounting change. */
+  self->warm_handoff_ready = FALSE;
+
+  if (!self->warm_valid || self->warm_last_activity_us <= 0)
+    return FALSE;
+
+  age = g_get_monotonic_time () - self->warm_last_activity_us;
+  if (age < 0 || age > GX_WARM_HANDOFF_TTL_US)
+    return FALSE;
+
+  fp_info ("GXFP51A0 consuming fresh warm handoff at %d ms; "
+           "skipping redundant background GET_IMAGE",
+           (int) (age / 1000));
+  return TRUE;
+}
+
 static void
 gx_warm_abandon (FpiDeviceGoodix51A0 *self)
 {
@@ -3302,6 +3334,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
    * boundary where sensor-side TLS state cannot be trusted: never send a
    * close_notify over a session that may no longer exist. */
   self->warm_valid = FALSE;
+  self->warm_handoff_ready = FALSE;
   self->production_ready = FALSE;
   self->have_fdt = FALSE;
   self->bg_dirty = FALSE;
@@ -3515,6 +3548,14 @@ gx_dev_open (FpDevice *dev)
 
   if (gx_warm_available (self))
     {
+      if (gx_warm_consume_fresh_handoff (self))
+        {
+          self->production_ready = TRUE;
+          fp_info ("GXFP51A0 reusing freshly validated native warm context");
+          fpi_device_open_complete (dev, NULL);
+          return;
+        }
+
       if (gx_warm_validate (self))
         {
           self->production_ready = TRUE;
@@ -3564,9 +3605,11 @@ gx_dev_close (FpDevice *dev)
       self->tls && self->have_fdt && self->bg_frame)
     {
       self->production_ready = FALSE;
+      self->warm_handoff_ready = !self->capture_recovery_pending;
       gx_pmk_clear (self);
       gx_transport_close (self);
-      fp_info ("GXFP51A0 stashed native warm context across fp_device close");
+      fp_info ("GXFP51A0 stashed native warm context across fp_device close%s",
+               self->warm_handoff_ready ? " with fresh one-shot handoff" : "");
       fpi_device_close_complete (dev, NULL);
       return;
     }
@@ -3769,6 +3812,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_retry_seen = FALSE;
   self->capture_pacing_suppressed = FALSE;
   self->capture_recovery_pending = FALSE;
+  self->warm_handoff_ready = FALSE;
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
