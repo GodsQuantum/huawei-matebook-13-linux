@@ -44,6 +44,12 @@ Updated: 2026-09-23.
   the handler because uiVisible was already true. This directly motivated rel32.
 - a fresh right-index enrollment completed successfully in KDE at 09:37:37 on
   2026-09-23; left-index and right-middle enrollments remain unchanged.
+- rel32 human direct-lock validation: PASS at about 10:16 CEST on 2026-09-23.
+  User locked Pegasus and immediately placed the freshly enrolled right index
+  before waiting for any visible prompt; the machine unlocked on the first
+  single press with no mouse or keyboard interaction.
+- the temporary root-only enrollment rollback archive in /run was removed only
+  after that successful rel32 validation.
 
 ### rel31 architecture
 
@@ -239,9 +245,10 @@ Do not reboot the machine automatically.
 
 rel23 remains stable/Latest until candidate validation is complete. rel24 remains
 the published transport prerelease. rel25-rel31 are superseded development
-candidates. rel32 must pass direct lock authentication with no mouse/key,
-real deep-S3 resume authentication, and first-cold-boot authentication on the
-2021 reference machine before stable promotion.
+candidates. rel32 has passed direct lock authentication with no mouse/key and
+a single immediate finger press. Real deep-S3 resume authentication and
+first-cold-boot authentication on the 2021 reference machine remain before
+stable promotion.
 
 ## Final cleanup / local kit
 
@@ -254,9 +261,8 @@ Current cleanup rule for the reference machine:
 - the single modified Plasma LockScreenUi.qml is expected while the rel32 KDE
   integration is installed and must be restored byte-for-byte by package removal;
 - legitimate persistent runtime state remains /var/lib/fprint enrollment/PMK/timing data and pacman metadata;
-- /run/gxfp51a0-enroll-backup.tar is a temporary root-only rollback copy of the
-  pre-fresh-enrollment prints and must be removed after the first successful
-  rel32 human lock validation.
+- the temporary /run enrollment rollback copy was removed after the successful
+  rel32 one-press direct-lock validation.
 
 The local reinstall kit in OS & Drivers must track rel32:
 - rel32 Arch/CachyOS driver package;

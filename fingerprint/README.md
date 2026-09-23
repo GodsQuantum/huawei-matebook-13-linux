@@ -174,6 +174,11 @@ integration restores Plasma 6.7.5 LockScreenUi.qml byte-for-byte.
 The KDE integration is conditional; non-Plasma desktops keep their native
 greeter/PAM behavior.
 
+Human reference-machine validation on 2026-09-23 confirmed the intended rel32
+lock UX: lock the session, immediately place the enrolled right index before any
+prompt is visible, and unlock succeeds on the first press with no mouse or
+keyboard interaction.
+
 ### Arch / CachyOS
 
 From the repository root:
