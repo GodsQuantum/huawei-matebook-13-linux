@@ -12,11 +12,12 @@ Updated: 2026-09-23.
 - rel31: image-ready transport candidate; KDE startup race found in human testing
 - rel32: one-press direct lock validated; cold-boot greeter exposed un-prewarmed sensor
 - rel33: boot prewarm ordering validated; first cold-boot biometric attempt still failed during redundant warm validation
-- current branch: fingerprint-rel34-fresh-warm-handoff
-- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-34
+- rel34: fresh one-shot boot-prewarm -> Verify handoff validated at runtime; not yet human cold-boot validated
+- current branch: fingerprint-rel35-login-first-press
+- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-35
 - installed fprintd: 1.94.5-2.1
 - current Plasma desktop: 6.7.5-1.1
-- Plasma Login Manager compatibility target: 6.7.5-3.2
+- Plasma Login Manager compatibility target: 6.7.5-3.3
 - libfprint base: v1.94.100
 - target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware
   GF_ST411SEC_APP_14115
@@ -66,6 +67,14 @@ Updated: 2026-09-23.
   and therefore issued a redundant background GET_IMAGE only seconds after the
   successful boot-prewarm, exactly while the user could already have a finger
   placed. This directly motivated rel34.
+- the same 11:27 rel33 boot exposed a second, independent userspace race:
+  gxfp51a0-warm-keepalive fired at 11:27:15.420 while Plasma Login Manager
+  started fingerprint PAM at 11:27:16.110. The keepalive Claim completed at
+  11:27:16.647. The PAM cue appeared at 11:27:17.920, GET_IMAGE retried at
+  11:27:23.108, and PLM reported fingerprint recognition failure at
+  11:27:24.049. The installed PAM profile also used max-tries=1, so that one
+  false rejection immediately terminated fingerprint authentication. These two
+  userspace issues directly motivated rel35.
 
 ### rel31 architecture
 
@@ -79,9 +88,10 @@ but closes the false-ready state seen in the human rel30 lock test:
    - failure abandons stale TLS host-side and resets/rebuilds before Verify.
    - readiness failures cannot escalate persistent capture pacing.
 
-2. gxfp51a0-warm-keepalive.timer
-   - OnBootSec=20s
-   - OnUnitActiveSec=3min
+2. gxfp51a0-warm-keepalive.timer (historical rel31-rel34 cadence)
+   - originally OnBootSec=20s plus OnUnitActiveSec=3min;
+   - rel35 removes the 20-second boot trigger because boot-prewarm now owns
+     initial readiness and the early timer can collide with the greeter
    - performs only fprintd Claim
    - never starts Verify or Enroll
    - now exercises the full FDT + GET_IMAGE warm-readiness path.
@@ -182,9 +192,38 @@ Runtime proof with G_MESSAGES_DEBUG=all, no human finger:
 - temporary debug drop-in was removed, fprintd restarted, boot-prewarm rerun,
   and keepalive timer restored active.
 
+### rel35 login-first-press architecture
+
+rel35 keeps the installed rel34 fresh-handoff driver behavior unchanged and
+changes only login/keepalive integration.
+
+1. No early keepalive collision
+   - gxfp51a0-warm-keepalive.timer uses OnActiveSec=3min and
+     OnUnitActiveSec=3min.
+   - OnBootSec is absent.
+   - boot-prewarm is therefore the only GXFP51A0 Claim before the initial
+     display-manager login transaction.
+
+2. Three PAM fingerprint attempts in the same login transaction
+   - Plasma Login Manager compatibility package is 6.7.5-3.3.
+   - /usr/lib/pam.d/plasmalogin contains:
+     auth sufficient pam_fprintd.so max-tries=3 timeout=12
+   - pam_fprintd documents three attempts as its normal default; rel35 keeps the
+     bounded 12-second login window instead of making one false rejection fatal.
+
+3. Installed/runtime validation before another reboot
+   - libfprint-goodix51a0 1.94.100.goodix51a0-35 installed.
+   - plasma-login-manager 6.7.5-3.3 installed.
+   - both packages pass pacman -Qkk with zero modified package-owned files.
+   - all three enrollments remain present.
+   - fprintd and the keepalive timer are active.
+   - build-only PLM dependencies were removed after packaging.
+   - full software baseline plus fresh-handoff, boot-prewarm, warm-keepalive and
+     KDE integration tests pass.
+
 ### External-repo refresh — 2026-09-23
 
-Latest tracked external activity remains unchanged for rel34; rel34 changes only the local fresh-handoff lifecycle:
+Latest tracked external activity remains unchanged for rel35; rel35 adds only login/keepalive integration on top of rel34:
 - GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
   lifecycle evidence.
 - szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
@@ -193,7 +232,7 @@ Latest tracked external activity remains unchanged for rel34; rel34 changes only
   confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
   supports a common local-only matcher evaluation harness.
 - berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
-  commits requiring a rel34 driver port.
+  commits requiring a rel35 driver port.
 
 Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
 harness that emits only aggregate statistics. Do not retune threshold 7 from
@@ -233,25 +272,25 @@ This preserves the native path and does not restore the obsolete GXFP-specific b
 Source:
 `fingerprint/integration/plasma-login-manager-6.7-pam-messages/`
 
-The compatibility package is based on official Plasma Login Manager 6.7.4 and applies:
+The compatibility package is based on official Plasma Login Manager 6.7.5 and applies:
 1. KDE upstream PAM-message display fix.
 2. KDE upstream notification-timer follow-up.
 3. Arch PAM profile addition:
-   `auth sufficient pam_fprintd.so max-tries=1 timeout=12`
+   `auth sufficient pam_fprintd.so max-tries=3 timeout=12`
 4. A bounded compatibility patch that starts exactly one fingerprint-first PAM
    attempt when the selected-user greeter becomes visible with an empty password
    field. This restores the previously observed UI: the PAM cue appears without
    pressing Enter. A timeout returns to the normal password UI and does not loop.
 
-The package version is `6.7.4-3.2`. Upstream 6.7.5 was checked and still lacks
-the PAM-message connection, so it must not silently replace this compatibility
-build until the equivalent functionality lands upstream.
+The current compatibility package is `6.7.5-3.3`. It keeps the PAM-message
+integration, auto-started fingerprint attempt, and the rel35 three-try bounded
+pam_fprintd policy package-managed.
 
 No local `/etc/pam.d/plasmalogin` override is required anymore.
 
-## Current reference-machine validation
+## Historical rel25 reference-machine validation
 
-Installed successfully without reboot:
+At the rel25 stage, installed successfully without reboot:
 - `plasma-login-manager 6.7.4-3.2`
 - `libfprint-goodix51a0 1.94.100.goodix51a0-25`
 - `fprintd 1.94.5-2.1`
@@ -314,11 +353,11 @@ Do not reboot the machine automatically.
 ## Publication policy
 
 rel23 remains stable/Latest until candidate validation is complete. rel24 remains
-the published transport prerelease. rel25-rel33 are superseded development
-candidates. rel34 preserves boot-prewarm and the validated one-press direct-lock
-behavior while removing the redundant immediate warm-validation capture. A new
-cold-boot human login test and real deep-S3 resume authentication remain before
-stable promotion.
+the published transport prerelease. rel25-rel34 are superseded development
+candidates. rel35 preserves rel34 fresh handoff plus the validated one-press
+direct-lock behavior, removes the early keepalive/greeter collision and restores
+three bounded PAM fingerprint tries. A new cold-boot human login test and real
+deep-S3 resume authentication remain before stable promotion.
 
 ## Final cleanup / local kit
 
@@ -326,7 +365,7 @@ Current cleanup rule for the reference machine:
 - build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
 - repository working tree must be clean after commit/push;
 - no ad-hoc GXFP service or local PAM override is allowed;
-- package-owned rel34 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
+- package-owned rel35 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
   under /usr/lib are legitimate runtime state, not temporary glue;
 - the single modified Plasma LockScreenUi.qml is expected while the rel32 KDE
   integration is installed and must be restored byte-for-byte by package removal;
@@ -334,15 +373,15 @@ Current cleanup rule for the reference machine:
 - the temporary /run enrollment rollback copy was removed after the successful
   rel32 one-press direct-lock validation.
 
-The local reinstall kit in OS & Drivers must track rel34:
-- rel34 Arch/CachyOS driver package;
-- Plasma Login Manager 6.7.5-3.2 fingerprint-prompt/auto-attempt package;
-- exact rel34-rc1 public source archive;
+The local reinstall kit in OS & Drivers must track rel35:
+- rel35 Arch/CachyOS driver package;
+- Plasma Login Manager 6.7.5-3.3 fingerprint-prompt/auto-attempt package;
+- exact rel35-rc1 public source archive;
 - INSTALL.txt;
 - SHA256SUMS.txt;
 - one-shot INSTALL-GXFP51A0.sh.
 
-Direct-lock is validated. The remaining deep-S3 and rel34 cold-boot checks are human-interactive.
+Direct-lock is validated. The remaining deep-S3 and rel35 cold-boot checks are human-interactive.
 Never reboot Pegasus automatically.
 
 ## Final rel25 machine-purity audit

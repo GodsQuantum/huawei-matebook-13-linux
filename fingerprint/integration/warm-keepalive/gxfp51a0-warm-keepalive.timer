@@ -2,7 +2,7 @@
 Description=Keep Goodix GXFP51A0 fingerprint context ready
 
 [Timer]
-OnBootSec=20s
+OnActiveSec=3min
 OnUnitActiveSec=3min
 AccuracySec=10s
 Unit=gxfp51a0-warm-keepalive.service

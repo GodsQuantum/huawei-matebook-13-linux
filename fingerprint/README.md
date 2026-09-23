@@ -223,6 +223,24 @@ Runtime validation on the reference machine proved both paths:
 - after waiting beyond 10 seconds, the next Claim returned to
   warm context image-validated with a real background capture.
 
+### rel35 candidate: collision-free first login attempt
+
+The rel33 human cold-boot failure also exposed two userspace problems beyond the
+redundant warm validation fixed by rel34. The periodic keepalive still had
+OnBootSec=20s, so it claimed the sensor while Plasma Login Manager was beginning
+its first PAM transaction. In that same transaction, the compatibility PAM rule
+used max-tries=1, making one placement false-rejection terminal.
+
+rel35 keeps rel34's fresh one-shot handoff unchanged. The keepalive timer now
+uses OnActiveSec=3min plus OnUnitActiveSec=3min and has no OnBootSec trigger, so
+boot-prewarm owns initial readiness without a second Claim racing the greeter.
+The Plasma Login Manager compatibility package moves to 6.7.5-3.3 and uses
+pam_fprintd max-tries=3 timeout=12. This restores the normal three-attempt
+pam_fprintd policy while retaining the bounded 12-second login window.
+
+No biometric threshold, enrollment format, matcher or capture recipe changes in
+rel35.
+
 ### Arch / CachyOS
 
 From the repository root:

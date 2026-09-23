@@ -89,7 +89,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=34" in pkgbuild
+assert "pkgrel=35" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
@@ -120,14 +120,14 @@ plm_patch2 = PLM_PATCH2.read_text()
 plm_patch3 = PLM_PATCH3.read_text()
 plm_patch4 = PLM_PATCH4.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.2" in plm_pkgbuild
+assert "pkgrel=3.3" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
 assert "0004-autostart-first-fingerprint-attempt.patch" in plm_pkgbuild
 assert "function onInformationMessage(message)" in plm_patch1
 assert "notificationResetTimer.stop();" in plm_patch2
-assert "pam_fprintd.so max-tries=1 timeout=12" in plm_patch3
+assert "pam_fprintd.so max-tries=3 timeout=12" in plm_patch3
 assert "maybeStartFingerprintLogin" in plm_patch4
 assert "fingerprintAutoAttemptDone" in plm_patch4
 assert "fingerprintAutoAttemptInFlight" in plm_patch4

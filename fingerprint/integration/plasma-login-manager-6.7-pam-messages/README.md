@@ -8,7 +8,7 @@ It backports two upstream KDE fixes:
 
 It also carries the Arch `plasmalogin` PAM profile with:
 ```text
-auth sufficient pam_fprintd.so max-tries=1 timeout=12
+auth sufficient pam_fprintd.so max-tries=3 timeout=12
 ```
 
 The local compatibility patch `0004-autostart-first-fingerprint-attempt.patch`
@@ -19,6 +19,6 @@ therefore appears under the password field without pressing Enter first. If the
 attempt times out, the normal password UI is restored without an artificial
 generic “Login Failed” message.
 
-The package is versioned `6.7.5-3.2`. It keeps the integration package-managed:
+The package is versioned `6.7.5-3.3`. It keeps the integration package-managed:
 no `/etc/pam.d/plasmalogin` override is required, and it never contains or
 modifies fingerprint templates.

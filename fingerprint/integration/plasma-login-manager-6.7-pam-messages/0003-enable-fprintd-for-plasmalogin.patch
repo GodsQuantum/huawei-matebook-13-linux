@@ -4,7 +4,7 @@
  # SPDX-License-Identifier: CC0-1.0
  # SPDX-FileCopyrightText: none
  
-+auth        sufficient  pam_fprintd.so max-tries=1 timeout=12
++auth        sufficient  pam_fprintd.so max-tries=3 timeout=12
  auth        include     system-login
  -auth       optional    pam_gnome_keyring.so
  -auth       optional    pam_kwallet5.so
