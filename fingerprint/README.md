@@ -147,13 +147,29 @@ abandoned host-side and the driver performs the normal reset/cold rebuild before
 Verify is allowed to continue. Validation failure is explicitly excluded from
 capture-pacing learning.
 
-On KDE Plasma 6.7.5, rel31 also changes the lock-screen integration from an
-extra direct authenticator call to the native KDE state machine: the existing
-lock UI is made visible at Component.onCompleted, and stock
-onUiVisibleChanged starts PAM. The prompt is therefore visible immediately and
-there is no duplicate/too-early authentication call. A pacman hook migrates the
-older rel30 patch automatically, reapplies this one-file integration after
-plasma-desktop upgrades, and package removal restores the stock line.
+rel31 originally made the lock UI visible directly from
+Component.onCompleted. Human testing exposed a QML race: on some launches
+Window.window was still null, so stock onUiVisibleChanged threw from
+requestActivate() before authenticator.startAuthenticating() could run. Because
+uiVisible was already true, later mouse motion could not retrigger the handler.
+
+### rel32 candidate: window-ready KDE authentication
+
+rel32 keeps the rel31 driver and biometric behavior unchanged and fixes only the
+KDE integration. A short startup Timer waits until lockScreenRoot.Window.window
+exists before setting uiVisible=true. Stock Plasma then runs requestActivate()
+and authenticator.startAuthenticating() in its normal order, without the rel31
+null-window exception.
+
+rel32 also backports KDE plasma-desktop commit e5616c6a (2026-08-18) narrowly:
+while the lock UI is visible, a 1-second heartbeat calls
+authenticator.startAuthenticating(). Current Plasma master uses the same pattern
+to keep the authentication backend alive. The backport is skipped automatically
+if a future distro package already contains the upstream heartbeat.
+
+The integration remains one-file, conditional on KDE, package-managed,
+idempotent and reversible. Its migration/rollback tests prove that removing the
+integration restores Plasma 6.7.5 LockScreenUi.qml byte-for-byte.
 
 The KDE integration is conditional; non-Plasma desktops keep their native
 greeter/PAM behavior.

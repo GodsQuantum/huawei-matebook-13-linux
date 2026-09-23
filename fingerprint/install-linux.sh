@@ -246,7 +246,7 @@ sudo ln -sfn "$KEEPALIVE_TIMER_FILE" "$KEEPALIVE_WANTS_LINK"
 sudo install -Dm0755 "$ROOT/integration/kde-lockscreen/gxfp51a0-kde-lockscreen-integrate" \
   "$KDE_HELPER_FILE"
 
-# Remove rel22 portable-install glue if upgrading in place. rel31 relies on the
+# Remove rel22 portable-install glue if upgrading in place. rel32 relies on the
 # generated libfprint udev rule, standard fprintd, and one post-resume Claim helper.
 sudo rm -f /usr/local/libexec/gxfp51a0-spidev-bind \
   /etc/systemd/system/gxfp51a0-spidev-bind.service
