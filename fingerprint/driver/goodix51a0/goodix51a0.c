@@ -103,11 +103,10 @@ struct _FpiDeviceGoodix51A0
   int           fdt_base[GXFP_FDT_ZONE_COUNT]; /* FDT baseline (finger absent) */
   gboolean      have_fdt;    /* is fdt_base populated? */
   int           fdt_abs;     /* per-unit absolute floor, derived from baseline */
-  int           timing_scale;/* protocol-delay multiplier in %, grows on desync */
-  int           timing_saved;/* last value persisted to disk, to avoid rewrites */
-  int           capture_gap_scale; /* capture-step gap %, independent of TLS timing */
-  int           capture_gap_saved; /* last capture pacing value persisted to disk */
+  int           timing_scale;/* session-local protocol-delay multiplier in % */
+  int           capture_gap_scale; /* session-local capture-step gap % */
   guint         capture_clean_streak; /* consecutive complete frames without GET_IMAGE retry */
+  guint         capture_retry_streak; /* consecutive complete frames that needed retry */
   gboolean      capture_retry_seen; /* current frame needed a GET_IMAGE/TLS retry */
   gboolean      capture_pacing_suppressed; /* lifecycle loss is not pacing evidence */
   gboolean      capture_recovery_pending; /* transport failed; rebuild between presses */
@@ -1736,74 +1735,26 @@ gx_read_fw_version (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
 /*  Session: TLS setup, background frame, detection baseline           */
 /* ------------------------------------------------------------------ */
 
-/* Learned protocol-timing multiplier, remembered across opens.
+/* Runtime timing adaptation.
  *
- * timing_scale grows within a session when the sensor loses sync (see below),
- * but resets to nominal on every open — so a consistently slow unit paid one
- * failed handshake at the start of every session. Persisting the last value
- * that WORKED skips that: the next open starts at the timing this unit is known
- * to need. It lives in fprintd's state directory (the only writable path under
- * ProtectSystem=strict), is device- not user-scoped, and is a single integer.
- * Delete the file to reset the learned value. */
-#define GX_TIMING_FILE "/var/lib/fprint/.goodix51a0-timing"
+ * rel24-rel40 persisted protocol/capture timing under /var/lib/fprint.  That
+ * looked useful for slow controllers, but deep-S3/prewarm transport loss could
+ * be mis-attributed as a speed problem and ratchet 100 -> 150 -> ... -> 300
+ * across reboots.  rel41 deliberately keeps both scales process-local.
+ *
+ * Every fresh/cold lifecycle starts at the Windows-validated nominal timing.
+ * A real runtime failure may loosen timings for the current fprintd lifetime,
+ * while clean captures decay back toward nominal.  No lifecycle/prewarm event
+ * can poison a future boot through persistent tuning state. */
+#define GX_TIMING_SCALE_MIN 100
+#define GX_TIMING_SCALE_MAX 300
+#define GX_TIMING_SCALE_STEP 50
 
-static int
-gx_timing_load (void)
-{
-  g_autofree gchar *txt = NULL;
-  int v;
-
-  if (!g_file_get_contents (GX_TIMING_FILE, &txt, NULL, NULL))
-    return 100;
-  v = atoi (txt);
-  return (v >= 100 && v <= 300) ? v : 100;   /* clamp; ignore a garbled file */
-}
-
-static void
-gx_timing_save (int scale)
-{
-  g_autofree gchar *txt = g_strdup_printf ("%d\n", scale);
-
-  if (!g_file_set_contents (GX_TIMING_FILE, txt, -1, NULL))
-    fp_warn ("could not persist timing scale to %s", GX_TIMING_FILE);
-  else
-    g_chmod (GX_TIMING_FILE, 0600);
-}
-
-/* Capture pacing is learned independently from target/TLS timing. The nominal
- * 30 ms gap remains the fast path. A slow unit only moves upward after an
- * actual GET_IMAGE transport loss (two no-ACK/TLS attempts), and an elevated
- * value is persisted only after a complete finger frame + cleanup succeeds. */
-#define GX_CAPTURE_TIMING_FILE "/var/lib/fprint/.goodix51a0-capture-timing"
 #define GX_CAPTURE_SCALE_MIN 100
 #define GX_CAPTURE_SCALE_MAX 300
 #define GX_CAPTURE_SCALE_STEP 50
-#define GX_CAPTURE_CLEAN_DECAY_STREAK 16
-
-static int
-gx_capture_timing_load (void)
-{
-  g_autofree gchar *txt = NULL;
-  int v;
-
-  if (!g_file_get_contents (GX_CAPTURE_TIMING_FILE, &txt, NULL, NULL))
-    return GX_CAPTURE_SCALE_MIN;
-  v = atoi (txt);
-  return (v >= GX_CAPTURE_SCALE_MIN && v <= GX_CAPTURE_SCALE_MAX)
-           ? v : GX_CAPTURE_SCALE_MIN;
-}
-
-static void
-gx_capture_timing_save (int scale)
-{
-  g_autofree gchar *txt = g_strdup_printf ("%d\n", scale);
-
-  if (!g_file_set_contents (GX_CAPTURE_TIMING_FILE, txt, -1, NULL))
-    fp_warn ("could not persist capture timing scale to %s",
-             GX_CAPTURE_TIMING_FILE);
-  else
-    g_chmod (GX_CAPTURE_TIMING_FILE, 0600);
-}
+#define GX_CAPTURE_RETRY_ESCALATE_STREAK 3
+#define GX_CAPTURE_CLEAN_DECAY_STREAK 8
 
 static guint
 gx_capture_gap_us (FpiDeviceGoodix51A0 *self)
@@ -1820,11 +1771,11 @@ gx_capture_transport_desync (FpiDeviceGoodix51A0 *self)
   int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
 
   self->capture_clean_streak = 0;
+  self->capture_retry_streak = 0;
   self->capture_recovery_pending = TRUE;
 
-  /* S3/hibernate destroys the MCU session.  A desync while rebuilding that
-   * lifecycle boundary says nothing about the steady-state capture gap, so it
-   * must never ratchet the persistent pacing value upward. */
+  /* Lifecycle/prewarm failures say nothing about the steady-state capture
+   * gap. They request a session rebuild only and must never change pacing. */
   if (self->capture_pacing_suppressed)
     {
       fp_warn ("GXFP51A0 lifecycle recovery desync: pacing remains %d%% "
@@ -1836,28 +1787,42 @@ gx_capture_transport_desync (FpiDeviceGoodix51A0 *self)
   self->capture_gap_scale =
     MIN (previous + GX_CAPTURE_SCALE_STEP, GX_CAPTURE_SCALE_MAX);
 
-  fp_warn ("GXFP51A0 capture transport desync: pacing %d%% -> %d%% "
-           "(%u us gap); full MCU/session recovery required",
+  fp_warn ("GXFP51A0 session capture desync: pacing %d%% -> %d%% "
+           "(%u us gap); full MCU/session recovery required; not persisted",
            previous, self->capture_gap_scale, gx_capture_gap_us (self));
 }
 
 static void
 gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
 {
-  if (self->capture_gap_scale > self->capture_gap_saved)
-    {
-      gx_capture_timing_save (self->capture_gap_scale);
-      self->capture_gap_saved = self->capture_gap_scale;
-      fp_info ("GXFP51A0 learned capture pacing %d%% persisted after "
-               "successful finger capture", self->capture_gap_scale);
-    }
-
   if (self->capture_retry_seen)
     {
       self->capture_clean_streak = 0;
+      self->capture_retry_streak++;
+
+      /* The 2020 contributor unit showed the useful signal that rel24 missed:
+       * attempt 1 can fail on almost every capture while attempt 2 succeeds.
+       * Escalate after a short sustained retry streak, but only in RAM. */
+      if (self->capture_retry_streak >= GX_CAPTURE_RETRY_ESCALATE_STREAK &&
+          self->capture_gap_scale < GX_CAPTURE_SCALE_MAX)
+        {
+          int previous = self->capture_gap_scale;
+
+          self->capture_gap_scale =
+            MIN (previous + GX_CAPTURE_SCALE_STEP, GX_CAPTURE_SCALE_MAX);
+          self->capture_retry_streak = 0;
+          fp_info ("GXFP51A0 session capture pacing raised after %d "
+                   "retry-assisted captures: %d%% -> %d%% (%u us gap)",
+                   GX_CAPTURE_RETRY_ESCALATE_STREAK, previous,
+                   self->capture_gap_scale, gx_capture_gap_us (self));
+        }
+
       self->capture_retry_seen = FALSE;
+      self->warm_last_activity_us = g_get_monotonic_time ();
       return;
     }
+
+  self->capture_retry_streak = 0;
 
   if (self->capture_gap_scale > GX_CAPTURE_SCALE_MIN)
     {
@@ -1869,11 +1834,9 @@ gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
           self->capture_gap_scale =
             MAX (GX_CAPTURE_SCALE_MIN,
                  previous - GX_CAPTURE_SCALE_STEP);
-          gx_capture_timing_save (self->capture_gap_scale);
-          self->capture_gap_saved = self->capture_gap_scale;
           self->capture_clean_streak = 0;
-          fp_info ("GXFP51A0 capture pacing decayed after %d clean captures: "
-                   "%d%% -> %d%% (%u us gap)",
+          fp_info ("GXFP51A0 session capture pacing decayed after %d clean "
+                   "captures: %d%% -> %d%% (%u us gap)",
                    GX_CAPTURE_CLEAN_DECAY_STREAK, previous,
                    self->capture_gap_scale, gx_capture_gap_us (self));
         }
@@ -1931,9 +1894,10 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
       /* Self-healing on desync. The protocol delays are tuned to the author's
        * unit and sit right at the edge; a different SPI controller can be
        * slower and lose sync. Only successful timing values are persisted. */
-      if (self->timing_scale < 300)
+      if (self->timing_scale < GX_TIMING_SCALE_MAX)
         {
-          self->timing_scale = MIN (self->timing_scale + 50, 300);
+          self->timing_scale = MIN (self->timing_scale + GX_TIMING_SCALE_STEP,
+                                    GX_TIMING_SCALE_MAX);
           fp_info ("handshake failed; loosening protocol timings to %d%%",
                    self->timing_scale);
         }
@@ -1977,12 +1941,9 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
     fp_warn ("no TLS session after %d/%d attempts; if this persists the sensor "
              "needs a full recovery (long reset plus an spidev rebind)",
              att - 1, max_attempts);
-  else if (self->timing_scale > self->timing_saved)
-    {
-      gx_timing_save (self->timing_scale);
-      self->timing_saved = self->timing_scale;
-      fp_info ("learned timing scale %d%% persisted", self->timing_scale);
-    }
+  else if (self->timing_scale > GX_TIMING_SCALE_MIN)
+    fp_info ("GXFP51A0 session protocol timing settled at %d%%; not persisted",
+             self->timing_scale);
 
   return self->tls_up;
 }
@@ -3729,13 +3690,14 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   gchar fw[64] = "";
 
   self->fdt_abs = GOODIX_FDT_ABS;
-  self->timing_scale = gx_timing_load ();
-  self->timing_saved = self->timing_scale;
+
+  /* Fresh lifecycle = fresh nominal timing.  Runtime adaptation belongs to the
+   * current daemon/session only; legacy rel24-rel40 files are intentionally
+   * ignored.  Preserve an already-elevated capture scale only when this is a
+   * same-session recovery after a real biometric transport desync. */
+  self->timing_scale = GX_TIMING_SCALE_MIN;
   if (self->capture_gap_scale < GX_CAPTURE_SCALE_MIN)
-    {
-      self->capture_gap_scale = gx_capture_timing_load ();
-      self->capture_gap_saved = self->capture_gap_scale;
-    }
+    self->capture_gap_scale = GX_CAPTURE_SCALE_MIN;
 
   if (!gx_driverstate_install_windows (self))
     {
@@ -3829,11 +3791,11 @@ gx_dev_open (FpDevice *dev)
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
       /* A dead S3 session is not evidence that the SPI controller needs slower
-       * capture pacing. Forget any unpersisted in-process escalation and reload
-       * only a value validated by a successful complete capture. */
+       * capture pacing. Forget session-local adaptation; the next cold prepare
+       * restarts from the validated nominal 100% timing. */
       self->capture_gap_scale = 0;
-      self->capture_gap_saved = 0;
       self->capture_clean_streak = 0;
+      self->capture_retry_streak = 0;
       self->capture_retry_seen = FALSE;
       self->capture_pacing_suppressed = TRUE;
       had_warm = FALSE;
@@ -4118,9 +4080,9 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
 {
   self->spi_fd = -1;
   self->irq_fd = -1;
-  self->capture_gap_scale = 0; /* loaded lazily from root-owned state */
-  self->capture_gap_saved = 0;
+  self->capture_gap_scale = 0; /* starts nominal at first cold preparation */
   self->capture_clean_streak = 0;
+  self->capture_retry_streak = 0;
   self->capture_retry_seen = FALSE;
   self->capture_pacing_suppressed = FALSE;
   self->capture_recovery_pending = FALSE;

@@ -70,3 +70,55 @@ jobs:
           ! grep -RInE \
             '(/sys/.*/(bind|unbind)|modprobe|rmmod|SPI_IOC_MESSAGE|gpiod_line_request_output|gpioset)' \
             fingerprint/scripts
+
+  portable-build-matrix:
+    name: Portable build — ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian stable
+            image: debian:stable
+          - name: Fedora current
+            image: fedora:latest
+          - name: openSUSE Tumbleweed
+            image: opensuse/tumbleweed:latest
+          - name: Arch Linux
+            image: archlinux:latest
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Bootstrap checkout runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get update
+            apt-get install -y git ca-certificates
+          elif command -v dnf >/dev/null; then
+            dnf install -y git ca-certificates
+          elif command -v zypper >/dev/null; then
+            zypper --non-interactive install git ca-certificates
+          elif command -v pacman >/dev/null; then
+            pacman -Sy --needed --noconfirm git ca-certificates
+          else
+            echo "Unsupported CI container" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - name: Build through portable installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./fingerprint/install-linux.sh --build-only
+
+      - name: Verify portable installer contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash fingerprint/research/tests/test_portable_installer_source_safety.sh
+          bash fingerprint/research/tests/test_session_local_timing_source_safety.sh

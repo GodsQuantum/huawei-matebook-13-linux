@@ -1,49 +1,111 @@
+[Reading 167 lines from start (total: 167 lines, 0 remaining)]
+
 # Goodix GXFP51A0 / GF3658 ST411 Linux 驱动
 
 面向 Huawei MateBook 13 2021 系列中 SPI Goodix GXFP51A0 的实验性原生 libfprint 驱动。
 
 > **English: [README.md](README.md)** · **Français : [README.FR.md](README.FR.md)**
 
-## 状态 — 2026-09-20
+## 状态 — 2026-09-24
 
 已验证硬件目标：
 
-- ACPI HID：`GXFP51A0`；
-- Goodix GF3658 / ST411，chip ID `0x2504`；
-- 已验证固件：`GF_ST411SEC_APP_14115`；
-- SPI mode 0 + `SPI_CS_HIGH`，1 MHz；
-- GPIO48 readiness/IRQ，GPIO264 MCU reset；
-- TLS 1.2 `PSK-AES128-GCM-SHA256`；
-- 有效指纹图像 80×64；
-- libfprint 基线：`v1.94.100`。
+- ACPI HID：`GXFP51A0`
+- Goodix GF3658 / ST411，chip ID `0x2504`
+- 已验证固件：`GF_ST411SEC_APP_14115`
+- SPI mode 0 + `SPI_CS_HIGH`，1 MHz
+- GPIO48 readiness/IRQ，GPIO264 active-HIGH MCU reset
+- TLS 1.2 `PSK-AES128-GCM-SHA256`
+- 80×64 有效指纹图像
+- 固定 libfprint 基线：`v1.94.100`
 
 生产路径：
 
-    GXFP51A0 → libfprint → fprintd → KDE / GNOME / PAM / CLI
+```text
+GXFP51A0 → libfprint → fprintd → desktop PAM / CLI
+```
 
-无需设备专用桌面 UI、PAM 重写、固件替换或 Goodix 专有 runtime。
+### 已完成人工冷启动验证：rel40
 
-### 已验证内容
+在 MateBook 13 2021 参考机上，使用原有 enrollment 的真实 cold-boot 图形
+登录已经成功。Plasma Login Manager 走的是 `Identify`：第一轮同一手指图像
+分数为 `2/3/3`；下一次按压的第一张图像被 quality gate 拒绝，而**同一次
+物理按压的第二张图像得到 7/7**，随后成功进入会话。
 
-在参考 GXFP51A0/GF3658/ST411 设备上：
+rel40 因此同时验证了：
 
-- KDE/fprintd 标准 enrollment 可完成 **20 次接受的按压**；
-- FAST-9 + BRIEF-256 + rigid RANSAC 匹配完全在主机侧 C 代码中执行；
-- 接受阈值固定为 **7 个 RANSAC inliers**；
-- 成功验证立即返回；
-- no-match 最多可要求 **3 次完整、独立的按压** 后终止拒绝；重试次数固定，不会根据分数接近阈值的程度变化；
-- `identify` 保持单次采集；
-- target/TLS 短暂失同步使用有界恢复和持久化的初始化 timing scale；
-- 图像采集仍使用已验证的名义 30 ms command gap；
-- release build 不包含生物特征 dump writer。
+- Windows 精确 `WakeupMCU`：原始 SPI `0f 00 00 0e` + 5 ms；
+- warm context 硬件重验证与 `WARM_REBASE`；
+- `Verify` 和多模板 `Identify`；
+- 每次物理按压最多 3 张独立图像（`RetryCaptureIMG`）；
+- 固定阈值 **7**，绝不累加或融合多个弱分数；
+- 最多 3 次物理按压后才终止拒绝；
+- 20-view enrollment 与 template-v4/SIGFM-v3 兼容；
+- 有界 transport recovery、boot prewarm 和 deep-sleep resume prewarm；
+- 不再使用周期性 synthetic Claim keepalive；
+- release build 不含生物特征 dump writer。
 
-3 次按压策略用于降低这个很小的 partial-print 传感器因手指位置变化造成的误拒，不会降低阈值，也不会把多个弱分数组合为一次成功。
+### rel41 候选：仅会话内自适应 + 跨发行版安装
+
+rel41 不改变 rel40 已验证的生物识别路径。它移除了 rel24–rel40 的持久化
+timing 文件，因为 lifecycle/prewarm 失败可能把 pacing 永久推高。每个新
+lifecycle 都从已验证的 100% 名义 timing 开始，只在 RAM 中自适应：
+
+- lifecycle/prewarm 失败绝不改变 capture pacing；
+- 连续 3 次“靠第二次 GET_IMAGE retry 才成功”的完整采集，提高当前
+  daemon 的 capture pacing 一个 50 点步长；
+- 8 次 clean capture 后向 100% 回落一个步长；
+- 真正的生物识别 transport desync 可以提高当前 session pacing，并触发
+  已验证的完整 session recovery；
+- protocol/TLS timing 也只在当前 session 中自适应，绝不写盘。
+
+rel41 软件测试和可重复 libfprint build 已通过；在自己的 cold-boot 人工
+验证完成前，rel40 仍然是 runtime 基准。
 
 ## 安装
 
-### 下载已打包的 rel23 release
+推荐从源码 checkout 执行：
 
-对于已验证的 GXFP51A0 / GF3658 ST411，最简单的稳定版本起点是 [GitHub rel23 release](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23)。rel23 完全使用 libfprint 原生 SPI 路径：生成的 udev 规则支持 `acpi:GXFP51A0:GXFP51A0:` 这类 ACPI 后缀并直接绑定 `spidev`，不再需要 GXFP 专用 systemd binder。标准 fprintd 随 graphical boot transaction 启动并使用 `--no-timeout`；libfprint `probe()` 预热 TLS、背景和 FDT 状态。完整 warm context 在 Claim/Release 之间保留，同时关闭 SPI/GPIO handle；下次 Claim 会先做硬件重新验证，若传感器状态丢失则自动回退到有界 cold path。现有 template-v4 enrollment 保持兼容。
+```bash
+./fingerprint/install-linux.sh
+```
+
+安装器自动识别 Arch/CachyOS、Debian/Ubuntu、Fedora/RHEL-family 与
+openSUSE。Arch/CachyOS 使用原生 pacman 包；其他 systemd 发行版把审核过
+的 libfprint 安装到 `/usr/local`，并通过 service-local
+`LD_LIBRARY_PATH` **只让 fprintd 使用它**，不会替换其他程序看到的发行版
+libfprint。Meson 的真实 `libdir` 会动态检测，因此支持 Debian multiarch
+和 `lib64`。非 systemd 系统也有 loader fallback，并保留发行版自己的
+fprintd/PAM 生命周期管理。
+
+常用模式：
+
+```bash
+./fingerprint/install-linux.sh --build-only
+./fingerprint/install-linux.sh --no-install-deps
+./fingerprint/install-linux.sh --no-desktop-integration
+```
+
+回滚：
+
+```bash
+sudo /var/lib/gxfp51a0-local-install/uninstall.sh
+```
+
+Arch/CachyOS 也可以直接执行：
+
+```bash
+./fingerprint/install-arch.sh
+```
+
+安装器不会删除 enrollment，也不会删除已经验证的 PMK cache。rel41 升级
+只清理 rel24–rel40 遗留的非敏感 timing 整数。
+
+对于 Plasma Login Manager 6.7.5，本仓库还提供已验证的密码/指纹分离认证
+兼容包：输入密码不会再等待指纹 timeout。其他桌面继续使用各自原生
+fprintd/PAM 集成。
+
+## 历史演进
 
 ### rel24-rc1：慢速传输兼容候选版
 
@@ -165,3 +227,5 @@ PMK cache 与学习到的 timing 值位于 `/var/lib/fprint/`，不会被打包�
 - [当前 handoff](HANDOFF_CURRENT.md)
 
 生产驱动子树使用 `LGPL-2.1-or-later`，具体以各文件 SPDX 标记和 [PROVENANCE.md](PROVENANCE.md) 为准。
+
+[executed on device: Pegasus (8a6eeb21-0158-4e6d-b3ea-91d580f8a223)]

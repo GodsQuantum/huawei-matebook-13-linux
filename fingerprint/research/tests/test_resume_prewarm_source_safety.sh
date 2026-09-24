@@ -49,15 +49,17 @@ success=fn("gx_capture_pacing_success")
 frame=fn("gx_capture_frame_ex")
 open_=fn("gx_dev_open")
 
-assert "#define GX_CAPTURE_CLEAN_DECAY_STREAK 16" in s
+assert "#define GX_CAPTURE_CLEAN_DECAY_STREAK 8" in s
+assert "#define GX_CAPTURE_RETRY_ESCALATE_STREAK 3" in s
 assert "capture_pacing_suppressed" in desync
 assert "lifecycle recovery desync: pacing remains" in desync
 assert "capture_clean_streak = 0" in desync
 assert "capture_retry_seen" in success
 assert "capture_clean_streak++" in success
 assert "previous - GX_CAPTURE_SCALE_STEP" in success
-assert "gx_capture_timing_save" in success
-assert "capture pacing decayed after %d clean captures" in success
+assert "gx_capture_timing_save" not in success
+assert "capture_retry_streak++" in success
+assert "session capture pacing decayed after %d clean" in success
 assert "self->capture_retry_seen = FALSE" in frame
 assert "self->capture_pacing_suppressed = TRUE" in open_
 PY

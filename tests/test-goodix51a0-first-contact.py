@@ -104,8 +104,9 @@ assert re.search(r"guint32\s+speed\s*=\s*1000000\s*;", transport_open)
 assert "gx_pmk_clear (self);" in fn("gx_dev_close")
 assert "OPENSSL_cleanse (self->psk" in fn("gx_pmk_clear")
 assert "self->psk_ready = FALSE;" in fn("gx_pmk_clear")
-assert "self->timing_scale = gx_timing_load ();" in cold
-assert "self->timing_saved = self->timing_scale;" in cold
+assert "self->timing_scale = GX_TIMING_SCALE_MIN;" in cold
+assert "gx_timing_load" not in text
+assert "gx_timing_save" not in text
 assert "gx_adapt_sweep ();" not in cold
 assert "GX_ADAPT_" not in text
 

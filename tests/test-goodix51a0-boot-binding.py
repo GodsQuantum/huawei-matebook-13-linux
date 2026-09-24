@@ -90,7 +90,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=40" in pkgbuild
+assert "pkgrel=41" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
@@ -149,6 +149,8 @@ assert "systemctl restart --no-block fprintd.service" in pkginstall
 assert "gxfp51a0-kde-lockscreen-integrate --apply" in pkginstall
 assert "systemctl stop gxfp51a0-warm-keepalive.timer" in pkginstall
 assert "systemctl start --no-block gxfp51a0-warm-keepalive.service" not in pkginstall
+assert ".goodix51a0-timing" in pkginstall
+assert ".goodix51a0-capture-timing" in pkginstall
 
 arch = ARCH.read_text()
 assert "native udev SPI binding, warm readiness and desktop integration" in arch
@@ -162,15 +164,20 @@ assert "--no-timeout" in linux
 assert "TimeoutStartSec=40s" in linux
 assert "Before=display-manager.service" in linux
 assert "LimitCORE=0" in linux
-assert "KEEPALIVE_HELPER_FILE=" in linux
+assert "KEEPALIVE_HELPER_FILE=" not in linux
+assert "LDCONF_FILE=" in linux
+assert "SYSTEMD_AVAILABLE=0" in linux
+assert "introspect" in linux and "LIBDIR_REL=" in linux
 assert "KDE_HELPER_FILE=" in linux
 assert "BIND_HELPER=" not in linux
 assert "BIND_SERVICE=" not in linux
 
 uninstall = UNINSTALL.read_text()
 assert "created-early-wants" in uninstall
-assert "gxfp51a0-kde-lockscreen-integrate --remove" in uninstall
+assert "KDE_HELPER=" in uninstall and '"$KDE_HELPER" --remove' in uninstall
 assert "gxfp51a0-warm-keepalive.timer" in uninstall
+assert "90-gxfp51a0-local.conf" in uninstall
+assert "command -v systemctl" in uninstall
 assert "BIND_HELPER=" not in uninstall
 assert "BIND_SERVICE=" not in uninstall
 

@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-h="$root/integration/warm-keepalive/gxfp51a0-warm-keepalive"
-s="$root/integration/warm-keepalive/gxfp51a0-warm-keepalive.service"
-t="$root/integration/warm-keepalive/gxfp51a0-warm-keepalive.timer"
-grep -Fq 'Claim s ""' "$h"
-grep -Fq 'timeout 45s' "$h"
-! grep -Eq 'VerifyStart|EnrollStart|restart fprintd' "$h"
-grep -Fq 'ExecStart=/usr/libexec/gxfp51a0-warm-keepalive' "$s"
-grep -Fq 'TimeoutStartSec=50s' "$s"
-grep -Fq 'OnActiveSec=3min' "$t"
-! grep -Fq 'OnBootSec=' "$t"
-grep -Fq 'OnUnitActiveSec=3min' "$t"
-grep -Fq 'WantedBy=timers.target' "$t"
-echo 'test_warm_keepalive_source_safety: OK'
+pkg="$root/packaging/arch/PKGBUILD"
+arch="$root/install-arch.sh"
+portable="$root/install-linux.sh"
+
+# Historical keepalive sources may remain as research provenance, but rel37+
+# must never package, enable or advertise the periodic synthetic Claim loop.
+! grep -Fq 'integration/warm-keepalive/' "$pkg"
+! grep -Fq 'timers.target.wants/gxfp51a0-warm-keepalive.timer' "$pkg"
+! grep -Fq 'systemctl start gxfp51a0-warm-keepalive' "$arch"
+! grep -Fq 'OnActiveSec=3min' "$portable"
+! grep -Fq 'KEEPALIVE_' "$portable"
+
+# Install/upgrade may stop/delete stale units from old releases.
+grep -Fq 'gxfp51a0-warm-keepalive' "$root/packaging/arch/libfprint-goodix51a0.install"
+grep -Fq 'gxfp51a0-warm-keepalive' "$portable"
+
+echo 'test_warm_keepalive_source_safety: OK (legacy keepalive remains disabled)'

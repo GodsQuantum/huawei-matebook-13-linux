@@ -1,3 +1,5 @@
+[Reading 208 lines from start (total: 208 lines, 0 remaining)]
+
 # Goodix GXFP51A0 / GF3658 ST411 sous Linux
 
 Pilote libfprint natif expérimental pour le Goodix SPI GXFP51A0 présent dans la
@@ -5,7 +7,7 @@ famille Huawei MateBook 13 2021.
 
 > English: [README.md](README.md) · 简体中文: [README.ZH-CN.md](README.ZH-CN.md)
 
-## État — 20 septembre 2026
+## État — 24 septembre 2026
 
 Cible matériellement validée :
 
@@ -13,49 +15,104 @@ Cible matériellement validée :
 - Goodix GF3658 / ST411, chip ID `0x2504`
 - firmware validé : `GF_ST411SEC_APP_14115`
 - SPI mode 0 + `SPI_CS_HIGH`, 1 MHz
-- GPIO48 readiness/IRQ et GPIO264 reset MCU
+- GPIO48 readiness/IRQ et GPIO264 reset MCU actif HIGH
 - TLS 1.2 `PSK-AES128-GCM-SHA256`
 - image active 80×64
-- base libfprint : `v1.94.100`
+- base libfprint épinglée : `v1.94.100`
 
 Chemin de production :
 
 ```text
-GXFP51A0 → libfprint → fprintd → KDE / GNOME / PAM / CLI
+GXFP51A0 → libfprint → fprintd → PAM du bureau / CLI
 ```
 
-Aucune UI spécifique, réécriture PAM, modification de firmware ou runtime
-Goodix propriétaire n'est nécessaire.
+### Base validée en conditions réelles : rel40
 
-### Ce qui est validé
+Un vrai login graphique après cold boot sur le MateBook 13 2021 de référence a
+réussi avec les enrollments existants. Plasma Login Manager a utilisé
+`Identify` : première pose `2/3/3`; sur la pose suivante, la première image a
+été rejetée par le quality gate et la **deuxième image de la même pose physique
+a obtenu 7/7**, ouvrant la session.
 
-Sur l'unité de référence GXFP51A0/GF3658/ST411 :
+rel40 valide donc ensemble :
 
-- l'enrollment KDE/fprintd standard termine avec **20 poses acceptées** ;
-- le matching FAST-9 + BRIEF-256 + RANSAC rigide est entièrement exécuté côté
-  hôte en C ;
-- le seuil d'acceptation reste fixe à **7 inliers RANSAC** ;
-- un succès est renvoyé immédiatement ;
-- un no-match peut demander jusqu'à **3 poses complètes et indépendantes**
-  avant le refus terminal. Le nombre d'essais est fixe et ne dépend jamais de
-  la proximité du score avec le seuil ;
-- `identify` reste mono-capture ;
-- les désynchronisations target/TLS disposent d'une récupération bornée avec
-  timing d'initialisation appris et persisté ;
-- la recette de capture conserve son gap nominal validé de 30 ms, séparé du
-  timing plus conservateur d'initialisation ;
-- le build release ne contient aucun writer de dump biométrique.
+- le `WakeupMCU` Windows exact : SPI brut `0f 00 00 0e` + 5 ms ;
+- la revalidation hardware du contexte warm et `WARM_REBASE` ;
+- `Verify` et `Identify` multi-empreintes ;
+- jusqu'à 3 images indépendantes sur une même pose via `RetryCaptureIMG` ;
+- seuil fixe **7**, sans addition ni fusion de scores ;
+- jusqu'à 3 poses physiques avant rejet terminal ;
+- enrollment 20 vues et compatibilité template-v4/SIGFM-v3 ;
+- récupération transport bornée, prewarm boot et prewarm après deep sleep ;
+- aucun keepalive Claim périodique ;
+- aucun writer de dump biométrique dans les builds release.
 
-Ces 3 poses compensent les variations de placement d'un très petit capteur
-partiel sans baisser le seuil biométrique ni additionner des scores faibles.
+### Candidat rel41 : adaptation rapide en RAM + installation Linux portable
+
+rel41 conserve intégralement le chemin biométrique rel40 validé. Il supprime les
+fichiers de timing persistants rel24–rel40, car un échec lifecycle/prewarm
+pouvait faire grimper définitivement le pacing au fil des boots. Après une
+frontière lifecycle fraîche, le timing repart toujours à 100 % et ne s'adapte
+qu'en RAM :
+
+- un échec lifecycle/prewarm ne modifie jamais le pacing capture ;
+- 3 captures réussies consécutives ayant nécessité le retry GET_IMAGE montent
+  le pacing d'un pas de 50 points pour le daemon courant ;
+- 8 captures propres redescendent d'un pas vers la valeur nominale ;
+- une vraie désynchronisation biométrique peut augmenter le pacing de session
+  et déclenche la récupération complète déjà validée ;
+- le timing protocole/TLS peut aussi s'assouplir en session, sans persistance.
+
+La suite logicielle rel41 et le build libfprint reproductible passent. rel41 ne
+remplace pas encore la validation humaine rel40 tant qu'il n'a pas reçu son
+propre test cold boot.
 
 ## Installation
 
-### Télécharger la release rel23 prête à installer
+Depuis un checkout du dépôt :
 
-Pour la cible GXFP51A0 / GF3658 ST411 validée, le point de départ le plus simple est la [release GitHub rel23](https://github.com/GodsQuantum/huawei-matebook-13-linux/releases/tag/fingerprint-gxfp51a0-rel23). Elle contient le paquet natif Arch/CachyOS, un bundle source Linux portable, les instructions d'installation et les checksums SHA-256.
+```bash
+./fingerprint/install-linux.sh
+```
 
-rel23 utilise entièrement la voie SPI native de libfprint. La règle udev générée accepte les suffixes ACPI de type `acpi:GXFP51A0:GXFP51A0:` et lie le capteur à `spidev` sans service systemd GXFP spécifique. Le fprintd standard démarre avec la transaction graphique et `--no-timeout`; le `probe()` libfprint préchauffe TLS, le fond et FDT. Un contexte warm complet survit aux cycles Claim/Release tout en fermant les handles SPI/GPIO, est revalidé matériellement au Claim suivant et retombe sur la voie froide bornée si l'état du capteur a été perdu. Les enrollments template-v4 existants restent compatibles.
+L'installateur détecte Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL et openSUSE. Sur
+Arch/CachyOS il délègue au paquet pacman natif. Sur les autres distributions
+systemd, le libfprint audité est installé sous `/usr/local` et rendu visible
+**uniquement à fprintd** via `LD_LIBRARY_PATH` dans le service ; les autres
+programmes conservent le libfprint de la distribution. Le `libdir` Meson réel
+est détecté dynamiquement, y compris les layouts Debian multiarch et `lib64`.
+Sans systemd, le même build reste installable avec un fallback du loader et la
+gestion fprintd/PAM native de la distribution.
+
+Modes utiles :
+
+```bash
+./fingerprint/install-linux.sh --build-only
+./fingerprint/install-linux.sh --no-install-deps
+./fingerprint/install-linux.sh --no-desktop-integration
+```
+
+Rollback :
+
+```bash
+sudo /var/lib/gxfp51a0-local-install/uninstall.sh
+```
+
+Arch/CachyOS peut appeler directement :
+
+```bash
+./fingerprint/install-arch.sh
+```
+
+L'installation ne supprime jamais les enrollments ni le cache PMK validé.
+L'upgrade rel41 ne retire que les anciens entiers de timing non secrets.
+
+Pour Plasma Login Manager 6.7.5, le dépôt contient aussi le paquet de
+compatibilité validé qui sépare l'authentification fingerprint et mot de passe :
+saisir le mot de passe n'attend plus l'expiration d'une tentative empreinte.
+Les autres bureaux conservent leur intégration fprintd/PAM native.
+
+## Historique technique
 
 ### rel24-rc1 : candidat de compatibilité transport lent
 
@@ -206,3 +263,5 @@ Voir [intégration desktop](docs/native-desktop-integration.md),
 [research log](docs/research-log.md) et [handoff actuel](HANDOFF_CURRENT.md).
 
 Le sous-arbre de production du pilote est `LGPL-2.1-or-later`.
+
+[executed on device: Pegasus (8a6eeb21-0158-4e6d-b3ea-91d580f8a223)]
