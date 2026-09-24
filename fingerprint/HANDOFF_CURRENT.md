@@ -1003,3 +1003,74 @@ Next gates:
 2. only after cold succeeds and logs are read, perform one normal deep/S3 suspend-resume and fingerprint unlock.
 3. if that succeeds, perform the race test: deep/S3 then touch fingerprint immediately as lockscreen appears.
 4. confirm password remains single-attempt/independent and no 'Authentication attempt too soon' race.
+
+## Update 2026-09-25 — rel47 adaptive Identify / pose-budget candidate
+
+True rel46 cold-boot runtime result: FAILED at biometric matching, not transport.
+- Boot: 2026-09-25 00:13:00 CEST.
+- rel46 fprintd started 00:13:07, so this was a real rel46 runtime test.
+- protocol timing auto-calibrated 100 -> 150 -> 200 -> 250 -> 300% in RAM.
+- WARM_REBASE succeeded (idle≈354, floor≈330).
+- exact WakeupMCU succeeded.
+- hardware touchflag/FDT detected all three physical presses.
+- every first GET_IMAGE needed the bounded transport retry, but authenticated images were produced.
+- pose scores: first PAM attempt 4/4/4, second 3/3/3, third 3/3/3; threshold remained 7.
+- password fallback succeeded.
+- therefore rel46 S3 architecture did not cause the cold failure; the false reject was pose/matcher-quality variance.
+
+Relevant community evidence:
+- szlukabence's latest fp_eval run against this driver's real matcher: 121 poses / 4 fingers.
+- threshold 7 retained 0/1089 impostor accepts.
+- about 13.8% of unique genuine poses were below threshold, confirming pose variance is the dominant FRR source.
+- no threshold lowering is justified.
+
+rel47 strategy:
+- keep threshold 7 and independent-image decisions; no score fusion.
+- seed capture pacing before the first biometric press from protocol timing already measured during cold preparation.
+- mapping is bounded/process-local: protocol 300% -> capture 250%; fast/nominal controllers remain at 100%; nothing is persisted.
+- add GX_REPOSE_SCORE_CUTOFF=4.
+- if the first usable image of a pose scores <=4, stop wasting two same-pose recaptures and request a fresh physical placement.
+- scores 5-6 still get Windows-style same-press RetryCaptureIMG because they are close to threshold.
+- quality-gate rejection still gets same-press recapture.
+- Identify now uses the same fixed 3-physical-press budget internally as Verify instead of reporting no-match after the first pose.
+- Identify success remains immediate when one independent image reaches >=7.
+- Identify failure is reported only after the bounded 3-press budget.
+- matcher, templates, enrollments, FDT touchflag, WakeupMCU, WARM_REBASE, PLM 3.4, and native rel46 S3 recovery are unchanged.
+
+rel47 software validation:
+- git diff --check PASS.
+- full fingerprint/research suite PASS.
+- adaptive Identify pose-budget source gate PASS.
+- native S3 recovery gate PASS.
+- Verify+Identify fixed-budget gate PASS.
+- portable installer gate PASS.
+- test-fingerprint-tooling.py PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- reproducible native Arch libfprint build PASS.
+- artifact gate updated to require both Identify success and bounded-failure paths; PASS.
+- RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT.
+- build active sensor/GPIO/MMIO/firmware actions NONE.
+- Debian stable/glibc exact-source build + fprintd ABI PASS.
+- Alpine edge/musl exact-source build + fprintd ABI PASS.
+- package SHA256: d1347ae1622032555a6e9bf4236adb33c843d86445eebf39c5b1b4b6f68e6d26.
+
+Installed-on-disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-47; 40 files, 0 modified.
+- fprintd 1.94.5-2.1; plasma-login-manager 6.7.5-3.4.
+- three enrollments intact: right-index, left-index, right-middle.
+- legacy protocol/capture timing files ABSENT.
+- 0 failed systemd units.
+- live fprintd PID 724 started 00:13:07 before rel47 installation, so it still executes rel46 mapped in memory.
+- rel47 has NOT yet been runtime-tested.
+
+Git:
+- branch fingerprint-rel47-adaptive-identify.
+- code commit f44fedd4466493ca582bac0a8ca6cde3a2ee2c51.
+- do not push/promote stable before cold + S3 runtime acceptance.
+
+Next gates:
+1. user-initiated full reboot; cold graphical fingerprint login under rel47 only.
+2. inspect logs before any service restart.
+3. expected: capture pacing seeded from protocol calibration (likely 250% on Pegasus), low-score <=4 pose causes quick reposition instead of 3 repeated weak images, success reports immediately at >=7.
+4. only after cold succeeds: normal deep/S3 resume test.
+5. after deep succeeds: immediate-touch race test.
