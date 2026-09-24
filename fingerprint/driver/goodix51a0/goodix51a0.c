@@ -126,6 +126,8 @@ G_DEFINE_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FP_TYPE_DEVICE)
 static guint gx_capture_gap_us (FpiDeviceGoodix51A0 *self);
 static void gx_capture_transport_desync (FpiDeviceGoodix51A0 *self);
 static void gx_capture_pacing_success (FpiDeviceGoodix51A0 *self);
+static void gx_protocol_timing_miss (FpiDeviceGoodix51A0 *self,
+                                     const gchar          *source);
 
 static const FpIdEntry goodix51a0_id_table[] = {
   { .udev_types = FPI_DEVICE_UDEV_SUBTYPE_SPIDEV, .spi_acpi_id = "GXFP51A0" },
@@ -602,6 +604,7 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
             {
               fp_warn ("GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x%02x attempt=%d/%d",
                        command, attempt, GX_TARGET_ACK_ATTEMPTS);
+              gx_protocol_timing_miss (self, "target-ack");
               g_usleep (8000 * self->timing_scale / 100);
               continue;
             }
@@ -1552,6 +1555,8 @@ gx_fdt_probe (FpiDeviceGoodix51A0 *self, int *out_zones)
 retry:
       fp_warn ("GXFP51A0 FDT probe retry: stage=%s attempt=%d/%d",
                stage, attempt, GX_FDT_PROBE_ATTEMPTS);
+      if (attempt == 1)
+        gx_protocol_timing_miss (self, stage);
       if (attempt < GX_FDT_PROBE_ATTEMPTS)
         {
           /* Give a late/stale transaction a small quiesce window before
@@ -1756,6 +1761,28 @@ gx_read_fw_version (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
 #define GX_CAPTURE_RETRY_ESCALATE_STREAK 3
 #define GX_CAPTURE_CLEAN_DECAY_STREAK 8
 
+/* Protocol timing is a controller/session characteristic, not biometric
+ * evidence. Start every fresh fprintd process at Windows-nominal 100%, then
+ * widen only after an observed missed ACK/FDT response. Keep the result in RAM
+ * for the daemon lifetime so a recovery does not relearn the same controller.
+ * Nothing is persisted across daemon restarts or boots. */
+static void
+gx_protocol_timing_miss (FpiDeviceGoodix51A0 *self,
+                         const gchar          *source)
+{
+  int previous = MAX (self->timing_scale, GX_TIMING_SCALE_MIN);
+
+  if (previous >= GX_TIMING_SCALE_MAX)
+    return;
+
+  self->timing_scale =
+    MIN (previous + GX_TIMING_SCALE_STEP, GX_TIMING_SCALE_MAX);
+
+  fp_warn ("GXFP51A0 protocol timing auto-calibration: %d%% -> %d%% "
+           "after %s miss; session-local only",
+           previous, self->timing_scale, source ? source : "protocol");
+}
+
 static guint
 gx_capture_gap_us (FpiDeviceGoodix51A0 *self)
 {
@@ -1894,13 +1921,7 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
       /* Self-healing on desync. The protocol delays are tuned to the author's
        * unit and sit right at the edge; a different SPI controller can be
        * slower and lose sync. Adaptation is session-local and never persisted. */
-      if (self->timing_scale < GX_TIMING_SCALE_MAX)
-        {
-          self->timing_scale = MIN (self->timing_scale + GX_TIMING_SCALE_STEP,
-                                    GX_TIMING_SCALE_MAX);
-          fp_info ("handshake failed; loosening protocol timings to %d%%",
-                   self->timing_scale);
-        }
+      gx_protocol_timing_miss (self, "tls-handshake");
 
       {
         gchar fw[64] = { 0 };
@@ -3704,11 +3725,12 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
 
   self->fdt_abs = GOODIX_FDT_ABS;
 
-  /* Fresh lifecycle = fresh nominal timing.  Runtime adaptation belongs to the
-   * current daemon/session only; legacy rel24-rel40 files are intentionally
-   * ignored.  Preserve an already-elevated capture scale only when this is a
-   * same-session recovery after a real biometric transport desync. */
-  self->timing_scale = GX_TIMING_SCALE_MIN;
+  /* A fresh fprintd process starts at nominal timing, but a same-process cold
+   * recovery keeps any protocol timing already proven necessary by missed
+   * ACK/FDT responses. This is RAM-only and therefore cannot ratchet across
+   * boots. Capture pacing remains an independent biometric-path setting. */
+  if (self->timing_scale < GX_TIMING_SCALE_MIN)
+    self->timing_scale = GX_TIMING_SCALE_MIN;
   if (self->capture_gap_scale < GX_CAPTURE_SCALE_MIN)
     self->capture_gap_scale = GX_CAPTURE_SCALE_MIN;
 
