@@ -935,3 +935,71 @@ Installed-on-disk:
 - live fprintd PID 726 started 22:59:39, before rel45 install, so it still executes rel44. rel45 has NOT had a biometric runtime test.
 
 Next gate: user-initiated FULL REBOOT and cold graphical fingerprint login only. Do NOT combine this first rel45 acceptance test with deep sleep. If cold boot succeeds, inspect logs first; only then perform the deep/S3 acceptance test.
+
+### Chronology correction 2026-09-24 late evening
+- The user's cold-login failure after the 22:59 reboot was rel44 runtime, not rel45.
+- Current fprintd PID 726 started at 22:59:39.
+- rel45 package installation occurred later at 23:32:13 (pacman log: rel44 -> rel45).
+- Therefore the deep/S3 failure around 23:04 was also rel44 runtime.
+- rel45 has still never been loaded by fprintd or runtime-tested.
+- rel45 on-disk audit after install: 43 package files, 0 modified; new /usr/lib/systemd/system-sleep/gxfp51a0-resume-prewarm executable; helper executable; legacy resume service/worker/wants files absent; legacy timing files absent; right-index/left-index/right-middle enrollments intact; 0 failed systemd units; repo clean.
+- Next test MUST be one full user-initiated reboot to load rel45, followed only by cold graphical fingerprint login. Do not deep-suspend before reading that boot's logs.
+
+## Update 2026-09-24 late — rel46 native S3 recovery candidate
+
+rel45 cold boot: SUCCESS.
+- Real rel45 fprintd started 23:41:52 after boot 23:41:45.
+- cold login detected finger via hardware FDT bitmap: touch=0x3e, zones=5, mean=274, drop=79.
+- first biometric image matched at score 7 / threshold 7 and fingerprint PAM opened the session.
+
+rel45 deep/S3 runtime: FAILED, root cause isolated.
+- suspend entry deep: 23:46:32; resume: 23:46:38.
+- systemd-sleep explicitly logged: user sessions remain UNFROZEN because SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0.
+- rel45 external /usr/lib/systemd/system-sleep hook started after resume but its fprintd Claim immediately returned busy/failure.
+- KDE lockscreen already owned/used the auth path, so the external D-Bus Claim raced the desktop instead of prewarming ahead of it.
+- password symptoms line up exactly with that race: pam_unix conversation failed immediately after resume, then KDE logged repeated 'Authentication attempt too soon'. This explains the observed need to enter the password twice.
+- therefore the rel45 assumption 'system-sleep hook runs while user.slice is frozen' is false on this Pegasus/systemd configuration.
+
+rel46 architecture:
+- removes the external resume-prewarm helper and system-sleep hook completely.
+- no systemd/logind/D-Bus resume dependency remains.
+- keeps the libfprint suspend/resume vfuncs as one lifecycle signal.
+- makes CLOCK_BOOTTIME-vs-CLOCK_MONOTONIC sleep detection independent of warm_valid, so it still works if the suspend vfunc already invalidated warm state.
+- every active WAIT_ON and WAIT_OFF poll checks for a sleep delta >250 ms before touching FDT.
+- if S3 crossed while an authentication remained open, the SSM jumps directly back to GX_ST_SESSION.
+- gx_session_start handles force_cold_reset by abandoning stale host TLS state, resetting capture pacing to nominal, hard-resetting the MCU, running full gx_cold_prepare (TLS + clean background + FDT + fresh sleep-clock baseline), then WakeupMCU, all inside the existing authentication operation.
+- this prevents stale post-S3 FDT/GET_IMAGE traffic and avoids competing with password PAM.
+- matcher, threshold 7, touchflag detection, WakeupMCU, WARM_REBASE, templates/enrollments and PLM 3.4 are unchanged.
+
+rel46 validation:
+- full fingerprint/research suite PASS.
+- native resume recovery source gate PASS.
+- portable installer source gate PASS.
+- test-fingerprint-tooling.py PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- reproducible native Arch libfprint build PASS.
+- package contains native S3 recovery markers and contains NO external resume hook.
+- Debian stable/glibc exact-source build + fprintd ABI PASS.
+- Alpine edge/musl exact-source build + fprintd ABI PASS.
+- release biometric dump hook ABSENT; build active sensor/GPIO/MMIO/firmware actions NONE.
+- package SHA256: 27e36332e147a2afc244456fa8df2cd88572286c1a80a7cd81aba1a392407716.
+
+Installed-on-disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-46; 40 files, 0 modified.
+- all rel45 external resume hook/helper paths ABSENT.
+- three enrollments intact.
+- legacy timing persistence files ABSENT.
+- 0 failed systemd units.
+- live fprintd PID 733 started 23:41:52, before rel46 install, so it still executes rel45 mapped in memory.
+- rel46 has NOT yet been runtime-tested.
+
+Git:
+- branch fingerprint-rel46-native-s3-recovery.
+- code commit 4771887f2dfe738bce77b7b669dee4f9ff05944f.
+- do not push/promote stable before cold + deep runtime acceptance.
+
+Next gates:
+1. user-initiated full reboot; validate cold graphical fingerprint login under rel46.
+2. only after cold succeeds and logs are read, perform one normal deep/S3 suspend-resume and fingerprint unlock.
+3. if that succeeds, perform the race test: deep/S3 then touch fingerprint immediately as lockscreen appears.
+4. confirm password remains single-attempt/independent and no 'Authentication attempt too soon' race.
