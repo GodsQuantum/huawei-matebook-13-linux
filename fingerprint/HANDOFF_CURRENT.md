@@ -820,3 +820,118 @@ Final next action:
 - after login, inspect rel43 logs before any service restart.
 - success criteria: protocol auto-calibration may rise only on real protocol misses, WakeupMCU succeeds, Identify reaches DETECTED_HOLD, same-press scores appear, and login succeeds without any persistent timing files being recreated.
 - only after cold-boot success should deep-suspend/resume be tested and stable/main promotion considered.
+
+## Update 2026-09-24 — rel44 retry-calibrated capture candidate
+
+rel43 cold-boot runtime result: FAILED at matcher, NOT transport.
+- Boot: 2026-09-24 18:56:26 CEST.
+- protocol auto-calibration worked: 100 -> 150 -> 200 -> 250 -> 300% in RAM.
+- WARM_REBASE succeeded.
+- exact Windows WakeupMCU succeeded.
+- Identify reached READY and DETECTED_HOLD normally.
+- three physical presses were captured; each press produced three same-press images.
+- matcher scores remained below threshold: press1 best=4, press2 best=3, press3 best=3, threshold=7.
+- every first GET_IMAGE on each physical press was swallowed and succeeded only on transport retry.
+- password fallback remained functional.
+
+Root cause found in rel42/43 capture adaptation:
+- capture_retry_seen is image-local and is reset by each same-press RetryCaptureIMG.
+- therefore the first image's successful transport retry was forgotten before final cleanup.
+- gx_capture_pacing_success() never saw the retry evidence, so capture gap stayed at nominal 100%/30ms even though every physical press needed a retry.
+- rel40's successful boot had entered authentication with capture pacing 250%, and its second physical press reached score 7.
+
+rel44 change:
+- preserve a press-level OR of capture_retry_seen across all same-press images.
+- after a successfully completed real finger press that needed any GET_IMAGE retry, calibrate the NEXT physical press immediately.
+- target = max(current + 50 points, protocol timing - 50 points), bounded to 100..300 and protocol-derived floor capped at 250.
+- on Pegasus protocol=300% therefore first retry-assisted press calibrates capture pacing 100% -> 250% for the next press, reproducing the useful rel40 runtime state without disk persistence.
+- controllers at nominal protocol timing still adapt only one 50-point step.
+- clean captures still decay after 8 clean presses.
+- lifecycle/prewarm failures still cannot train capture pacing.
+- removed obsolete capture_retry_streak state and obsolete 3-press escalation constant.
+- threshold remains 7; templates/enrollments/matcher/WakeupMCU/WARM_REBASE/PLM unchanged.
+
+rel44 validation:
+- full fingerprint/research suite PASS.
+- test-fingerprint-tooling.py PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- new retry-assisted capture calibration source gate PASS.
+- reproducible native Arch libfprint build PASS.
+- release biometric dump hook ABSENT.
+- package SHA256 c36abf1f681d9549e3bdd392f8ddd71cf5456f59d7f995801f7a840a60676e32.
+- Debian stable/glibc build + fprintd ABI smoke PASS.
+- Alpine edge/musl build + fprintd ABI smoke PASS.
+- portable installer unchanged from rel43, whose full Debian/Fedora/openSUSE/Arch/Alpine matrix passed.
+
+Installed-on-disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-44.
+- package integrity: 45 files, 0 modified.
+- enrollments intact: right-index, left-index, right-middle.
+- legacy timing files ABSENT.
+- current live fprintd PID 722 started 18:56:33, before rel44 installation, so it still executes rel43 mapped in memory.
+
+Git:
+- branch fingerprint-rel44-retry-calibrated-capture.
+- code commit af7ca79320f50b2bcdad3faead0eafb06a447a7c.
+- do not push/promote stable before cold-boot runtime acceptance.
+
+Next gate:
+- USER-INITIATED full reboot, not lockscreen-only.
+- at greeter use an enrolled finger normally.
+- expected: protocol RAM auto-calibration, first physical press may require GET_IMAGE retry, then log 'capture pacing calibrated by retry-assisted finger frame: 100% -> 250%' and next physical press runs with 75ms capture gap.
+- success requires matcher score >=7 and fingerprint PAM session open.
+- if cold boot passes, then validate deep suspend/resume before stable promotion.
+
+## Update 2026-09-24 — rel45 FDT touch bitmap + frozen-resume rebuild
+
+Latest useful GitHub evaluation reviewed:
+- Sigfrodr/libfprint-goodixtls#5, szlukabence comment 5819097488.
+- GXFP51A0 MateBook 13 2020: 121 separate presses, 4 fingers, real GodsQuantum SIGFM matcher.
+- genuine n=123 mean=20.35; impostor n=1089 mean=2.051; impostor max=6.
+- shipped threshold 7: 0/1089 impostor comparisons accepted; 17/123 genuine single presses below 7.
+- this is NOT a population FAR estimate, but it supports keeping threshold 7 and using retry/multi-press rather than lowering security.
+
+rel44 latest runtime sequence:
+- one cold boot at 22:44 succeeded: first biometric image score 11/7 and PAM session opened.
+- next cold boot at 22:59 failed before DETECTED_HOLD: WARM_REBASE + WakeupMCU succeeded, but the finger was not recognized by analog-only FDT before PAM timeout.
+- boot-prewarm ordering was verified correct: it finished before plasmalogin/display-manager; this was not a greeter race.
+- deep/S3 on the same boot exposed a separate race: after resume the existing worker started too late.
+- raw fprintd resume log showed calibration waiting for sensor clear at mean=225 while the user was already touching the reader.
+- subsequent GET_IMAGE/TLS timed out and the stale/dead post-S3 session could not be rebuilt before unlock.
+
+rel45 FDT correction:
+- the existing FDT parser already extracted byte 5 touchflag but GXFP51A0 runtime ignored it.
+- sibling GDIX51C0 driver for the same 0x2504/ChicagoHS silicon defines touchflag low six bits as per-zone touch bitmap and uses >=5 active zones as a finger.
+- rel45 adds gx_fdt_probe_ex(), returns touchflag, masks low six bits and requires >=5 zones for the hardware finger signal.
+- detection now uses: hardware touch bitmap OR existing analog drop/absolute floor.
+- all sensor-clear/background/baseline paths require hardware NOT-touched as well as analog-clear, preventing contaminated ImageBase/background.
+
+rel45 deep-resume correction:
+- removed the asynchronous sleep.target service + worker pair that raced the lockscreen.
+- package now installs one /usr/lib/systemd/system-sleep/gxfp51a0-resume-prewarm hook.
+- only the post suspend/hibernate phase runs the existing standard fprintd Claim helper.
+- systemd keeps user.slice frozen while system-sleep hooks execute, so calibration/rebuild completes before the user session can race it with a finger press.
+- helper now has explicit busctl --timeout=45s under an outer 50s bound; the hook itself is bounded to 55s.
+- no fprintd restart, no periodic keepalive, no VerifyStart/EnrollStart synthetic action.
+- portable installer keeps systemd optional and removes obsolete old resume unit files during migration.
+
+Validation:
+- full fingerprint/research suite: PASS.
+- test-fingerprint-tooling.py: PASS.
+- test-goodix51a0-boot-binding.py: PASS.
+- bash -n on install-linux/install-arch/resume helper/system-sleep hook: PASS.
+- native Arch reproducible libfprint build: PASS, no final C warnings.
+- release biometric dump hook: ABSENT; build sensor/GPIO/MMIO/firmware actions: NONE.
+- Debian stable/glibc exact rel45 build + fprintd ABI: PASS.
+- Alpine edge/musl exact rel45 build + fprintd ABI: PASS.
+- package SHA256: 4d304f02c4828e917f78967c6110984fa462318dc729676bf83d9899bb834d14.
+- Git branch fingerprint-rel45-fdt-resume-race; code commit 42a13de3bfe2587bb8c21b3b5c7a4857f6c07ae6.
+
+Installed-on-disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-45; 43 files, 0 modified.
+- new system-sleep hook + resume helper present and executable.
+- old resume service, worker and sleep.target wants link absent.
+- timing persistence files absent; three enrollments intact; zero failed systemd units.
+- live fprintd PID 726 started 22:59:39, before rel45 install, so it still executes rel44. rel45 has NOT had a biometric runtime test.
+
+Next gate: user-initiated FULL REBOOT and cold graphical fingerprint login only. Do NOT combine this first rel45 acceptance test with deep sleep. If cold boot succeeds, inspect logs first; only then perform the deep/S3 acceptance test.
