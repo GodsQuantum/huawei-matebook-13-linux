@@ -54,7 +54,7 @@ assert "fpi_device_suspend_complete" in suspend
 assert "BOOTTIME-vs-MONOTONIC poll guard" in resume
 PY2
 
-grep -Fq 'pkgrel=46' "$pkg"
+grep -Fq 'pkgrel=47' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"

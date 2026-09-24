@@ -2799,6 +2799,7 @@ enum {
 #define GX_RECOVERY_OFF_POLLS 2 /* ~1 s worst-case with failed FDT probes */
 #define GX_VERIFY_MAX_ATTEMPTS 3 /* physical presses; fixed budget */
 #define GX_SAME_PRESS_CAPTURE_ATTEMPTS 3 /* initial image + 2 RetryCaptureIMG */
+#define GX_REPOSE_SCORE_CUTOFF 4 /* very weak pose: reposition beats same-pose recapture */
 
 /* ------------------------------------------------------------------ */
 /*  Off-loading the blocking work                                      */
@@ -3119,7 +3120,7 @@ gx_poll_off (gpointer user_data)
           fpi_ssm_jump_to_state (ssm, GX_ST_SESSION);
         }
       /* Next enrollment view, fixed-budget verify retry, or finish. */
-      else if (t->verifying && !t->identifying && !t->match_reported &&
+      else if (t->verifying && !t->match_reported &&
                t->tries < GX_VERIFY_MAX_ATTEMPTS)
         {
           fp_info ("verify: finger released; waiting for retry press %d/%d",
@@ -3315,6 +3316,21 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
 
       if (score >= GX_MATCH_THRESHOLD)
         break;
+
+      /* Community FAR/FRR evaluation confirms threshold 7 should stay fixed,
+       * while low genuine poses are the dominant false-reject source.  A very
+       * weak first image (<=4) almost always repeats the same low score on this
+       * partial sensor, so spending two more images on the identical pose is
+       * slower and less useful than asking for a fresh placement.  Scores 5-6
+       * remain close enough to threshold to keep Windows-style RetryCaptureIMG.
+       * Quality-gate rejects also continue to recapture same-press above. */
+      if (attempt == 1 && score <= GX_REPOSE_SCORE_CUTOFF)
+        {
+          fp_info ("GXFP51A0 AUTH_TRACE mode=%s low-score pose=%d; "
+                   "requesting reposition instead of same-press recapture",
+                   mode, score);
+          break;
+        }
     }
 
   if (cleanup_needed && !self->capture_recovery_pending)
@@ -3436,19 +3452,38 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
                     }
                 }
 
-              t->best = best;
+              t->best = MAX (t->best, best);
               if (best_print && best >= GX_MATCH_THRESHOLD)
                 {
+                  g_clear_object (&t->identify_match);
                   t->identify_match = g_object_ref (best_print);
-                    }
-
-              fpi_device_identify_report (dev,
-                                          t->identify_match,
-                                          NULL,
-                                          NULL);
-              t->match_reported = TRUE;
-              fp_info ("identify: early result reported best=%d threshold=%d gallery=%u",
-                       best, GX_MATCH_THRESHOLD, gallery ? gallery->len : 0);
+                  fpi_device_identify_report (dev,
+                                              t->identify_match,
+                                              NULL,
+                                              NULL);
+                  t->match_reported = TRUE;
+                  fp_info ("identify: match reported on press %d/%d "
+                           "score=%d threshold=%d gallery=%u",
+                           t->tries, GX_VERIFY_MAX_ATTEMPTS,
+                           best, GX_MATCH_THRESHOLD,
+                           gallery ? gallery->len : 0);
+                }
+              else if (t->tries >= GX_VERIFY_MAX_ATTEMPTS)
+                {
+                  fpi_device_identify_report (dev, NULL, NULL, NULL);
+                  t->match_reported = TRUE;
+                  fp_info ("identify: no-match reported after %d fixed presses "
+                           "(best=%d threshold=%d gallery=%u)",
+                           t->tries, t->best, GX_MATCH_THRESHOLD,
+                           gallery ? gallery->len : 0);
+                }
+              else
+                {
+                  fp_info ("identify: no-match press %d/%d (score=%d best=%d); "
+                           "request another complete press",
+                           t->tries, GX_VERIFY_MAX_ATTEMPTS,
+                           best, t->best);
+                }
             }
           else
             {
@@ -3899,6 +3934,28 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
       g_clear_pointer (&self->bg_frame, g_free);
       return FALSE;
     }
+
+  /* Protocol ACK/FDT misses measured during this cold preparation are useful
+   * controller-speed evidence before the user ever touches the sensor.  Seed
+   * the capture gap conservatively from that evidence so the first biometric
+   * GET_IMAGE does not have to fail once merely to learn the same fact.
+   * 300% protocol -> 250% capture on the reference MateBook; a nominal/fast
+   * controller stays at 100%.  This remains process-local and non-persistent. */
+  {
+    int protocol_floor =
+      CLAMP (self->timing_scale - GX_CAPTURE_SCALE_STEP,
+             GX_CAPTURE_SCALE_MIN, 250);
+    int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
+
+    if (protocol_floor > previous)
+      {
+        self->capture_gap_scale = protocol_floor;
+        fp_info ("GXFP51A0 capture pacing seeded from protocol calibration: "
+                 "%d%% -> %d%% (%u us gap, protocol=%d%%); not persisted",
+                 previous, self->capture_gap_scale,
+                 gx_capture_gap_us (self), self->timing_scale);
+      }
+  }
 
   self->capture_recovery_pending = FALSE;
   self->capture_pacing_suppressed = FALSE;

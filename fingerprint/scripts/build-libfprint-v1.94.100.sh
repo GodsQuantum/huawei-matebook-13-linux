@@ -266,7 +266,10 @@ say "$dump_gate_marker"
 # behavior marker. This remains valid with Arch/CachyOS LTO builds.
 grep -Fq 'fpi_device_get_identify_data' "$object_nm_dump"   || die "GOODIX51A0_IDENTIFY_API_NOT_FOUND_IN_OBJECT"
 grep -Fq 'fpi_device_identify_report' "$object_nm_dump"   || die "GOODIX51A0_IDENTIFY_REPORT_NOT_FOUND_IN_OBJECT"
-grep -Fq 'identify: early result reported' "$shared_strings_dump"   || die "GOODIX51A0_IDENTIFY_PATH_NOT_FOUND_IN_LIBRARY"
+grep -Fq 'identify: match reported on press' "$shared_strings_dump" \
+  || die "GOODIX51A0_IDENTIFY_SUCCESS_PATH_NOT_FOUND_IN_LIBRARY"
+grep -Fq 'identify: no-match reported after' "$shared_strings_dump" \
+  || die "GOODIX51A0_IDENTIFY_FAILURE_PATH_NOT_FOUND_IN_LIBRARY"
 say "GOODIX51A0_IDENTIFY_PATH_IN_OBJECT=YES"
 say "GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES"
 
