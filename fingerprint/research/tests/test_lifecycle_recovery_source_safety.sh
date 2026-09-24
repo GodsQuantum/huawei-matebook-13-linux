@@ -77,12 +77,11 @@ assert "gx_warm_abandon (self)" in failed
 assert "gx_warm_discard (self)" not in failed.split("else if",1)[0]
 
 # Idle-suspend detection runs before opening hardware handles and resets any
-# session-local pacing escalation caused by the dead S3 session.
+# session-local capture pacing escalation caused by the dead S3 session.
 assert "gx_warm_crossed_sleep (self)" in open_
 assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_open")
 assert "gx_gpio_reset (self)" in open_
 assert "self->capture_gap_scale = 0" in open_
-assert "self->capture_retry_streak = 0" in open_
 
 # For an active action, upstream libfprint requires an error when the action
 # cannot safely continue across suspend; NOT_SUPPORTED triggers cancellation.

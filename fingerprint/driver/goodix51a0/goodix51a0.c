@@ -106,7 +106,6 @@ struct _FpiDeviceGoodix51A0
   int           timing_scale;/* session-local protocol-delay multiplier in % */
   int           capture_gap_scale; /* session-local capture-step gap % */
   guint         capture_clean_streak; /* consecutive complete frames without GET_IMAGE retry */
-  guint         capture_retry_streak; /* consecutive complete frames that needed retry */
   gboolean      capture_retry_seen; /* current frame needed a GET_IMAGE/TLS retry */
   gboolean      capture_pacing_suppressed; /* lifecycle loss is not pacing evidence */
   gboolean      capture_recovery_pending; /* transport failed; rebuild between presses */
@@ -1758,7 +1757,6 @@ gx_read_fw_version (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
 #define GX_CAPTURE_SCALE_MIN 100
 #define GX_CAPTURE_SCALE_MAX 300
 #define GX_CAPTURE_SCALE_STEP 50
-#define GX_CAPTURE_RETRY_ESCALATE_STREAK 3
 #define GX_CAPTURE_CLEAN_DECAY_STREAK 8
 
 /* Protocol timing is a controller/session characteristic, not biometric
@@ -1798,7 +1796,6 @@ gx_capture_transport_desync (FpiDeviceGoodix51A0 *self)
   int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
 
   self->capture_clean_streak = 0;
-  self->capture_retry_streak = 0;
   self->capture_recovery_pending = TRUE;
 
   /* Lifecycle/prewarm failures say nothing about the steady-state capture
@@ -1824,24 +1821,30 @@ gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
 {
   if (self->capture_retry_seen)
     {
+      int previous = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
+      int protocol_floor =
+        CLAMP (self->timing_scale - GX_CAPTURE_SCALE_STEP,
+               GX_CAPTURE_SCALE_MIN, 250);
+      int target = MIN (GX_CAPTURE_SCALE_MAX,
+                        MAX (previous + GX_CAPTURE_SCALE_STEP, protocol_floor));
+
       self->capture_clean_streak = 0;
-      self->capture_retry_streak++;
 
-      /* The 2020 contributor unit showed the useful signal that rel24 missed:
-       * attempt 1 can fail on almost every capture while attempt 2 succeeds.
-       * Escalate after a short sustained retry streak, but only in RAM. */
-      if (self->capture_retry_streak >= GX_CAPTURE_RETRY_ESCALATE_STREAK &&
-          self->capture_gap_scale < GX_CAPTURE_SCALE_MAX)
+      /* A successfully decoded real finger frame that needed the transport
+       * retry is direct evidence that nominal capture pacing was too tight for
+       * this session.  Do not wait for three failed user presses: calibrate the
+       * NEXT physical press immediately.  The already-observed protocol timing
+       * provides a conservative floor (300% protocol -> 250% capture on the
+       * reference MateBook), while controllers with nominal protocol timing
+       * still move only one 50-point step.  Nothing is persisted. */
+      if (target > previous)
         {
-          int previous = self->capture_gap_scale;
-
-          self->capture_gap_scale =
-            MIN (previous + GX_CAPTURE_SCALE_STEP, GX_CAPTURE_SCALE_MAX);
-          self->capture_retry_streak = 0;
-          fp_info ("GXFP51A0 session capture pacing raised after %d "
-                   "retry-assisted captures: %d%% -> %d%% (%u us gap)",
-                   GX_CAPTURE_RETRY_ESCALATE_STREAK, previous,
-                   self->capture_gap_scale, gx_capture_gap_us (self));
+          self->capture_gap_scale = target;
+          fp_info ("GXFP51A0 session capture pacing calibrated by retry-assisted "
+                   "finger frame: %d%% -> %d%% (%u us gap, protocol=%d%%); "
+                   "not persisted",
+                   previous, self->capture_gap_scale,
+                   gx_capture_gap_us (self), self->timing_scale);
         }
 
       self->capture_retry_seen = FALSE;
@@ -1849,7 +1852,6 @@ gx_capture_pacing_success (FpiDeviceGoodix51A0 *self)
       return;
     }
 
-  self->capture_retry_streak = 0;
 
   if (self->capture_gap_scale > GX_CAPTURE_SCALE_MIN)
     {
@@ -3136,6 +3138,7 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
   int best_score = -1;
   guint images = 0;
   gboolean cleanup_needed = FALSE;
+  gboolean press_retry_seen = FALSE;
   const gchar *mode = gallery ? "identify" : "verify";
 
   for (guint attempt = 1; attempt <= GX_SAME_PRESS_CAPTURE_ATTEMPTS; attempt++)
@@ -3162,6 +3165,10 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
           if (!ok || !finger_still_down)
             break;
         }
+
+      /* Each capture helper owns capture_retry_seen for its own image. Keep a
+       * press-level OR before the next same-press image resets that flag. */
+      press_retry_seen = press_retry_seen || self->capture_retry_seen;
 
       images++;
       probe = gx_features_from_pixels (self, px);
@@ -3205,7 +3212,10 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
           g_clear_pointer (&best_probe, gx_sift_free);
         }
       else
-        gx_capture_pacing_success (self);
+        {
+          self->capture_retry_seen = press_retry_seen;
+          gx_capture_pacing_success (self);
+        }
     }
 
   if (out_images)
@@ -3830,8 +3840,7 @@ gx_dev_open (FpDevice *dev)
        * restarts from the validated nominal 100% timing. */
       self->capture_gap_scale = 0;
       self->capture_clean_streak = 0;
-      self->capture_retry_streak = 0;
-      self->capture_retry_seen = FALSE;
+          self->capture_retry_seen = FALSE;
       self->capture_pacing_suppressed = TRUE;
       had_warm = FALSE;
     }
@@ -4117,7 +4126,6 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->irq_fd = -1;
   self->capture_gap_scale = 0; /* starts nominal at first cold preparation */
   self->capture_clean_streak = 0;
-  self->capture_retry_streak = 0;
   self->capture_retry_seen = FALSE;
   self->capture_pacing_suppressed = FALSE;
   self->capture_recovery_pending = FALSE;
