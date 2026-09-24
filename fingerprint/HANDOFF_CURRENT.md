@@ -1,511 +1,822 @@
-# Current handoff — GXFP51A0 / GF3658 ST411
+# HANDOFF — GXFP51A0 / GF3658 ST411 — rel38 definitive verify WIP
 
-Updated: 2026-09-23.
-
-## Stable and candidates
-
-- stable public release / main: fingerprint-gxfp51a0-rel23
-- published transport prerelease: fingerprint-gxfp51a0-rel24-rc1
-- rel25-rel28: superseded development candidates
-- rel29: stale warm-context expiry candidate, functionally validated at lock
-- rel30: superseded first instant-lock attempt; revealed FDT-only false-ready state
-- rel31: image-ready transport candidate; KDE startup race found in human testing
-- rel32: one-press direct lock validated; cold-boot greeter exposed un-prewarmed sensor
-- rel33: boot prewarm ordering validated; first cold-boot biometric attempt still failed during redundant warm validation
-- rel34: fresh one-shot boot-prewarm -> Verify handoff validated at runtime; not yet human cold-boot validated
-- current branch: fingerprint-rel35-login-first-press
-- installed reference package: libfprint-goodix51a0 1.94.100.goodix51a0-35
-- installed fprintd: 1.94.5-2.1
-- current Plasma desktop: 6.7.5-1.1
-- Plasma Login Manager compatibility target: 6.7.5-3.3
-- libfprint base: v1.94.100
-- target: GXFP51A0 / GF3658 ST411 / chip 0x2504 / firmware
-  GF_ST411SEC_APP_14115
-
-### Human evidence now established
-
-- rel28 lock failure occurred before matching because GET_IMAGE/TLS transport
-  was stale.
-- rel29 added a five-minute warm-context expiry.
-- after a clean prewarm, rel29 lock authentication succeeded using the
-  existing right-index enrollment. Re-enrollment is therefore not required.
-- a second enrolled finger also authenticated once KScreenLocker made its PAM
-  prompt active.
-- observed UX defect: with the lock screen visually idle, placing a finger alone
-  did nothing until mouse movement made the UI visible. Plasma 6.7.5 stock QML
-  starts authenticator.startAuthenticating() from onUiVisibleChanged.
-- first rel30 direct-lock test failed: fprintd did start immediately, proving the
-  early QML hook fired, but the prompt remained hidden and GET_IMAGE/FDT retries
-  showed that a recent Claim-only keepalive had accepted an image-path-stale
-  context. This directly motivated rel31.
-- rel31 direct lock succeeded once, but later fresh-enrollment testing reproduced
-  a no-prompt failure. The 09:48 journal captured
-  LockScreenUi.qml:128 TypeError: requestActivate of null. rel31 had set
-  uiVisible=true in Component.onCompleted before Window.window was guaranteed to
-  exist; the exception aborted onUiVisibleChanged before
-  authenticator.startAuthenticating(), and later mouse motion could not retrigger
-  the handler because uiVisible was already true. This directly motivated rel32.
-- a fresh right-index enrollment completed successfully in KDE at 09:37:37 on
-  2026-09-23; left-index and right-middle enrollments remain unchanged.
-- rel32 human direct-lock validation: PASS at about 10:16 CEST on 2026-09-23.
-  User locked Pegasus and immediately placed the freshly enrolled right index
-  before waiting for any visible prompt; the machine unlocked on the first
-  single press with no mouse or keyboard interaction.
-- the temporary root-only enrollment rollback archive in /run was removed only
-  after that successful rel32 validation.
-- first rel32 cold-boot validation failed. Boot journal proved fprintd was active
-  at 10:27:45 CEST and Plasma Login Manager at 10:27:49, so daemon ordering was
-  already correct. The greeter auto-started PAM at 10:27:52, but the sensor's
-  first real open/cold preparation ran then; the fingerprint prompt appeared
-  only at 10:27:57 and timed out at 10:28:09. The problem was cold sensor
-  preparation happening inside the first login attempt, not a missing PAM rule.
-- rel33 cold-boot human validation also failed. This time boot-prewarm completed
-  successfully at 11:27:12 before Plasma Login Manager. PAM fingerprint started
-  at 11:27:16 and prompted at 11:27:17, but a GET_IMAGE retry appeared at
-  11:27:23 and PLM reported fingerprint recognition failure at 11:27:24.
-  Source review showed the next gx_dev_open still ran rel31 full warm validation
-  and therefore issued a redundant background GET_IMAGE only seconds after the
-  successful boot-prewarm, exactly while the user could already have a finger
-  placed. This directly motivated rel34.
-- the same 11:27 rel33 boot exposed a second, independent userspace race:
-  gxfp51a0-warm-keepalive fired at 11:27:15.420 while Plasma Login Manager
-  started fingerprint PAM at 11:27:16.110. The keepalive Claim completed at
-  11:27:16.647. The PAM cue appeared at 11:27:17.920, GET_IMAGE retried at
-  11:27:23.108, and PLM reported fingerprint recognition failure at
-  11:27:24.049. The installed PAM profile also used max-tries=1, so that one
-  false rejection immediately terminated fingerprint authentication. These two
-  userspace issues directly motivated rel35.
-
-### rel31 architecture
-
-rel31 keeps the rel29 lifecycle safeguards and the rel30 package-owned keepalive,
-but closes the false-ready state seen in the human rel30 lock test:
-
-1. Full warm readiness
-   - FDT success alone is insufficient.
-   - gx_warm_validate() must also complete one encrypted background GET_IMAGE.
-   - the validation frame is discarded and never enters biometric matching.
-   - failure abandons stale TLS host-side and resets/rebuilds before Verify.
-   - readiness failures cannot escalate persistent capture pacing.
-
-2. gxfp51a0-warm-keepalive.timer (historical rel31-rel34 cadence)
-   - originally OnBootSec=20s plus OnUnitActiveSec=3min;
-   - rel35 removes the 20-second boot trigger because boot-prewarm now owns
-     initial readiness and the early timer can collide with the greeter
-   - performs only fprintd Claim
-   - never starts Verify or Enroll
-   - now exercises the full FDT + GET_IMAGE warm-readiness path.
-
-3. rel31 KDE attempt (superseded)
-   - helper: /usr/libexec/gxfp51a0-kde-lockscreen-integrate
-   - set uiVisible=true directly in Component.onCompleted.
-   - this could race Window attachment and throw from requestActivate().
-   - do not restore this behavior.
-
-### rel32 KDE architecture
-
-rel32 leaves the rel31 driver, warm validation, matcher and templates unchanged.
-It replaces only the KDE lockscreen integration:
-
-1. Window-ready startup
-   - Component.onCompleted starts gxfp51a0StartupAuthTimer.
-   - every 25 ms the timer checks lockScreenRoot.Window.window.
-   - only after a real Window exists does it set uiVisible=true.
-   - stock Plasma onUiVisibleChanged then performs requestActivate() followed by
-     authenticator.startAuthenticating() without the rel31 null-window race.
-   - the timer stops after success; a bounded 80-attempt guard prevents an
-     infinite loop on an unsupported theme.
-
-2. Upstream authentication heartbeat
-   - KDE plasma-desktop commit e5616c6a (2026-08-18) added a one-second
-     authenticator.startAuthenticating() heartbeat while uiVisible is true.
-   - rel32 backports only that heartbeat to Plasma 6.7.5.
-   - if a future Plasma package already contains the upstream heartbeat, the
-     helper detects it and does not duplicate it.
-
-3. Packaging / rollback
-   - rel30 and rel31 markers are migrated automatically.
-   - qmllint passes on the real patched 6.7.5 QML.
-   - applying rel32 then removing it restores the package-stock
-     LockScreenUi.qml byte-for-byte.
-   - the pacman hook reapplies after plasma-desktop upgrades.
-   - package removal restores stock behavior.
-
-The installed integration intentionally makes exactly one plasma-desktop file
-differ from the distro package checksum. That difference is expected,
-versioned and reversible; it is not temporary residue.
-
-Matcher/template policy remains unchanged: template v4 / SIGFM v3, threshold 7,
-20 enrollment views, maximum three independent verification presses.
-
-### rel33 cold-boot architecture
-
-rel33 keeps the rel32 driver, matcher, enrollments and KDE lockscreen unchanged.
-It adds only an early boot preparation layer:
-
-1. gxfp51a0-boot-prewarm.service
-   - pulled in by graphical.target;
-   - Requires/After=fprintd.service;
-   - Before=display-manager.service;
-   - waits up to 5 seconds for fprintd to expose the default device;
-   - performs a bounded 45-second Claim, never Verify or Enroll;
-   - failures are logged and return success so password login is never bricked.
-
-2. Verified ordering on the installed system
-   - boot-prewarm Before=plasmalogin.service and graphical.target;
-   - plasmalogin.service After=gxfp51a0-boot-prewarm.service;
-   - graphical.target wants fprintd, boot-prewarm and plasmalogin.
-
-3. Controlled cold-state simulation
-   - warm keepalive timer stopped;
-   - fprintd restarted to discard in-process warm state;
-   - boot-prewarm completed in 4703 ms with Result=success;
-   - log: cold-boot fprintd Claim completed; sensor ready before display manager;
-   - keepalive timer restored active;
-   - post-prewarm fprintd-verify immediately reached the waiting-for-finger state.
-
-### rel34 fresh-handoff architecture
-
-rel34 keeps rel33 boot-prewarm and all rel32 KDE/matcher behavior. The driver
-adds warm_handoff_ready plus a 10-second one-shot handoff window:
-
-1. A healthy gx_dev_close that stashes a complete warm context arms one fresh
-   handoff unless capture recovery is pending.
-2. The next gx_dev_open consumes the token exactly once.
-3. If the token age is <=10 seconds and no sleep/idle/recovery boundary was
-   detected, the driver reuses the already validated context without another
-   background GET_IMAGE.
-4. If the token is absent or older than 10 seconds, rel31 full warm validation
-   remains mandatory.
-5. gx_warm_abandon, initialization and recovery boundaries clear the token.
-
-Runtime proof with G_MESSAGES_DEBUG=all, no human finger:
-- forced cold state by restarting fprintd;
-- boot-prewarm completed and close logged fresh one-shot handoff;
-- immediate fprintd-verify reopened 88 ms later;
-- logs: consuming fresh warm handoff / skipping redundant background GET_IMAGE /
-  reusing freshly validated native warm context;
-- Verify immediately reached FP_FINGER_STATUS_NEEDED and wait-on;
-- no GET_IMAGE occurred in that handoff interval;
-- after >10 seconds the next Claim logged warm context image-validated and
-  performed the full background validation again;
-- temporary debug drop-in was removed, fprintd restarted, boot-prewarm rerun,
-  and keepalive timer restored active.
-
-### rel35 login-first-press architecture
-
-rel35 keeps the installed rel34 fresh-handoff driver behavior unchanged and
-changes only login/keepalive integration.
-
-1. No early keepalive collision
-   - gxfp51a0-warm-keepalive.timer uses OnActiveSec=3min and
-     OnUnitActiveSec=3min.
-   - OnBootSec is absent.
-   - boot-prewarm is therefore the only GXFP51A0 Claim before the initial
-     display-manager login transaction.
-
-2. Three PAM fingerprint attempts in the same login transaction
-   - Plasma Login Manager compatibility package is 6.7.5-3.3.
-   - /usr/lib/pam.d/plasmalogin contains:
-     auth sufficient pam_fprintd.so max-tries=3 timeout=12
-   - pam_fprintd documents three attempts as its normal default; rel35 keeps the
-     bounded 12-second login window instead of making one false rejection fatal.
-
-3. Installed/runtime validation before another reboot
-   - libfprint-goodix51a0 1.94.100.goodix51a0-35 installed.
-   - plasma-login-manager 6.7.5-3.3 installed.
-   - both packages pass pacman -Qkk with zero modified package-owned files.
-   - all three enrollments remain present.
-   - fprintd and the keepalive timer are active.
-   - build-only PLM dependencies were removed after packaging.
-   - full software baseline plus fresh-handoff, boot-prewarm, warm-keepalive and
-     KDE integration tests pass.
-
-### External-repo refresh — 2026-09-23
-
-Latest tracked external activity remains unchanged for rel35; rel35 adds only login/keepalive integration on top of rel34:
-- GodsQuantum issue #6: no comment newer than the already-integrated deep-vs-s2idle
-  lifecycle evidence.
-- szlukabence/goodix-fingerprint-spi-linux: no new code after the board-discovery
-  work already reviewed; its issue #1 is closed and points users to this driver.
-- Sigfrodr/libfprint-goodixtls issue #5: latest comment at 2026-09-22 22:53 CEST
-  confirms NBIS/minutiae was unsafe on the same tiny GXFP51A0 sensing area and
-  supports a common local-only matcher evaluation harness.
-- berkekbgz/libfprint-goodix-spi and bchapoton/goodix-gxfp3200-linux: no newer
-  commits requiring a rel35 driver port.
-
-Future matcher work should therefore build a privacy-preserving local FAR/FRR/EER
-harness that emits only aggregate statistics. Do not retune threshold 7 from
-single-user anecdotes and never export captures or templates.
-
-## Login regression diagnosis
-
-The fingerprint templates were never lost. The reference machine still exposes:
-- left-index-finger
-- right-middle-finger
-- right-index-finger
-
-The login journal proved that PAM/fprintd emitted `Placez votre doigt sur le lecteur d’empreintes`, but Plasma Login Manager 6.7.4 did not render it.
-
-Exact upstream KDE fixes:
-- `8f6c2d3205df3a0aab5c156d3b7e2950eda8beb0` — show PAM authentication messages in the greeter.
-- `db5e466d3c3816f2cac627ca66cea9c6734f7ecc` — stop an old failure timer from clearing an active PAM prompt.
-
-The 6.7.4 greeter backend already forwarded `informationMessage`; its QML simply had no connection to the existing notification text.
-
-## rel23 ordering bug fixed in rel25
-
-rel23 removed the rel22 custom binder and correctly switched to native udev/spidev/libfprint prewarm, but its packaging comment claimed fprintd was ordered before the display manager while the drop-in did not actually contain that ordering.
-
-Cold-boot evidence showed Plasma Login Manager becoming active just before fprintd finished enumeration.
-
-rel25 adds:
-`Before=display-manager.service`
-
-The installed unit now resolves this to:
-`Before=plasmalogin.service`
-
-This preserves the native path and does not restore the obsolete GXFP-specific binder.
-
-## Package-managed Plasma Login integration
-
-Source:
-`fingerprint/integration/plasma-login-manager-6.7-pam-messages/`
-
-The compatibility package is based on official Plasma Login Manager 6.7.5 and applies:
-1. KDE upstream PAM-message display fix.
-2. KDE upstream notification-timer follow-up.
-3. Arch PAM profile addition:
-   `auth sufficient pam_fprintd.so max-tries=3 timeout=12`
-4. A bounded compatibility patch that starts exactly one fingerprint-first PAM
-   attempt when the selected-user greeter becomes visible with an empty password
-   field. This restores the previously observed UI: the PAM cue appears without
-   pressing Enter. A timeout returns to the normal password UI and does not loop.
-
-The current compatibility package is `6.7.5-3.3`. It keeps the PAM-message
-integration, auto-started fingerprint attempt, and the rel35 three-try bounded
-pam_fprintd policy package-managed.
-
-No local `/etc/pam.d/plasmalogin` override is required anymore.
-
-## Historical rel25 reference-machine validation
-
-At the rel25 stage, installed successfully without reboot:
-- `plasma-login-manager 6.7.4-3.2`
-- `libfprint-goodix51a0 1.94.100.goodix51a0-25`
-- `fprintd 1.94.5-2.1`
-
-Integrity:
-- Plasma Login Manager: 209 files, 0 altered.
-- libfprint-goodix51a0: 32 files, 0 altered.
-- fprintd active with `--no-timeout`.
-- all three prior enrollments remain visible.
-- package-managed PAM profile contains pam_fprintd.
-- `/etc/pam.d/plasmalogin`: absent.
-- old PAM backup: absent.
-- rel22 binder binary/service: absent.
-- fprintd ordering resolves to `Before=plasmalogin.service`.
-
-Build/package SHA-256:
-- rel25 driver package: `2b37442f0cf77111686be932df6e8c186280e46c48e7e3d18af0428a83d3dabc`
-- Plasma Login Manager 6.7.4-3.2 package: `f9b01dd7946c18a6bb530347b32abf0debd17883400c0eb583de7bd3890a9097`
-
-## Verification status
-
-The full software baseline passed after updating the obsolete rel23 test assumption:
-- shell syntax
-- native SPI/udev/prewarm source gates
-- research and safety suite
-- matcher/template gates
-- source manifest
-- reproducible libfprint v1.94.100 build
-- no release biometric dump hook
-- no sensor I/O/GPIO/MMIO/firmware action during software build
-
-The package-specific regression test additionally requires:
-- `Before=display-manager.service`
-- the two exact upstream KDE PAM-message patches
-- package-managed pam_fprintd profile
-- the bounded `0004` auto-attempt patch and its one-attempt/no-loop state
-
-## Remaining human validation
-
-Do not re-enroll.
-
-The only remaining checks require leaving the current graphical session:
-1. log out;
-2. do not type or press Enter;
-3. verify that the greeter automatically starts fingerprint authentication and
-   shows the small PAM line asking for the fingerprint under the password field;
-4. authenticate with an already-enrolled finger;
-5. later reboot manually and repeat the same test at cold boot.
-
-Do not reboot the machine automatically.
-
-## Safety/privacy invariants
-
-- never touch GPIO112 / GPP_D16;
-- GPIO264 remains MCU reset and low in normal operation;
-- no firmware flashing;
-- threshold 7, template v4 / SIGFM v3, 20 enrollment views and max-three verify presses remain unchanged;
-- never publish biometric captures/templates, PMK/PSK, serials, machine identifiers, private fixtures, proprietary firmware or Windows binaries.
-
-## Publication policy
-
-rel23 remains stable/Latest until candidate validation is complete. rel24 remains
-the published transport prerelease. rel25-rel34 are superseded development
-candidates. rel35 preserves rel34 fresh handoff plus the validated one-press
-direct-lock behavior, removes the early keepalive/greeter collision and restores
-three bounded PAM fingerprint tries. A new cold-boot human login test and real
-deep-S3 resume authentication remain before stable promotion.
-
-## Final cleanup / local kit
-
-Current cleanup rule for the reference machine:
-- build trees, research binaries, src/pkg directories and /tmp work directories must be removed after validation;
-- repository working tree must be clean after commit/push;
-- no ad-hoc GXFP service or local PAM override is allowed;
-- package-owned rel35 boot-prewarm, resume-prewarm, warm-keepalive and KDE integration files
-  under /usr/lib are legitimate runtime state, not temporary glue;
-- the single modified Plasma LockScreenUi.qml is expected while the rel32 KDE
-  integration is installed and must be restored byte-for-byte by package removal;
-- legitimate persistent runtime state remains /var/lib/fprint enrollment/PMK/timing data and pacman metadata;
-- the temporary /run enrollment rollback copy was removed after the successful
-  rel32 one-press direct-lock validation.
-
-The local reinstall kit in OS & Drivers must track rel35:
-- rel35 Arch/CachyOS driver package;
-- Plasma Login Manager 6.7.5-3.3 fingerprint-prompt/auto-attempt package;
-- exact rel35-rc1 public source archive;
-- INSTALL.txt;
-- SHA256SUMS.txt;
-- one-shot INSTALL-GXFP51A0.sh.
-
-Direct-lock is validated. The remaining deep-S3 and rel35 cold-boot checks are human-interactive.
-Never reboot Pegasus automatically.
-
-## Final rel25 machine-purity audit
-
-Final non-interactive validation after cleanup:
-- rel25 boot/login source regression test: PASS;
-- libfprint-goodix51a0: 32 files, 0 altered;
-- plasma-login-manager: 209 files, 0 altered;
-- no failed systemd units;
-- no legacy GXFP binder service/binary;
-- no /etc/pam.d/plasmalogin override;
-- package-managed PAM contains pam_fprintd.so;
-- fprintd resolves Before=plasmalogin.service;
-- no project-specific residue in /etc, /usr/local, user cache/state or /tmp;
-- temporary build dependencies and their project cache artifacts are absent;
-- no pacman orphans remain;
-- intermediate fingerprint-development and build-dependency Snapper snapshots were deleted;
-- normal timeline snapshots and the final PLM 6.7.4-3.2 rollback pair 860/861 were retained;
-- all three existing enrollments remain intact.
-
-The corrected 6.7.4-3.2 greeter has not yet been human-validated after installation.
-Next human step is logout only: do not press Enter or type a password; the fresh
-greeter should automatically begin one fingerprint attempt and show the small
-PAM fingerprint line. Cold-boot validation follows later by manual reboot only.
-
-## 2026-09-22 14:42 logout validation update
-
-Human logout test result: the rel25 Plasma Login Manager fix works at the UI/PAM layer.
-The fingerprint prompt appeared automatically without typing or pressing Enter.
-Authentication then failed below PAM, during GXFP51A0 GET_IMAGE/TLS capture transport.
-
-No template was lost. All three enrollments remain present. Do not re-enroll.
-
-Simple spidev rebind and the exact validated GPIO264 reset + rebind did not restore
-reliable TLS in the already degraded boot. A reversible rel23 A/B test also could not
-recover that degraded state, so no rel23-vs-rel25 conclusion may be drawn from it.
-The exact rel25-rc1 package was restored and all A/B build/snapshot residue was cleaned.
-
-Important correlation: this boot started cleanly at 08:56 with rel24 already installed;
-TLS failure appears after the package-driven fprintd restart later in the boot, and the
-14:18 biometric capture then entered a transport desynchronisation that bounded recovery
-could not clear.
-
-Full evidence and next-step rationale:
-`fingerprint/handoff/HANDOFF_2026-09-22_1442_REL25_LOGOUT_TRANSPORT_FAILURE.md`
-
-Next step is now a **manual cold reboot by Arezki** as a diagnostic baseline. The assistant
-must not reboot Pegasus. On the first fresh greeter, type nothing, press no key, verify the
-automatic fingerprint prompt and try one existing enrolled finger. Collect logs immediately
-after login and before any fprintd restart.
-
-Even if cold-boot login succeeds, do not promote rel25 yet: restart/recovery robustness
-must be explained or fixed first.
-
-## New-session bootstrap prompt
-
-The exact reusable prompt is stored next to this handoff in:
-fingerprint/handoff/PROMPT_2026-09-22_1237_REL25_LOGIN_VALIDATION.md
-
-### Prompt complet
-
-Reprends le chantier **Huawei MateBook 13 2021 / Goodix GXFP51A0 / GF3658 ST411** exactement là où la session précédente l’a laissé.
-
-Utilise @Remote Desktop Commander sur Pegasus.
-
-Workspace canonique :
+Date: 2026-09-23
+Workspace canonique:
 `/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/`
 
-Repo canonique :
+Repo local:
 `/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/repo/huawei-matebook-13-linux/`
 
-RDC Pegasus :
-`8a6eeb21-0158-4e6d-b3ea-91d580f8a223`
+Repo GitHub:
+`GodsQuantum/huawei-matebook-13-linux`
 
-Commence impérativement par lire EN ENTIER, dans cet ordre :
-1. `/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/HANDOFF_CURRENT.md`
-2. `/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/repo/huawei-matebook-13-linux/fingerprint/HANDOFF_CURRENT.md`
-3. `/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/repo/huawei-matebook-13-linux/fingerprint/handoff/HANDOFF_2026-09-22_1237_GXFP51A0_REL25_LOGIN_INTEGRATION_READY.md`
+Zone publique à synchroniser après stabilisation:
+`fingerprint/`
 
-État à préserver :
-- branche candidate : `fingerprint-rel25-login-integration`
-- branche locale doit être propre et synchronisée avec `origin/fingerprint-rel25-login-integration`
-- `libfprint-goodix51a0 1.94.100.goodix51a0-25`
-- `fprintd 1.94.5-2.1`
-- `plasma-login-manager 6.7.4-3.2`
-- les 3 enrollments existants doivent rester intacts
-- ne jamais ré-enroller sans preuve explicite que les templates sont perdus.
-Diagnostic déjà établi :
-- les empreintes n’ont jamais été supprimées ;
-- PAM/fprintd émettait bien « Placez votre doigt sur le lecteur d’empreintes » ;
-- Plasma Login Manager 6.7.4 ne rendait pas ce message dans son QML ;
-- rel23 avait aussi perdu la garantie réelle d’ordre `fprintd -> display-manager`.
-- rel25 corrige l’ordre avec `Before=display-manager.service`.
-- le package PLM 6.7.4-3.2 applique les deux correctifs KDE de message PAM, ajoute le profil PAM fprintd package-managed, et un patch borné qui lance UNE tentative fingerprint automatiquement quand le greeter devient visible avec mot de passe vide.
+## Contraintes absolues
 
-État machine déjà audité :
-- aucun `/etc/pam.d/plasmalogin` local ;
-- aucun binder/service GXFP51A0 hérité ;
-- aucun orphan pacman ;
-- aucun build/src/pkg/tmp du chantier ;
-- aucun failed systemd unit ;
-- packages libfprint, fprintd et PLM : 0 fichier altéré ;
-- `fprintd.service` résout `Before=plasmalogin.service`;
-- repo propre et pushé ;
-- kit de réinstallation rel25-rc1 présent dans `~/Téléchargements/OS et Drivers/`.
+- NE JAMAIS reboot Pegasus automatiquement.
+- NE JAMAIS toucher GPIO112/GPP_D16.
+- GPIO264 = reset MCU active HIGH, runtime LOW.
+- Ne jamais exposer PMK/PSK/templates/captures biométriques.
+- Ne pas checkout/reset/stash le WIP rel38.
+- Ne pas pousser rel38 vers stable/main avant validation runtime complète.
+- Les tests physiques sont déclenchés uniquement par Arezki.
+- Ne plus utiliser /mnt/Cloud9 pour les scripts/tests interactifs.
+- Ne jamais réutiliser l'ancien gxfp51a0-rel36-runtime-test.sh.
+- Quand une action physique est nécessaire: `À faire de ton côté maintenant : ...`
 
-NE REBOOTE PAS Pegasus toi-même.
+## État Git
 
-Prochaine étape humaine prioritaire si elle n’a pas déjà été faite :
-1. demander à Arezki de se déconnecter de KDE, pas de reboot ;
-2. sur le greeter frais, il ne doit rien taper ni appuyer sur Entrée ;
-3. vérifier que la petite ligne d’invite empreinte apparaît automatiquement sous le champ mot de passe ;
-4. poser un doigt déjà enregistré et vérifier que la session s’ouvre sans mot de passe ;
-5. récupérer ensuite les logs `plasmalogin` + `fprintd` pour documenter le succès/échec.
+Branche locale:
+`fingerprint-rel38-definitive-verify`
 
-Si le logout test réussit :
-- demander ensuite à Arezki de faire lui-même un reboot manuel ;
-- répéter exactement le test au cold boot ;
-- seulement après succès des deux tests, finaliser la publication/promotion rel25 selon le handoff.
+HEAD:
+`8093955777457f3d643af41dadf0d1a9a7496099`
 
-Si le test échoue :
-- NE PAS ré-enroller ;
-- NE PAS modifier le matcher, threshold 7, template v4/SIGFM v3 ni firmware ;
-- collecter d’abord `journalctl -b -u plasmalogin.service -u fprintd.service --no-pager`, état PAM/package/systemd et comparer au handoff ;
-- corriger la couche greeter/PAM/order uniquement si les logs le justifient.
+HEAD = commit rel35:
+`fix(fingerprint): stabilize first greeter fingerprint attempt`
 
-À la fin de toute intervention : maintenir Pegasus pur, supprimer tous builds/tests/tmp/deps temporaires, vérifier `pacman -Qdtq`, `systemctl --failed`, `pacman -Qkk`, `git status`, puis mettre à jour le handoff avant toute promotion.
+rel38 est entièrement NON COMMITÉ au-dessus de ce HEAD.
+
+Aucun push rel38 n'a été effectué.
+
+## État paquet / runtime AVANT le prochain reboot
+
+Installé sur disque:
+- libfprint-goodix51a0 1.94.100.goodix51a0-38
+- fprintd 1.94.5-2.1
+- plasma-login-manager 6.7.5-3.3
+- package integrity: 45 fichiers, 0 modifié
+
+Enrollments toujours présents:
+- right-index-finger
+- left-index-finger
+- right-middle-finger
+
+IMPORTANT:
+- rel38 a été installé avec pacman --noscriptlet.
+- fprintd n'a volontairement PAS été redémarré.
+- processus fprintd encore actif avant reboot: PID 32244, démarré à 19:14:05.
+- ce processus a chargé l'ancien libfprint rel36 en mémoire.
+- donc rel38 n'est PAS encore validé runtime.
+- le capteur / contexte TLS du vieux processus est considéré empoisonné après les anciens wrappers.
+- prochain démarrage rel38 doit être un vrai cold boot humain.
+
+Aucun debug env fprintd actif.
+
+## Pourquoi les derniers tests n'affichaient jamais POSE
+
+Ce n'était pas un échec du matcher rel36.
+
+L'ancien wrapper:
+1. arrêtait le keepalive;
+2. activait G_MESSAGES_DEBUG=all;
+3. redémarrait fprintd;
+4. forçait boot-prewarm;
+5. le script faisait des polls busctl finger-needed/finger-present.
+
+À 19:12:
+- ces polls busctl ont timeouté;
+- fprintd-verify n'a jamais atteint Verify started!;
+- Claim a fini en timeout;
+- la préparation cold a ensuite produit des TLS digest check failed répétés.
+
+Le PMK cache avait été validé avec succès à 16:45, donc TLS fonctionnait avant cette séquence.
+Le fichier PMK existe toujours et n'a jamais été exposé.
+
+Conclusion:
+les wrappers de test qui redémarrent fprintd ont perturbé le lifecycle.
+Ils sont abandonnés.
+
+## Recherche externe réactualisée septembre 2026
+
+Sources étudiées:
+- issues récents de GodsQuantum/huawei-matebook-13-linux;
+- szlukabence/goodix-fingerprint-spi-linux, GXFP51A0/Huawei;
+- berkekbgz/libfprint-goodix-spi, driver GDIX51C0 actuel;
+- documentation libfprint suspend/resume.
+
+Conclusions utiles:
+1. Le même principe Windows/Goodix RetryCaptureIMG est confirmé:
+   - image initiale;
+   - FDT-manual confirme doigt toujours posé;
+   - image retry 0x20;
+   - jusqu'à 3 images sur la même pose.
+2. Les images doivent rester scorées indépendamment.
+3. Le deep-S3 est une vraie frontière froide; s2idle évite le problème chez un autre testeur.
+4. Les drivers Goodix récents gèrent explicitement ImageBase/FDT baseline et cold boundary.
+5. Sur CE GXFP51A0, les mesures historiques du repo montrent qu'un background vieux de quelques dizaines de secondes peut faire chuter le score de ~11-28 à ~2-4.
+6. Notre ancien gx_warm_validate capturait justement un fond frais pour valider TLS puis LE JETAIT, en continuant à utiliser self->bg_frame ancien.
+
+## Architecture rel38
+
+### 1. Same-press Verify conservé
+
+Threshold = 7, inchangé.
+
+Chaque pose physique peut produire:
+- image 1 initiale;
+- image 2 RetryCaptureIMG;
+- image 3 RetryCaptureIMG.
+
+Les scores:
+- ne sont jamais additionnés;
+- ne sont jamais fusionnés;
+- chaque image doit indépendamment atteindre 7;
+- arrêt immédiat au premier score >= 7.
+
+Enrollment et Identify ne passent pas par ce chemin.
+
+### 2. WARM_REBASE: vrai refresh background + FDT
+
+gx_warm_validate:
+- sonde FDT avant le refresh;
+- si doigt déjà présent: NE capture PAS de nouveau background;
+- conserve le dernier background propre;
+- sinon capture une image no-finger fraîche;
+- re-sonde FDT après la capture;
+- si un doigt est arrivé entre-temps: rejette cette image comme background;
+- sinon adopte réellement cette image comme self->bg_frame;
+- rafraîchit aussi self->fdt_base et self->fdt_abs.
+
+Marqueurs runtime normaux:
+- GXFP51A0 WARM_REBASE deferred...
+- GXFP51A0 WARM_REBASE discarded...
+- GXFP51A0 WARM_REBASE refreshed background+FDT...
+
+### 3. Fin propre du TLS au shutdown de fprintd
+
+Bug lifecycle trouvé:
+- gx_dev_close ferme les FDs hôte mais conserve TLS pour le prochain Claim dans le même processus;
+- lors d'un arrêt/restart du daemon, finalize ne pouvait plus envoyer close_notify car les FDs étaient déjà fermés;
+- le MCU pouvait donc rester dans une session dont l'état TLS host venait de disparaître.
+
+rel38:
+- finalize réouvre seulement le transport si une session warm doit être terminée;
+- gx_warm_discard peut alors envoyer le teardown TLS;
+- puis les FDs sont fermés.
+
+Marqueurs:
+- GXFP51A0 FINALIZE_TRACE reopened transport for warm TLS teardown
+- ou erreur explicite.
+
+### 4. Plus de keepalive périodique
+
+Le paquet rel38 ne contient PLUS:
+- gxfp51a0-warm-keepalive.timer
+- gxfp51a0-warm-keepalive.service
+- /usr/libexec/gxfp51a0-warm-keepalive
+
+Raison:
+- les Claims synthétiques périodiques ne sont plus nécessaires;
+- ils pouvaient multiplier les opérations lorsque le capteur était déjà malade;
+- les vrais Claims font maintenant le refresh background/FDT;
+- boot-prewarm et resume-prewarm restent installés.
+
+### 5. Protocole de test définitif piloté par le driver
+
+Le driver écrit sans debug global:
+- GXFP51A0 VERIFY_TRACE physical press N/3 READY
+- ... DETECTED_HOLD
+- same-press image 1/3 score=...
+- éventuellement 2/3, 3/3
+- same-press completed images=... best=... threshold=7
+- ... LIFT_NOW
+- ... RELEASED
+
+Le script:
+`fingerprint/tools/gxfp51a0-verify-diagnostic.py`
+
+ne:
+- poll plus busctl;
+- ne redémarre jamais fprintd;
+- ne force aucun prewarm;
+- ne touche aucun timer;
+- ne déduit jamais le retrait via finger-present.
+
+Il affiche POSE uniquement après READY émis par le driver.
+
+Si le Claim/init échoue avant READY, il l'indique explicitement et aucune pose n'est demandée.
+
+## Validation logicielle rel38
+
+PASS:
+- git diff --check
+- Python py_compile du diagnostic
+- test-goodix51a0-boot-binding.py
+- suite complète make -C fingerprint/research test
+- nouveaux tests:
+  - test_same_press_verify_source_safety
+  - test_warm_rebase_source_safety
+  - test_finalize_warm_teardown_source_safety
+  - test_verify_trace_protocol_source_safety
+
+Build réel libfprint v1.94.100:
+- SOURCE_MANIFEST=PASS
+- LIBFPRINT_PATCH=PASS
+- MESON_CONFIGURE=PASS
+- LIBFPRINT_BUILD=PASS
+- GOODIX51A0_OBJECT_COMPILED=YES
+- ACPI/udev gate=PASS
+- FASTBRIEF/RANSAC present
+- biometric dump release hook absent
+- aucune I/O capteur/GPIO/firmware pendant build
+
+Paquet:
+`fingerprint/packaging/arch/libfprint-goodix51a0-1.94.100.goodix51a0-38-x86_64.pkg.tar.zst`
+
+SHA256:
+`ded6805d8bbf81b35f9ae9c75d966f7ec3008e66a81997b9025af2a45bc2a6e2`
+
+NOTE: si le paquet est rebuild après ce handoff, recalculer le SHA avant publication.
+
+## Prochaine action exacte
+
+NE PAS lancer de test fingerprint dans la session actuelle.
+
+Le vieux fprintd rel36 est encore en mémoire et son contexte est invalide.
+
+1. Arezki redémarre Pegasus MANUELLEMENT.
+2. Après reconnexion, via RDC vérifier AVANT tout test:
+   - package rel38 installé;
+   - fprintd démarré après le reboot;
+   - aucun debug env;
+   - keepalive absent;
+   - enrollments présents;
+   - boot-prewarm Result=success;
+   - journal TLS/cold-open sain;
+   - idéalement WARM_REBASE visible.
+3. Seulement si init sain, Arezki lance lui-même le test définitif:
+   `cd "/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/repo/huawei-matebook-13-linux" && python3 fingerprint/tools/gxfp51a0-verify-diagnostic.py -f right-index-finger -u arezki --physical-label "INDEX DROIT" --timeout 90`
+4. Lire ensuite le log + journal via RDC.
+5. Chercher particulièrement une pose sauvée:
+   image1 < 7 puis image2/3 >= 7.
+6. Répéter plusieurs Verify seulement au moment choisi par Arezki.
+7. Ensuite lockscreen.
+8. Ensuite cold boot humain.
+9. Ensuite corriger proprement le fallback password sans timeout 12 s bloquant.
+10. Ensuite deep-S3.
+11. Seulement alors commit/push/build final/kit/cleanup/stable.
+
+## Critères de stabilisation
+
+- Verify rel38 reproductible sur plusieurs poses;
+- same-press réellement observé;
+- lockscreen une pose immédiate;
+- cold boot login fingerprint;
+- password fallback non bloquant;
+- deep-S3 direct;
+- aucun debug temporaire;
+- aucun wrapper perturbateur;
+- repo clean après commit final;
+- package final reconstruit depuis commit exact;
+- checksums et kit alignés;
+- seulement ensuite synchronisation fingerprint/ vers stable/main.
+
+## Update 2026-09-24 — login password/fingerprint preemption fixed
+
+User-observed regression on first rel38 reboot:
+- Plasma Login Manager auto-started fingerprint.
+- password entry was effectively blocked until the fingerprint PAM attempt expired.
+- this is NOT acceptable UX.
+
+Root cause:
+1. /usr/lib/pam.d/plasmalogin had pam_fprintd.so max-tries=3 timeout=12 BEFORE system-login.
+2. PAM is sequential here, so password could not overtake the active fingerprint module.
+3. patch 0004 also disabled footer/mainStack during the automatic fingerprint attempt.
+4. PLM 6.7.5 daemon rejects a second concurrent Auth while one is active.
+
+Implemented local PLM package 6.7.5-3.4 with:
+fingerprint/integration/plasma-login-manager-6.7-pam-messages/0005-split-fingerprint-password-auth.patch
+
+Contract:
+- plasmalogin = normal password PAM, NO pam_fprintd.
+- plasmalogin-fingerprint = dedicated fingerprint-only PAM.
+- automatic fingerprint attempt uses FingerprintLogin + dedicated PAM.
+- password UI stays enabled during fingerprint attempt.
+- first password typing sends CancelLogin.
+- daemon stops fingerprint helper.
+- LoginCancelled ACK is emitted only after helper has actually exited.
+- password path is then immediately free.
+- Enter while cancellation is pending queues password login until ACK.
+- helper PAM service name is hard-whitelisted to plasmalogin-fingerprint.
+
+New protocol:
+- FingerprintLogin
+- CancelLogin
+- LoginCancelled
+
+Validation:
+- full CMake build incl. QML/daemon/helper: PASS
+- clean makepkg from official 6.7.5 tarball + patches 0001..0005: PASS
+- staged PAM split: PASS
+- installed package integrity: 210 files, 0 modified
+- full fingerprint/research suite incl. dual-auth safety: PASS
+- test-goodix51a0-boot-binding.py: PASS
+
+Installed:
+- plasma-login-manager 6.7.5-3.4
+- libfprint-goodix51a0 1.94.100.goodix51a0-38
+- fprintd 1.94.5-2.1
+
+Installed PAM:
+- /usr/lib/pam.d/plasmalogin: NO pam_fprintd
+- /usr/lib/pam.d/plasmalogin-fingerprint: pam_fprintd max-tries=3 timeout=12
+
+Important live state:
+- plasmalogin PID 910 started 2026-09-24 01:45:44, before 3.4 installation.
+- it was deliberately NOT restarted because that would disrupt/logout the user.
+- next PLM 3.4 greeter validation must use a USER-INITIATED FULL REBOOT so daemon and greeter load 3.4 together.
+- do not use a simple logout as the first 3.4 validation.
+
+Build-only deps were removed after build:
+- extra-cmake-modules
+- cmake
+- cppdap
+- rhash
+~105 MiB cleaned.
+Build tarball/package residue removed after successful installation.
+
+rel38 cold boot already healthy:
+- fprintd PID 723 started 01:45:38.
+- boot-prewarm SUCCESS.
+- WARM_REBASE refreshed background+FDT succeeded at 01:46:10.
+- keepalive absent.
+- no debug env.
+
+Do not commit/push yet. Runtime fingerprint Verify + PLM 3.4 reboot behavior still need human validation.
+
+## Update 2026-09-24 — rel39 installed
+
+Observed cold-boot failure on rel38:
+- PLM 6.7.5-3.4 correctly issued FingerprintLogin.
+- matcher was never reached.
+- no VERIFY_TRACE score / verify-match / verify-no-match occurred.
+- fprintd logged repeated GET_IMAGE had no ACK/TLS and FDT retries.
+- root cause: rel38 fresh one-shot warm handoff allowed a Claim within 10 s to skip gx_warm_validate() after transport close/reopen.
+
+rel39 change:
+- removed warm_handoff_ready.
+- removed GX_WARM_HANDOFF_TTL_US.
+- removed gx_warm_consume_fresh_handoff().
+- no path may skip background GET_IMAGE merely because a prior Claim ended recently.
+- every reopened warm context must pass gx_warm_validate() (FDT + GET_IMAGE/TLS).
+- failed validation falls back to existing cold rebuild path.
+- same-press Verify, threshold=7, WARM_REBASE, finalize TLS teardown and PLM 3.4 remain unchanged.
+
+Validation before packaging:
+- test_fresh_warm_handoff_source_safety: PASS (blind handoff disabled)
+- test_warm_rebase_source_safety: PASS
+- test_lifecycle_recovery_source_safety: PASS
+- test-goodix51a0-boot-binding.py: PASS
+- full fingerprint/research suite: PASS
+- reproducible libfprint v1.94.100 build: PASS
+- RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT
+
+Package built:
+libfprint-goodix51a0-1.94.100.goodix51a0-39-x86_64.pkg.tar.zst
+SHA256:
+0e73b10a1fbcda33ba69c5fba9e01e2f7efac9a729e381d98b9c4b165201c533
+
+Installed with pacman --noscriptlet:
+- libfprint-goodix51a0 1.94.100.goodix51a0-39
+- package integrity: 45 files, 0 modified
+- enrollments intact: right-index, left-index, right-middle
+- PLM remains 6.7.5-3.4
+- password PAM contains no pam_fprintd
+- fingerprint PAM remains dedicated
+
+Important:
+- fprintd was deliberately NOT restarted during rel39 installation.
+- current fprintd process predates installation and therefore still has rel38 library code mapped in memory.
+- rel39 runtime validation requires next USER-INITIATED reboot (preferred) or an explicitly controlled fprintd restart.
+- do not launch surprise biometric tests.
+- do not commit/push yet.
+
+Local branch renamed to:
+fingerprint-rel39-validated-warm-reopen
+
+## Update 2026-09-24 — rel40 Windows WakeupMCU + Identify same-press
+
+Human rel39 reboot result:
+- fingerprint login failed.
+- this was NOT a biometric no-match.
+- rel39 WARM_REBASE succeeded at 09:28:35.
+- first real finger GET_IMAGE ~11 s later failed before matcher with repeated
+  "GET_IMAGE had no ACK/TLS".
+- therefore enrollments/threshold were not implicated.
+
+Exact Windows GXFP51A0 evidence revalidated locally:
+- private package: FingerPrint_1.1.141.36
+- exact gfspi.dll SHA-256:
+  4fc5956220cc7bd86d002437e9cae5508d724763a430e4994ba7ce64144a6d59
+- WakeupMCU function located at VA 0x1800413e4.
+- it constructs exactly 4 bytes:
+  0f 00 00 0e
+- passes them with length 4 and direction 0 into _SpbPeripheralRW.
+- the same direction 0 is used by the function explicitly logged as
+  PeripheralWriteWrapper / SpbPeripheralWrite.
+- it then calls Sleep(5).
+- conclusion: WakeupMCU is exactly one raw SPI write {0f 00 00 0e} + 5 ms,
+  NOT a Milan protocol frame and NOT a GPIO operation.
+- the temporary extracted Windows binaries under /tmp were deleted after static
+  analysis. The private source package remains private and was never exposed.
+
+The exact GXFP51A0 WBDI transcript also confirms real finger GET_IMAGE uses 0x20.
+Do NOT port the 0x22 initial-image behavior from unrelated GDIX51C0/Chicago.
+
+fprintd behavior:
+- VerifyStart("any") can use all enrolled prints when device supports it.
+- this driver exposes Identify.
+- rel36-rel39 only enabled same-press recapture for 1:1 Verify and therefore
+  could bypass their main improvement at the graphical login.
+- rel40 extends independent same-press captures to Identify too.
+
+rel40 changes:
+1. gx_wakeup_mcu():
+   - raw SPI bytes 0f 00 00 0e
+   - no Milan framing / no ACK expectation
+   - 5 ms sleep
+   - invoked at operation/session start after TLS/background/FDT are ready and
+     before waiting for the user's finger.
+2. Same-press applies to both 1:1 Verify and 1:N Identify:
+   - initial image + up to two RetryCaptureIMG images;
+   - each image scored independently;
+   - threshold remains 7;
+   - scores are never summed/fused;
+   - Identify independently scores each image against the enrolled gallery.
+3. Physical tracing now reports VERIFY_TRACE or IDENTIFY_TRACE.
+4. Diagnostic parser accepts both modes.
+5. Capture pacing remains unchanged for this candidate:
+   - persisted capture pacing is still 200% / 60 ms;
+   - do not change wake + pacing simultaneously without evidence.
+
+Software validation:
+- git diff --check PASS.
+- test_windows_wakeup_identify_same_press_source_safety PASS.
+- test_same_press_verify_source_safety PASS (Verify + Identify).
+- test_verify_trace_protocol_source_safety PASS (Verify + Identify).
+- full fingerprint/research suite PASS, including the new wake/identify test.
+- test-goodix51a0-boot-binding.py PASS.
+- reproducible libfprint v1.94.100 build PASS.
+- GOODIX51A0_IDENTIFY_PATH_IN_LIBRARY=YES.
+- GOODIX51A0_FASTBRIEF_RANSAC_IN_LIBRARY=YES.
+- RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT.
+- no active sensor I/O / GPIO / MMIO / firmware action during build.
+
+Final rel40 package:
+libfprint-goodix51a0-1.94.100.goodix51a0-40-x86_64.pkg.tar.zst
+SHA256:
+d40586f84f6ae91c3f7dc84c02bc344729e7148eae1df02713fd3db1696b5c4e
+
+Installed with pacman --noscriptlet:
+- libfprint-goodix51a0 1.94.100.goodix51a0-40
+- package integrity: 45 files, 0 modified
+- enrollments intact: right-index, left-index, right-middle
+- plasma-login-manager remains 6.7.5-3.4
+- password PAM remains free of pam_fprintd
+- dedicated fingerprint PAM remains in place
+- no debug environment.
+
+IMPORTANT runtime state:
+- fprintd PID 718 started 09:28:25, before rel40 installation.
+- therefore that process still has rel39 mapped.
+- rel40 is installed ON DISK but has not yet been runtime-tested.
+- do not restart fprintd as a substitute for the next cold-boot validation.
+- do not launch surprise biometric tests.
+
+Next validation:
+1. user manually reboots Pegasus;
+2. at the greeter, user tries an enrolled finger normally;
+3. password remains available through PLM 3.4;
+4. after login, collect logs BEFORE any fprintd restart;
+5. expected rel40 evidence:
+   - AUTH_TRACE WakeupMCU raw SPI write complete;
+   - IDENTIFY_TRACE physical press ...;
+   - AUTH_TRACE mode=identify same-press image ...;
+   - ideally a real score / match;
+6. if GET_IMAGE still fails after exact WakeupMCU, investigate persisted capture
+   pacing 200% / 60 ms separately; nominal validated value is 100% / 30 ms.
+7. no re-enrollment unless healthy transport reaches matcher repeatedly and old
+   templates genuinely score below threshold.
+
+Do not commit/push yet.
+Local branch:
+fingerprint-rel40-windows-wakeup-identify
+
+## Runtime validation 2026-09-24 — rel40 LOGIN SUCCESS
+
+Human cold-boot login result: SUCCESS via fingerprint.
+
+Boot:
+- 2026-09-24 13:33:19
+- libfprint-goodix51a0 1.94.100.goodix51a0-40
+- fprintd 1.94.5-2.1
+- plasma-login-manager 6.7.5-3.4
+
+Observed authentication sequence:
+- PLM FingerprintLogin: 13:33:48
+- WARM_REBASE refreshed background+FDT: 13:33:50
+- exact Windows WakeupMCU raw SPI write: SUCCESS
+- Identify physical press 1:
+  - image 1/3 score 2
+  - image 2/3 score 3
+  - image 3/3 score 3
+  - best 3 < threshold 7
+- next physical press:
+  - image 1/3 rejected by quality gate
+  - image 2/3 score 7
+  - threshold 7 reached
+  - same-press stopped immediately
+- PAM opened plasmalogin-fingerprint session for arezki at 13:33:58
+- Wayland user session started successfully.
+
+This is direct proof that:
+1. rel40 exact-target WakeupMCU path is executing.
+2. graphical login uses Identify.
+3. same-press is now active on Identify.
+4. an additional image from the SAME press can rescue authentication.
+5. existing enrollments remain valid; re-enrollment is NOT needed.
+
+Remaining issue before final/stable:
+- prewarm earlier this boot had GET_IMAGE/TLS desync and escalated capture pacing:
+  200% -> 250%.
+- persisted files now read:
+  - capture timing = 250
+  - init/TLS timing = 300
+- this is the same one-way pacing-ratchet class previously reported by szlukabence.
+- therefore rel40 is functionally successful but NOT yet final/stable.
+- next work should isolate/remove incorrect pacing escalation caused by lifecycle/prewarm failures, without touching the now-working matcher/WakeupMCU/Identify same-press path.
+
+## Update 2026-09-24 — rel42 fast + distro-portable candidate
+
+Baseline preserved:
+- rel40 cold-boot graphical fingerprint login remains the last human-validated runtime baseline.
+- rel42 does NOT change WakeupMCU, WARM_REBASE, Identify same-press, threshold 7,
+  template format, enrollments, PMK handling or PLM 3.4 split-auth behavior.
+- existing enrollments remain: right-index, left-index, right-middle.
+
+rel42 performance/lifecycle change:
+- adaptive timing remains process-local/RAM-only; no timing value is persisted.
+- every fresh daemon/lifecycle starts from validated nominal 100% timing.
+- gx_prepare_capture_context now suppresses capture-pacing learning while doing
+  TLS/background/FDT lifecycle/calibration work.
+- a prewarm/background GET_IMAGE miss may trigger session recovery but cannot
+  slow the first real biometric capture.
+- real biometric captures retain session-local adaptation and decay.
+
+Portable installation:
+- automatic dependency recipes: Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL,
+  openSUSE and Alpine.
+- generic distributions may use --no-install-deps after installing build deps.
+- Meson libdir is discovered dynamically: plain lib, lib64, Debian multiarch.
+- distro fprintd ABI is validated against staged rel42 before system changes.
+- glibc: ldd -r + executable smoke test.
+- musl: dependency ldd + LD_BIND_NOW=1 executable smoke test.
+
+- systemd: local libfprint is exposed only to fprintd via service-local
+  LD_LIBRARY_PATH; boot/resume prewarm remains an optimization.
+- non-systemd: /etc/dbus-1/system-services activation override starts an
+  isolated fprintd wrapper; no global ld.so.conf replacement.
+- rollback restores distro-owned files and supports both systemd and D-Bus paths.
+- old rel41 global-loader file is cleanup-only compatibility residue.
+
+Real clean-container validation:
+- Debian stable: PASS; /usr/local/lib/x86_64-linux-gnu; fprintd ABI PASS.
+- Fedora latest: PASS; /usr/local/lib64; fprintd ABI PASS.
+- openSUSE Tumbleweed: PASS; /usr/local/lib64; fprintd ABI PASS.
+- Arch Linux latest: PASS; /usr/local/lib; fprintd ABI PASS.
+- Alpine edge/musl: PASS; /usr/local/lib; musl ABI fallback PASS.
+- all temporary rel42 validation containers removed afterwards.
+
+Portability fixes discovered by real matrix:
+- Debian exposes libudev.pc while libfprint 1.94.100 queried udev metadata:
+  rel42 passes udev_rules_dir explicitly and disables optional generated hwdb.
+- meson install uses --no-rebuild after the already-gated build.
+- openSUSE uses libpixman-1-0-devel.
+- Arch current split requires glib2-devel for glib-mkenums.
+- pristine Arch build-only container refreshes package sync DB first.
+- Alpine CI bootstraps with sh and uses Git checkout without JS/glibc action.
+
+Validation:
+- git diff --check PASS.
+- full fingerprint/research suite PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- test-fingerprint-tooling.py PASS.
+- prepare-pacing-neutral source gate PASS.
+- portable installer source gate PASS.
+- source manifest PASS.
+- reproducible native Arch package build PASS.
+- RELEASE_BIOMETRIC_DUMP_HOOK=ABSENT.
+- no active sensor I/O/GPIO/MMIO/firmware action during build.
+
+Installed on disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-42
+- package integrity: 45 files, 0 modified
+- package SHA256:
+  37f00f4aad84c45236f745a2eb5edf0a3310bf42ce89f8cad37de0982ac13453
+- legacy non-secret timing integer files removed.
+- PMK and fingerprint templates untouched.
+
+Runtime boundary:
+- current fprintd remains PID 727, started 2026-09-24 13:33:27 CEST,
+  before rel42 installation; therefore it still executes rel40 in memory.
+- rel42 is installed ON DISK but has not been runtime-tested.
+- next validation must be USER-INITIATED cold reboot + normal greeter fingerprint.
+- after rel42 login validation, manually validate suspend/resume separately.
+
+Git:
+- branch: fingerprint-rel42-fast-portable
+- commit: 6b04e80c8903c7e47e2daf39b626cfbd52f16cf7
+- commit message: feat(fingerprint): make rel42 fast and distro-portable
+- working tree clean.
+- do NOT push/promote stable/main until cold boot and suspend/resume are validated.
+
+## Update 2026-09-24 — rel42 fast + portable software-final candidate
+
+Reference runtime baseline preserved:
+- rel40 cold-boot graphical fingerprint login SUCCESS.
+- exact Windows GXFP51A0 WakeupMCU retained.
+- WARM_REBASE retained.
+- Verify + Identify same-press retained.
+- threshold remains 7; no score fusion/addition.
+- 20 enrollment views and existing template-v4/SIGFM-v3 enrollments unchanged.
+- PLM 6.7.5-3.4 password/fingerprint split unchanged.
+
+rel42 fixes the remaining pacing ratchet:
+- no adaptive timing is persisted to disk.
+- every fresh lifecycle begins at nominal 100%.
+- lifecycle/prewarm preparation has capture_pacing_suppressed and cannot train pacing.
+- 3 consecutive successful captures that needed GET_IMAGE retry may raise capture pacing one 50-point step in the current daemon only.
+- 8 clean captures decay one step toward nominal.
+- true biometric transport desync may still raise current-session pacing and requests full recovery.
+- TLS/protocol timing adaptation is also session-only.
+- legacy rel24-rel40 .goodix51a0 timing integers are migration-only and removed.
+
+Portable installer:
+- Arch/CachyOS: native pacman package.
+- Debian/Ubuntu: isolated /usr/local candidate, dynamic multiarch libdir.
+- Fedora/RHEL and openSUSE: dynamic lib64.
+- Alpine/musl: plain lib plus musl-compatible ABI gate.
+- non-systemd: high-precedence D-Bus activation wrapper isolates candidate to fprintd.
+- systemd: service-local LD_LIBRARY_PATH; distro libfprint remains untouched elsewhere.
+- staged candidate is ABI-tested against the distro fprintd BEFORE any system file change.
+- rollback manifest and uninstall helper are installed.
+- no global ld.so.conf override in rel42.
+
+Real clean-container build/ABI validation on 2026-09-24:
+- Debian stable: PASS, /usr/local/lib/x86_64-linux-gnu, fprintd ABI PASS.
+- Fedora current: PASS, /usr/local/lib64, fprintd ABI PASS.
+- openSUSE Tumbleweed: PASS, /usr/local/lib64, fprintd ABI PASS.
+- Arch Linux: PASS, /usr/local/lib, fprintd ABI PASS.
+- Alpine edge/musl: PASS, /usr/local/lib, dependency-only musl ldd gate + eager binding PASS.
+All builds also passed:
+- SOURCE_MANIFEST
+- libfprint v1.94.100 pinned build
+- GXFP51A0 ACPI/udev registration
+- Identify path
+- FASTBRIEF/SIGFM RANSAC
+- release biometric dump hook ABSENT
+- no active sensor/GPIO/MMIO/firmware action during build.
+
+Final Arch rel42 package checksum before cleanup:
+SHA256 38f39739d49119f2e6286f107f6491a5cf2b9b59cee972fcc67a7c71832a21b5
+libfprint-goodix51a0-1.94.100.goodix51a0-42-x86_64.pkg.tar.zst
+
+Installed-on-disk state:
+- libfprint-goodix51a0 1.94.100.goodix51a0-42
+- package integrity: 45 files, 0 modified
+- fprintd 1.94.5-2.1
+- plasma-login-manager 6.7.5-3.4
+- enrollments intact: right-index, left-index, right-middle
+- PMK cache untouched
+- old .goodix51a0-timing and .goodix51a0-capture-timing: ABSENT
+
+IMPORTANT live state:
+- fprintd PID 727 has ActiveEnterTimestamp 2026-09-24 13:33:27 CEST.
+- this process predates the final rel42 install/reinstall at ~15:39, so it must be treated as the previously validated runtime code already mapped in memory.
+- rel42 is final on disk but still requires one USER-INITIATED cold reboot for runtime validation.
+- do not restart fprintd as a substitute for that final cold-boot test.
+
+Benjamin Allègre / Sigfrodr latest relevant message:
+- 2026-09-24 12:27 UTC, Sigfrodr/libfprint-goodixtls issue #5, comment 5814092473.
+- provides tools/eval/fp_eval.py for privacy-preserving local held-out evaluation.
+- reports only aggregate EER/FAR/FRR, score histograms and d-prime.
+- no capture/template upload is needed.
+- this supports the current host descriptor/geometric matcher direction; it does NOT justify changing the validated threshold 7 without broader aggregate data.
+- README EN/FR/ZH now documents this as an optional external validation method.
+
+## rel42 final software checkpoint — 2026-09-24 15:xx CEST
+
+Git:
+- branch: fingerprint-rel42-fast-portable
+- rel42 code commit: 6b04e80 feat(fingerprint): make rel42 fast and distro-portable
+- docs/portable-validation commit: 6684963 docs(fingerprint): record rel42 portable validation
+- working tree: CLEAN
+
+Cleanup completed:
+- deleted local package artifacts rel36 through rel42 after recording final rel42 SHA256
+- deleted makepkg src/pkg work trees
+- deleted public-build and research-build temporary trees
+- deleted /tmp distro-matrix logs
+- no PMK/enrollment/template/private reference data touched
+
+Installed disk state remains rel42, but live fprintd PID 727 started at 13:33:27 before final rel42 installation. Therefore the only remaining acceptance gate is a user-initiated full cold reboot followed by normal graphical fingerprint login and log inspection.
+
+Do NOT modify matcher/threshold/WakeupMCU/Identify same-press unless rel42 cold-boot logs provide concrete evidence.
+Do NOT push/promote stable until that runtime gate passes.
+
+## Update 2026-09-24 — rel43 protocol auto-calibration candidate
+
+rel42 cold-boot runtime result: FAILED before biometric capture.
+- Boot: 2026-09-24 17:30:01 CEST.
+- Installed/runtime candidate at that boot: libfprint-goodix51a0 1.94.100.goodix51a0-42.
+- WARM_REBASE succeeded.
+- exact Windows WakeupMCU succeeded.
+- greeter reached IDENTIFY_TRACE physical press 1/3 READY.
+- no DETECTED_HOLD followed, therefore no GET_IMAGE finger capture, no score and no matcher decision.
+- PLM fingerprint PAM timed out/failed; password login remained available and succeeded.
+
+rel42 regression isolated:
+- rel42 correctly removed all persistent capture/protocol timing files.
+- but gx_cold_prepare also forced protocol timing back to 100% on every cold preparation.
+- this boot immediately showed repeated no-IRQ target ACK retries and FDT ACK retries.
+- rel40 had succeeded with a more conservative learned protocol timing.
+- capture pacing and protocol timing must therefore remain separate concepts.
+
+rel43 change:
+- capture pacing remains RAM-only and non-persistent.
+- lifecycle/prewarm work remains unable to train capture pacing.
+- protocol timing begins at 100% in a fresh fprintd process.
+- each observed idempotent target-ACK, FDT or TLS-handshake miss may raise protocol timing by one bounded 50-point step, maximum 300%.
+- a same-process cold/session recovery preserves the already-proven protocol timing instead of resetting to 100%.
+- no protocol or capture timing value is written to disk, so there is no cross-boot ratchet.
+- rel40 biometric path is untouched: exact WakeupMCU, WARM_REBASE, Verify+Identify same-press, threshold 7, template-v4/SIGFM-v3, enrollments and PLM 3.4 split auth.
+
+rel43 software validation:
+- git diff --check: PASS.
+- full fingerprint/research suite: PASS.
+- test-goodix51a0-boot-binding.py: PASS.
+- test-fingerprint-tooling.py: PASS.
+- session-local timing gate: PASS (RAM auto-calibration).
+- reproducible native Arch libfprint build: PASS.
+- release biometric dump hook: ABSENT.
+- active sensor/GPIO/MMIO/firmware actions during build: NONE.
+
+rel43 clean multi-distro build/fprintd ABI matrix:
+- Debian stable: PASS.
+- Fedora current: PASS.
+- openSUSE Tumbleweed: PASS.
+- Arch Linux latest: PASS.
+- Alpine edge/musl: PASS.
+- openSUSE minimal-image pam_pwquality warning originates from pam-config while installing distro packages; the module is disabled there and final libfprint build + fprintd ABI gate both PASS.
+
+Installed-on-disk state:
+- libfprint-goodix51a0 1.94.100.goodix51a0-43.
+- package integrity before cleanup: 45 files, 0 modified.
+- package SHA256: cbecd4e4d289c139e5367b73c0b6fc4100665778cc17686f1c8566621d2e7e5a.
+- fprintd 1.94.5-2.1.
+- plasma-login-manager 6.7.5-3.4.
+- enrollments intact: right-index, left-index, right-middle.
+- PMK/templates untouched.
+- legacy .goodix51a0-timing and .goodix51a0-capture-timing files: ABSENT.
+
+Git:
+- branch: fingerprint-rel43-protocol-autocal.
+- code commit: 44b5f2c5f5809c6ff674a94056e816f348aacdad.
+- docs commit: bdd1ed7.
+- do not push/promote stable until runtime acceptance.
+
+IMPORTANT live boundary:
+- current fprintd PID 728 started 2026-09-24 17:30:09 CEST, before rel43 was installed.
+- therefore the current daemon still executes rel42 mapped in memory.
+- rel43 has NOT yet had a biometric runtime test.
+- next acceptance gate is a USER-INITIATED full reboot followed by a normal graphical fingerprint login.
+- if rel43 cold boot succeeds, validate suspend/deep resume separately before stable promotion.
+- do not re-enroll and do not alter matcher/threshold unless healthy rel43 captures reach the matcher and provide concrete evidence.
+
+### rel43 cleanup/final software checkpoint
+- multi-distro rel43 matrix finished: Debian/Fedora/openSUSE/Arch/Alpine all PASS build + fprintd ABI.
+- all temporary validation containers exited and none remain.
+- /tmp/gxfp* logs/work directories removed.
+- local rel43 package artifact removed after checksum was recorded.
+- makepkg src/pkg/build residues removed.
+- installed package integrity: 45 files, 0 modified.
+- systemctl --failed: 0 units.
+- pacman orphan list: empty.
+- periodic warm-keepalive timer: not found/inactive.
+- repository working tree: CLEAN.
+- no untracked files reported by git clean -nd.
+- no fingerprint build directories remain under the repo.
+- current package on disk: libfprint-goodix51a0 1.94.100.goodix51a0-43.
+- installed binary contains rel43 protocol auto-calibration marker.
+- three enrollments and PMK cache remain intact.
+- password PAM remains independent; dedicated fingerprint PAM is unchanged.
+
+Final next action:
+- user must perform one full manual reboot; a lockscreen-only test is not sufficient because current fprintd PID 728 still predates rel43 installation.
+- at the greeter, try an enrolled fingerprint normally; password remains available.
+- after login, inspect rel43 logs before any service restart.
+- success criteria: protocol auto-calibration may rise only on real protocol misses, WakeupMCU succeeds, Identify reaches DETECTED_HOLD, same-press scores appear, and login succeeds without any persistent timing files being recreated.
+- only after cold-boot success should deep-suspend/resume be tested and stable/main promotion considered.
