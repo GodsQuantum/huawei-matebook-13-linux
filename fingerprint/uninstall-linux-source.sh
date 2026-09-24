@@ -51,7 +51,7 @@ if [[ -f "$STATE_DIR/created-early-wants" ]]; then
 fi
 
 # Compatibility cleanup for older installer generations.
-rm -f "$DROPIN_FILE" "$UDEV_RULE_FILE" "$DBUS_SERVICE_FILE"   "$FPRINTD_WRAPPER_FILE" "$LEGACY_LDCONF_FILE"   /usr/local/libexec/gxfp51a0-spidev-bind   /etc/systemd/system/gxfp51a0-spidev-bind.service   /usr/local/libexec/gxfp51a0-warm-keepalive   /etc/systemd/system/gxfp51a0-warm-keepalive.service   /etc/systemd/system/gxfp51a0-warm-keepalive.timer   /etc/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer
+rm -f "$DROPIN_FILE" "$UDEV_RULE_FILE" "$DBUS_SERVICE_FILE"   "$FPRINTD_WRAPPER_FILE" "$LEGACY_LDCONF_FILE"   /usr/local/libexec/gxfp51a0-spidev-bind   /etc/systemd/system/gxfp51a0-spidev-bind.service   /usr/local/libexec/gxfp51a0-warm-keepalive   /etc/systemd/system/gxfp51a0-warm-keepalive.service   /etc/systemd/system/gxfp51a0-warm-keepalive.timer   /etc/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer   /usr/local/libexec/gxfp51a0-resume-prewarm   /etc/systemd/system-sleep/gxfp51a0-resume-prewarm
 
 if command -v udevadm >/dev/null 2>&1; then
   udevadm control --reload || true

@@ -127,6 +127,9 @@ static void gx_capture_transport_desync (FpiDeviceGoodix51A0 *self);
 static void gx_capture_pacing_success (FpiDeviceGoodix51A0 *self);
 static void gx_protocol_timing_miss (FpiDeviceGoodix51A0 *self,
                                      const gchar          *source);
+static gboolean gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self);
+static void gx_warm_abandon (FpiDeviceGoodix51A0 *self);
+static gboolean gx_cold_prepare (FpiDeviceGoodix51A0 *self);
 
 static const FpIdEntry goodix51a0_id_table[] = {
   { .udev_types = FPI_DEVICE_UDEV_SUBTYPE_SPIDEV, .spi_acpi_id = "GXFP51A0" },
@@ -2411,6 +2414,31 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
   gboolean capture_diagnostic =
     g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
 
+  /* A Verify/Identify operation may already be open when the machine enters
+   * deep S3. In that case fprintd does not necessarily close/reopen the device,
+   * so gx_dev_open() never gets a chance to invalidate stale TLS/FDT state.
+   * Recover natively inside the existing operation, before any post-resume FDT
+   * or GET_IMAGE command can hit the dead MCU session. */
+  if (self->force_cold_reset)
+    {
+      fp_warn ("GXFP51A0 active resume recovery: rebuilding cold sensor "
+               "context before continuing authentication");
+      gx_warm_abandon (self);
+      self->capture_recovery_pending = FALSE;
+      self->capture_gap_scale = 0;
+      self->capture_clean_streak = 0;
+      self->capture_retry_seen = FALSE;
+      self->capture_pacing_suppressed = TRUE;
+
+      gx_gpio_reset (self);
+      self->force_cold_reset = FALSE;
+
+      if (!gx_cold_prepare (self))
+        return FALSE;
+
+      return gx_wakeup_mcu (self);
+    }
+
   if (self->capture_recovery_pending)
     {
       fp_info ("GXFP51A0 rebuilding capture context after transport desync");
@@ -2958,6 +2986,34 @@ gx_cancelled (FpDevice *dev, FpiSsm *ssm)
   return TRUE;
 }
 
+/* Handle the real desktop failure mode: the lockscreen may Claim/Open the
+ * reader before suspend and keep that same operation alive across S3.  Compare
+ * CLOCK_BOOTTIME with CLOCK_MONOTONIC on every lightweight finger poll; the
+ * delta advances only while suspended.  Recovery stays entirely inside
+ * libfprint, so no systemd/logind/D-Bus helper races the password PAM stack. */
+static gboolean
+gx_active_sleep_recovery (FpDevice *dev, FpiSsm *ssm)
+{
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+
+  if (!gx_warm_crossed_sleep (self))
+    return FALSE;
+
+  fp_warn ("GXFP51A0 active S3 boundary detected during authentication; "
+           "scheduling native cold recovery");
+  self->force_cold_reset = TRUE;
+  self->capture_recovery_pending = FALSE;
+  self->capture_gap_scale = 0;
+  self->capture_clean_streak = 0;
+  self->capture_retry_seen = FALSE;
+  self->capture_pacing_suppressed = TRUE;
+
+  fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
+  self->poll_id = 0;
+  fpi_ssm_jump_to_state (ssm, GX_ST_SESSION);
+  return TRUE;
+}
+
 /* Non-blocking poll, re-armed by timeout until the finger is detected. */
 static gboolean
 gx_poll_on (gpointer user_data)
@@ -2971,6 +3027,9 @@ gx_poll_on (gpointer user_data)
 
   if (gx_cancelled (dev, ssm))
     { self->poll_id = 0; return G_SOURCE_REMOVE; }
+
+  if (gx_active_sleep_recovery (dev, ssm))
+    return G_SOURCE_REMOVE;
 
   if (gx_fdt_probe_ex (self, cur, &touchflag) != 0)
     {
@@ -3033,6 +3092,9 @@ gx_poll_off (gpointer user_data)
 
   if (gx_cancelled (dev, ssm))
     { self->poll_id = 0; return G_SOURCE_REMOVE; }
+
+  if (gx_active_sleep_recovery (dev, ssm))
+    return G_SOURCE_REMOVE;
 
   if (gx_fdt_probe_ex (self, cur, &touchflag) == 0 &&
       !gx_fdt_touch_is_finger (touchflag) &&
@@ -3629,7 +3691,7 @@ gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
 {
   gint64 now = 0;
 
-  if (!self->warm_valid || !self->warm_sleep_clock_valid)
+  if (!self->warm_sleep_clock_valid)
     return FALSE;
 
   if (!gx_sleep_delta_us (&now))
@@ -4015,8 +4077,10 @@ gx_dev_suspend (FpDevice *dev)
 static void
 gx_dev_resume (FpDevice *dev)
 {
-  /* The suspended action was cancelled by libfprint.  A following Claim sees
-   * force_cold_reset and reconstructs the sensor session from a clean boundary. */
+  /* If libfprint cancelled the action, the following Claim/Open sees
+   * force_cold_reset. If a desktop kept an already-open action alive, the
+   * BOOTTIME-vs-MONOTONIC poll guard detects the same S3 boundary and jumps
+   * through GX_ST_SESSION for an in-operation cold rebuild. */
   fpi_device_resume_complete (dev, NULL);
 }
 

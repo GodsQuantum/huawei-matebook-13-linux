@@ -18,8 +18,6 @@ EARLY_WANTS_LINK="$EARLY_WANTS_DIR/fprintd.service"
 BOOT_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-boot-prewarm"
 BOOT_UNIT_FILE="/etc/systemd/system/gxfp51a0-boot-prewarm.service"
 BOOT_WANTS_LINK="$EARLY_WANTS_DIR/gxfp51a0-boot-prewarm.service"
-RESUME_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-resume-prewarm"
-RESUME_HOOK_FILE="/etc/systemd/system-sleep/gxfp51a0-resume-prewarm"
 KDE_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-kde-lockscreen-integrate"
 
 INSTALL_DEPS=1
@@ -373,11 +371,6 @@ EOF
     "$ROOT/integration/boot-prewarm/gxfp51a0-boot-prewarm.service" > "$TMP_STATE/boot.service"
   run_root install -Dm0644 "$TMP_STATE/boot.service" "$BOOT_UNIT_FILE"
 
-  run_root install -Dm0755 "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm" "$RESUME_HELPER_FILE"
-  sed "s#/usr/libexec/gxfp51a0-resume-prewarm#$RESUME_HELPER_FILE#" \
-    "$ROOT/integration/resume-prewarm/gxfp51a0-system-sleep" > "$TMP_STATE/resume-system-sleep"
-  run_root install -Dm0755 "$TMP_STATE/resume-system-sleep" "$RESUME_HOOK_FILE"
-
   run_root mkdir -p "$EARLY_WANTS_DIR"
   if [[ ! -e "$EARLY_WANTS_LINK" && ! -L "$EARLY_WANTS_LINK" ]]; then
     run_root ln -s "$FPRINTD_UNIT" "$EARLY_WANTS_LINK"
@@ -401,7 +394,9 @@ run_root rm -f \
   /etc/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer \
   /etc/systemd/system/gxfp51a0-resume-prewarm.service \
   /etc/systemd/system/gxfp51a0-resume-prewarm-worker.service \
-  /etc/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service
+  /etc/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service \
+  /usr/local/libexec/gxfp51a0-resume-prewarm \
+  /etc/systemd/system-sleep/gxfp51a0-resume-prewarm
 
 run_root mkdir -p "$STATE_DIR"
 run_root rm -rf "$STATE_DIR/backup"

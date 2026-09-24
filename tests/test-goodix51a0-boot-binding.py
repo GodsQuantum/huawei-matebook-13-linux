@@ -13,8 +13,6 @@ BUILD = ROOT / "fingerprint/scripts/build-libfprint-v1.94.100.sh"
 PKGBUILD = ROOT / "fingerprint/packaging/arch/PKGBUILD"
 PKGINSTALL = ROOT / "fingerprint/packaging/arch/libfprint-goodix51a0.install"
 DROPIN = ROOT / "fingerprint/packaging/arch/fprintd-goodix51a0.conf"
-RESUME_HELPER = ROOT / "fingerprint/integration/resume-prewarm/gxfp51a0-resume-prewarm"
-RESUME_HOOK = ROOT / "fingerprint/integration/resume-prewarm/gxfp51a0-system-sleep"
 PLM_INTEGRATION = ROOT / "fingerprint/integration/plasma-login-manager-6.7-pam-messages"
 PLM_PKGBUILD = PLM_INTEGRATION / "PKGBUILD"
 PLM_PATCH1 = PLM_INTEGRATION / "0001-show-pam-authentication-messages.patch"
@@ -89,26 +87,19 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=45" in pkgbuild
+assert "pkgrel=46" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
-assert "systemd/system-sleep/gxfp51a0-resume-prewarm" in pkgbuild
+assert "systemd/system-sleep/gxfp51a0-resume-prewarm" not in pkgbuild
 assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" not in pkgbuild
 assert "gxfp51a0-kde-lockscreen-integrate" in pkgbuild
 assert "90-gxfp51a0-kde-lockscreen.hook" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
 
-resume_helper = RESUME_HELPER.read_text()
-resume_hook = RESUME_HOOK.read_text()
-assert 'GetDefaultDevice' in resume_helper
-assert 'Claim s ""' in resume_helper
-assert 'restart fprintd' not in resume_helper
-assert 'try-restart fprintd' not in resume_helper
-assert 'phase="${1:-}"' in resume_hook
-assert '[[ "$phase" == "post" ]]' in resume_hook
-assert 'timeout 55s "$helper"' in resume_hook
-assert "systemctl" not in resume_hook
-
+assert "gx_active_sleep_recovery" in driver
+assert "active S3 boundary detected during authentication" in driver
+assert "gx_cold_prepare (self)" in driver
+assert "BOOTTIME-vs-MONOTONIC poll guard" in driver
 
 plm_pkgbuild = PLM_PKGBUILD.read_text()
 plm_patch1 = PLM_PATCH1.read_text()

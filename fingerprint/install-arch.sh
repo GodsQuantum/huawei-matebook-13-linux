@@ -74,7 +74,6 @@ systemctl cat fprintd.service | grep -Fq '/usr/lib/fprintd --no-timeout'
 systemctl cat fprintd.service | grep -Fq 'Before=display-manager.service'
 test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
 test -L /usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service
-test -x /usr/lib/systemd/system-sleep/gxfp51a0-resume-prewarm
 systemctl cat gxfp51a0-boot-prewarm.service >/dev/null
 if [[ -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml ]]; then
   sudo /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply
@@ -96,10 +95,12 @@ GXFP51A0 now follows the native libfprint SPI path:
   udev -> spidev -> libfprint probe/open -> standard fprintd -> PAM/KDE
 
 The standard fprintd daemon starts early and stays alive with --no-timeout.
-A bounded cold-boot Claim prepares TLS/background/FDT before the greeter, and a
-separate post-resume Claim rebuilds state after deep sleep. There is no periodic
-synthetic keepalive. Runtime timing adaptation is session-local and always
-starts from the validated nominal 100% values after a fresh lifecycle. KDE Plasma
+A bounded cold-boot Claim prepares TLS/background/FDT before the greeter.
+Deep-sleep recovery is native to the libfprint driver: it detects a suspend
+boundary from CLOCK_BOOTTIME vs CLOCK_MONOTONIC and rebuilds the sensor inside
+the active authentication path, with no systemd/D-Bus resume race. There is no
+periodic synthetic keepalive. Runtime timing adaptation is session-local and
+always starts from the validated nominal 100% values after a fresh lifecycle. KDE Plasma
 is detected automatically: on the validated 6.7.5 lock screen, fingerprint PAM
 is armed at lock creation instead of waiting for mouse/keyboard activity.
 Plasma Login Manager 6.7.5 receives the package-managed fingerprint-first PAM

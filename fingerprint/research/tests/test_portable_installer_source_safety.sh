@@ -42,7 +42,8 @@ grep -Fq 'libsystemd-dev' "$i"
 grep -Fq 'Environment=LD_LIBRARY_PATH=$LIBDIR' "$i"
 grep -Fq 'SYSTEMD_AVAILABLE=0' "$i"
 grep -Fq 'boot-prewarm' "$i"
-grep -Fq 'resume-prewarm' "$i"
+! grep -Fq 'RESUME_HELPER_FILE=' "$i"
+! grep -Fq 'RESUME_HOOK_FILE=' "$i"
 ! grep -Fq 'KEEPALIVE_' "$i"
 
 # non-systemd: D-Bus activation wrapper; never a global loader override.
