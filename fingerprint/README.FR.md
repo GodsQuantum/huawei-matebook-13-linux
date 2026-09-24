@@ -63,9 +63,7 @@ qu'en RAM :
   et déclenche la récupération complète déjà validée ;
 - le timing protocole/TLS peut aussi s'assouplir en session, sans persistance.
 
-La suite logicielle rel42 et le build libfprint reproductible passent. rel42 ne
-remplace pas encore la validation humaine rel40 tant qu'il n'a pas reçu son
-propre test cold boot.
+La suite logicielle rel42 et le build libfprint reproductible passent. Le gate build/ABI portable passe aussi dans des conteneurs propres Debian stable, Fedora current, openSUSE Tumbleweed, Arch Linux et Alpine edge/musl. rel42 ne remplace pas encore la validation humaine rel40 tant qu'il n'a pas reçu son propre test cold boot.
 
 ## Installation
 
@@ -113,6 +111,10 @@ compatibilité validé qui sépare l'authentification fingerprint et mot de pass
 saisir le mot de passe n'attend plus l'expiration d'une tentative empreinte.
 Les autres bureaux conservent leur intégration fprintd/PAM native.
 
+### Validation matcher optionnelle et respectueuse des données biométriques
+
+Benjamin Allègre (Sigfrodr) publie tools/eval/fp_eval.py dans Sigfrodr/libfprint-goodixtls : un évaluateur local commun à la famille Milan-SPI avec séparation enrol/probe disjointe. Il ne sort que des agrégats EER, FAR/FRR, distributions de scores et d-prime ; captures et templates restent sur la machine du testeur. C'est utile pour une validation multi-utilisateur défendable en upstream de SIGFM face à des références neutres descriptor/géométriques et NBIS optionnel. Ce n'est pas une dépendance runtime et les builds release restent incapables de dumper les captures biométriques.
+
 ## Historique technique
 
 ### rel24-rc1 : candidat de compatibilité transport lent
@@ -130,11 +132,7 @@ Depuis la racine du dépôt :
 ./fingerprint/install-arch.sh
 ```
 
-L'installateur vérifie la présence du `GXFP51A0`, compile le patch libfprint,
-installe `libfprint-goodix51a0` et `fprintd`, ajoute uniquement l'accès
-gpiochip nécessaire, recharge udev puis redémarre fprintd.
-
-Il ne modifie **ni PAM, ni KDE, ni GNOME**.
+L'installateur vérifie la présence du `GXFP51A0`, compile le patch libfprint, installe `libfprint-goodix51a0` et `fprintd`, ajoute uniquement l'accès gpiochip nécessaire et installe les prewarm boot/resume. Sur Plasma 6.7.5 uniquement, il applique aussi les intégrations KDE/Plasma Login Manager package-managed, idempotentes et réversibles ; les autres bureaux gardent leur intégration fprintd/PAM native.
 
 Ensuite utilise les réglages standards du bureau ou :
 
@@ -240,8 +238,7 @@ Ne jamais publier :
 - binaires/firmwares Goodix ou Huawei propriétaires ;
 - numéros de série ou identifiants privés.
 
-Le cache PMK et le timing appris sont des états runtime sous
-`/var/lib/fprint/` et ne sont ni packagés ni versionnés.
+Le cache PMK validé reste un état runtime protégé sous `/var/lib/fprint/`. rel42 ne persiste plus aucun timing adaptatif ; les anciens fichiers de timing non secrets sont supprimés à la migration.
 
 Le template fprintd v4 local est une donnée biométrique et doit être protégé
 comme tel.

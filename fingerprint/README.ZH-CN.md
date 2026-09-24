@@ -59,8 +59,7 @@ lifecycle 都从已验证的 100% 名义 timing 开始，只在 RAM 中自适应
   已验证的完整 session recovery；
 - protocol/TLS timing 也只在当前 session 中自适应，绝不写盘。
 
-rel42 软件测试和可重复 libfprint build 已通过；在自己的 cold-boot 人工
-验证完成前，rel40 仍然是 runtime 基准。
+rel42 软件测试和可重复 libfprint build 已通过；portable build/ABI gate 也已在干净的 Debian stable、Fedora current、openSUSE Tumbleweed、Arch Linux 与 Alpine edge/musl 容器中通过。在 rel42 自己的 cold-boot 人工验证完成前，rel40 仍然是 runtime 基准。
 
 ## 安装
 
@@ -105,6 +104,10 @@ Arch/CachyOS 也可以直接执行：
 兼容包：输入密码不会再等待指纹 timeout。其他桌面继续使用各自原生
 fprintd/PAM 集成。
 
+### 可选的隐私保护 matcher 验证
+
+Benjamin Allègre（Sigfrodr）在 Sigfrodr/libfprint-goodixtls 中发布了 tools/eval/fp_eval.py，作为 Milan-SPI 系列的本地统一评估工具。它使用互不重叠的 enrol/probe 划分，只输出 EER、FAR/FRR、分数分布和 d-prime 等聚合统计；原始指纹图像和模板始终留在测试者自己的机器上。该工具适合为 SIGFM 提供可用于 upstream 的多用户验证，但不是驱动的运行时依赖；release build 仍不包含生物特征 capture dump 功能。
+
 ## 历史演进
 
 ### rel24-rc1：慢速传输兼容候选版
@@ -126,15 +129,7 @@ Release 包含：
 
     ./fingerprint/install-arch.sh
 
-安装器会：
-
-1. 如果系统不存在 `GXFP51A0` SPI/ACPI 设备则拒绝运行；
-2. 本地构建已审核的 libfprint patch；
-3. 安装 `libfprint-goodix51a0` 和 `fprintd`；
-4. 只授予 fprintd 此驱动需要的 gpiochip 设备权限；
-5. reload udev 并重启 fprintd。
-
-它**不会修改 PAM、KDE 或 GNOME 配置**。之后可使用桌面标准设置，或：
+安装器会检查 GXFP51A0、构建并安装审核过的 libfprint/fprintd、仅增加驱动所需的 gpiochip 权限，并安装 boot/resume prewarm。仅在 Plasma 6.7.5 上，它还会应用 package-managed、幂等且可回滚的 KDE/Plasma Login Manager 兼容集成；其他桌面继续使用自己的原生 fprintd/PAM 集成。之后可使用桌面标准设置，或：
 
     fprintd-enroll -f right-index-finger
     fprintd-verify
@@ -210,7 +205,7 @@ Release 包含：
 - Goodix/Huawei 专有二进制或固件；
 - 序列号或私有机器标识。
 
-PMK cache 与学习到的 timing 值位于 `/var/lib/fprint/`，不会被打包或版本控制。v4 fprintd 模板属于生物特征数据，应按敏感认证数据保护。驱动不会刷写传感器固件。
+已验证的 PMK cache 仍作为受保护的 runtime 状态保存在 `/var/lib/fprint/`。rel42 不再持久化任何自适应 timing；升级时只删除旧版留下的非敏感 timing 整数。v4 fprintd 模板属于生物特征数据，应按敏感认证数据保护。驱动不会刷写传感器固件。
 
 ## 支持范围
 

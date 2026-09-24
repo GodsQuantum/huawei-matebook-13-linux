@@ -62,9 +62,7 @@ nominal 100% after a fresh lifecycle and adapts **only in RAM**:
   requests the existing full session recovery;
 - protocol/TLS timing may also loosen in-session, but nothing is persisted.
 
-The rel42 software suite and reproducible libfprint build pass. rel42 has not yet
-replaced the human runtime validation of rel40 until it receives its own cold
-boot test.
+The rel42 software suite and reproducible libfprint build pass. The portable build/ABI gate also passes in clean Debian stable, Fedora current, openSUSE Tumbleweed, Arch Linux and Alpine edge/musl containers. rel42 has not yet replaced the human runtime validation of rel40 until it receives its own cold-boot test.
 
 ## Install
 
@@ -111,6 +109,10 @@ For Plasma Login Manager 6.7.5, this repository also carries the validated
 fingerprint/password preemption compatibility package: password and fingerprint
 remain separate authentication paths, so entering a password does not wait for
 a fingerprint timeout. Other desktops retain their native fprintd/PAM behavior.
+
+### Optional privacy-preserving matcher validation
+
+Benjamin Allègre (Sigfrodr) published tools/eval/fp_eval.py in Sigfrodr/libfprint-goodixtls as a shared local-only evaluator for the Milan-SPI family. It uses disjoint enrol/probe splits and reports only aggregate EER, FAR/FRR, score distributions and d-prime; raw captures and templates stay on the tester's machine. This is useful for upstream-quality multi-user validation of SIGFM against neutral descriptor/geometric and optional NBIS references. It is not a runtime dependency, and release builds remain unable to dump biometric captures.
 
 ## Historical evolution
 
