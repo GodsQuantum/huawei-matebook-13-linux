@@ -87,13 +87,15 @@ jobs:
             image: opensuse/tumbleweed:latest
           - name: Arch Linux
             image: archlinux:latest
+          - name: Alpine edge
+            image: alpine:edge
     container:
       image: ${{ matrix.image }}
     steps:
       - name: Bootstrap checkout runtime
-        shell: bash
+        shell: sh
         run: |
-          set -euo pipefail
+          set -eu
           if command -v apt-get >/dev/null; then
             apt-get update
             apt-get install -y git ca-certificates
@@ -103,12 +105,30 @@ jobs:
             zypper --non-interactive install git ca-certificates
           elif command -v pacman >/dev/null; then
             pacman -Sy --needed --noconfirm git ca-certificates
+          elif command -v apk >/dev/null; then
+            apk add --no-cache git ca-certificates bash
           else
             echo "Unsupported CI container" >&2
             exit 1
           fi
 
-      - uses: actions/checkout@v5
+      - name: Checkout (glibc containers)
+        if: matrix.name != 'Alpine edge'
+        uses: actions/checkout@v5
+
+      - name: Checkout (Alpine/musl)
+        if: matrix.name == 'Alpine edge'
+        shell: sh
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE"
+          git init .
+          git remote add origin "https://github.com/$REPOSITORY.git"
+          git fetch --depth=1 origin "$COMMIT_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Build through portable installer
         shell: bash

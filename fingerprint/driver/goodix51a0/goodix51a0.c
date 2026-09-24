@@ -1740,7 +1740,7 @@ gx_read_fw_version (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
  * rel24-rel40 persisted protocol/capture timing under /var/lib/fprint.  That
  * looked useful for slow controllers, but deep-S3/prewarm transport loss could
  * be mis-attributed as a speed problem and ratchet 100 -> 150 -> ... -> 300
- * across reboots.  rel41 deliberately keeps both scales process-local.
+ * across reboots.  rel42 deliberately keeps both scales process-local.
  *
  * Every fresh/cold lifecycle starts at the Windows-validated nominal timing.
  * A real runtime failure may loosen timings for the current fprintd lifetime,
@@ -1893,7 +1893,7 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
 
       /* Self-healing on desync. The protocol delays are tuned to the author's
        * unit and sit right at the edge; a different SPI controller can be
-       * slower and lose sync. Only successful timing values are persisted. */
+       * slower and lose sync. Adaptation is session-local and never persisted. */
       if (self->timing_scale < GX_TIMING_SCALE_MAX)
         {
           self->timing_scale = MIN (self->timing_scale + GX_TIMING_SCALE_STEP,
@@ -2297,6 +2297,8 @@ gx_prepare_capture_context (FpiDeviceGoodix51A0 *self,
                             gboolean capture_diagnostic)
 {
   int attempt;
+  gboolean previous_pacing_suppression;
+  gboolean ok = FALSE;
 
   /* Diagnostics are intentionally single-shot so protocol failures remain
    * visible to the research harness.  Production operations get a bounded
@@ -2307,17 +2309,26 @@ gx_prepare_capture_context (FpiDeviceGoodix51A0 *self,
       g_getenv ("GXFP_DIAGNOSTIC_TLS_ONLY"))
     return gx_prepare_capture_context_once (self, capture_diagnostic);
 
+  /* Context preparation is lifecycle/calibration work, not biometric
+   * performance evidence.  A GET_IMAGE miss while building background/FDT
+   * must request recovery but must never slow the capture gap used by the
+   * first real finger.  Preserve an already-adapted scale from an earlier
+   * genuine biometric capture; only suppress further adaptation here. */
+  previous_pacing_suppression = self->capture_pacing_suppressed;
+  self->capture_pacing_suppressed = TRUE;
+
   for (attempt = 1; attempt <= GX_PREPARE_ATTEMPTS; attempt++)
     {
       GCancellable *c = fpi_device_get_cancellable (FP_DEVICE (self));
 
       if (c && g_cancellable_is_cancelled (c))
-        return FALSE;
+        goto out;
 
       if (gx_prepare_capture_context_once (self, FALSE))
         {
           self->capture_recovery_pending = FALSE;
-          return TRUE;
+          ok = TRUE;
+          goto out;
         }
 
       fp_warn ("GXFP51A0 capture-context preparation failed attempt=%d/%d",
@@ -2327,7 +2338,9 @@ gx_prepare_capture_context (FpiDeviceGoodix51A0 *self,
         break;
     }
 
-  return FALSE;
+out:
+  self->capture_pacing_suppressed = previous_pacing_suppression;
+  return ok;
 }
 
 static gboolean

@@ -45,9 +45,9 @@ rel40 因此同时验证了：
 - 不再使用周期性 synthetic Claim keepalive；
 - release build 不含生物特征 dump writer。
 
-### rel41 候选：仅会话内自适应 + 跨发行版安装
+### rel42 候选：仅会话内自适应 + 跨发行版安装
 
-rel41 不改变 rel40 已验证的生物识别路径。它移除了 rel24–rel40 的持久化
+rel42 不改变 rel40 已验证的生物识别路径。它移除了 rel24–rel40 的持久化
 timing 文件，因为 lifecycle/prewarm 失败可能把 pacing 永久推高。每个新
 lifecycle 都从已验证的 100% 名义 timing 开始，只在 RAM 中自适应：
 
@@ -59,7 +59,7 @@ lifecycle 都从已验证的 100% 名义 timing 开始，只在 RAM 中自适应
   已验证的完整 session recovery；
 - protocol/TLS timing 也只在当前 session 中自适应，绝不写盘。
 
-rel41 软件测试和可重复 libfprint build 已通过；在自己的 cold-boot 人工
+rel42 软件测试和可重复 libfprint build 已通过；在自己的 cold-boot 人工
 验证完成前，rel40 仍然是 runtime 基准。
 
 ## 安装
@@ -70,13 +70,13 @@ rel41 软件测试和可重复 libfprint build 已通过；在自己的 cold-boo
 ./fingerprint/install-linux.sh
 ```
 
-安装器自动识别 Arch/CachyOS、Debian/Ubuntu、Fedora/RHEL-family 与
-openSUSE。Arch/CachyOS 使用原生 pacman 包；其他 systemd 发行版把审核过
-的 libfprint 安装到 `/usr/local`，并通过 service-local
-`LD_LIBRARY_PATH` **只让 fprintd 使用它**，不会替换其他程序看到的发行版
-libfprint。Meson 的真实 `libdir` 会动态检测，因此支持 Debian multiarch
-和 `lib64`。非 systemd 系统也有 loader fallback，并保留发行版自己的
-fprintd/PAM 生命周期管理。
+安装器自动识别 Arch/CachyOS、Debian/Ubuntu、Fedora/RHEL-family、
+openSUSE 与 Alpine。Arch/CachyOS 使用原生 pacman 包；systemd 系统通过
+service-local `LD_LIBRARY_PATH` **只让 fprintd 使用** `/usr/local`
+libfprint。非 systemd 系统通过 `/etc/dbus-1/system-services` 中更高优先级
+的 D-Bus activation wrapper 实现同样隔离，不修改全局 `ld.so.conf`。
+Meson `libdir` 会动态检测（Debian multiarch、`lib64`、普通 `lib`），且在
+修改系统文件之前会用发行版自己的 fprintd 验证 staged candidate 的 ABI。
 
 常用模式：
 
@@ -98,7 +98,7 @@ Arch/CachyOS 也可以直接执行：
 ./fingerprint/install-arch.sh
 ```
 
-安装器不会删除 enrollment，也不会删除已经验证的 PMK cache。rel41 升级
+安装器不会删除 enrollment，也不会删除已经验证的 PMK cache。rel42 升级
 只清理 rel24–rel40 遗留的非敏感 timing 整数。
 
 对于 Plasma Login Manager 6.7.5，本仓库还提供已验证的密码/指纹分离认证
@@ -150,13 +150,13 @@ Release 包含：
 
 全新安装不需要此步骤。
 
-### Debian / Ubuntu / Fedora / 其他 Linux
+### Debian / Ubuntu / Fedora / openSUSE / Alpine / 其他 Linux
 
 可移植源码安装器会重建精确固定的 libfprint candidate，并将替换隔离在 `/usr/local`：
 
     ./fingerprint/install-linux.sh
 
-支持 Arch/CachyOS、Debian/Ubuntu、Fedora、openSUSE 的构建依赖。Arch/CachyOS 会委托给原生 pacman 包；其他支持系统通过 systemd drop-in 只让 fprintd 使用本地 libfprint，并保存 rollback manifest。
+支持 Arch/CachyOS、Debian/Ubuntu、Fedora、openSUSE、Alpine 的构建依赖。Arch/CachyOS 委托给原生 pacman 包；其他系统先 stage candidate 并验证发行版 fprintd ABI，再通过 systemd drop-in 或 D-Bus activation wrapper 只让 fprintd 使用本地 libfprint，同时保存 rollback manifest。
 
 回滚：
 

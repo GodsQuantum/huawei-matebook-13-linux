@@ -47,9 +47,9 @@ rel40 therefore validates together:
 - no periodic synthetic Claim keepalive;
 - no biometric dump writer in release builds.
 
-### rel41 candidate: fast session-local adaptation + portable Linux install
+### rel42 candidate: fast session-local adaptation + portable Linux install
 
-rel41 preserves the runtime-validated rel40 biometric path unchanged. It removes
+rel42 preserves the runtime-validated rel40 biometric path unchanged. It removes
 the rel24–rel40 persistent timing files because lifecycle/prewarm failures could
 ratchet them upward across boots. Timing now always begins at the validated
 nominal 100% after a fresh lifecycle and adapts **only in RAM**:
@@ -62,7 +62,7 @@ nominal 100% after a fresh lifecycle and adapts **only in RAM**:
   requests the existing full session recovery;
 - protocol/TLS timing may also loosen in-session, but nothing is persisted.
 
-The rel41 software suite and reproducible libfprint build pass. rel41 has not yet
+The rel42 software suite and reproducible libfprint build pass. rel42 has not yet
 replaced the human runtime validation of rel40 until it receives its own cold
 boot test.
 
@@ -74,14 +74,15 @@ Recommended from a source checkout:
 ./fingerprint/install-linux.sh
 ```
 
-The installer detects Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL-family and
-openSUSE. On Arch/CachyOS it delegates to the native pacman package. On other
-systemd distributions it installs the reviewed libfprint build under
-`/usr/local` and exposes it **only to fprintd** through a service-local
-`LD_LIBRARY_PATH`; the distro libfprint remains untouched for other programs.
-Meson's actual `libdir` is detected dynamically, including Debian multiarch and
-`lib64` layouts. On non-systemd distributions the same build is supported with
-a loader fallback and the distro's native fprintd/PAM lifecycle.
+The installer detects Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL-family,
+openSUSE and Alpine. Arch/CachyOS delegates to the native pacman package.
+On systemd distributions the reviewed `/usr/local` libfprint is exposed
+**only to fprintd** through a service-local `LD_LIBRARY_PATH`. On non-systemd
+systems the same isolation is provided by a higher-priority D-Bus activation
+wrapper under `/etc/dbus-1/system-services`; there is no global `ld.so.conf`
+replacement. Meson's actual `libdir` is detected dynamically (Debian multiarch,
+`lib64`, plain `lib`) and the distribution's own fprintd ABI is validated
+against the staged candidate before any system file is changed.
 
 Useful modes:
 
@@ -104,7 +105,7 @@ Arch/CachyOS can also call the native path directly:
 ```
 
 The installer never deletes enrollments or the validated PMK cache. Upgrading to
-rel41 removes only the obsolete non-secret timing integers left by rel24–rel40.
+rel42 removes only the obsolete non-secret timing integers left by rel24–rel40.
 
 For Plasma Login Manager 6.7.5, this repository also carries the validated
 fingerprint/password preemption compatibility package: password and fingerprint
@@ -349,7 +350,7 @@ fprintd-delete "$USER"
 
 Fresh installations do not need this step.
 
-### Debian / Ubuntu / Fedora / other Linux
+### Debian / Ubuntu / Fedora / openSUSE / Alpine / other Linux
 
 The portable source installer rebuilds the exact pinned libfprint candidate and
 keeps the replacement isolated under `/usr/local`:
@@ -358,10 +359,11 @@ keeps the replacement isolated under `/usr/local`:
 ./fingerprint/install-linux.sh
 ```
 
-It installs build dependencies on Arch/CachyOS, Debian/Ubuntu, Fedora and
-openSUSE families. On Arch/CachyOS it delegates to the native pacman package.
-On other supported families it installs a local libfprint build only for
-fprintd through a systemd drop-in and records a rollback manifest.
+It installs build dependencies on Arch/CachyOS, Debian/Ubuntu, Fedora,
+openSUSE and Alpine. Arch/CachyOS delegates to the native pacman package.
+Elsewhere it stages the candidate, validates the distro fprintd ABI, then
+isolates the local libfprint to fprintd via a systemd drop-in or D-Bus
+activation wrapper. A rollback manifest is recorded.
 
 Rollback after a source installation:
 

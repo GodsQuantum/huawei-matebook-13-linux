@@ -90,7 +90,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=41" in pkgbuild
+assert "pkgrel=42" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
@@ -165,7 +165,12 @@ assert "TimeoutStartSec=40s" in linux
 assert "Before=display-manager.service" in linux
 assert "LimitCORE=0" in linux
 assert "KEEPALIVE_HELPER_FILE=" not in linux
-assert "LDCONF_FILE=" in linux
+assert "DBUS_SERVICE_FILE=" in linux
+assert "FPRINTD_WRAPPER_FILE=" in linux
+assert "FPRINTD_ABI_COMPATIBILITY=PASS" in linux
+assert "ldd -r" in linux
+assert "LDCONF_FILE=" not in linux
+assert "90-gxfp51a0-local.conf" not in linux
 assert "SYSTEMD_AVAILABLE=0" in linux
 assert "introspect" in linux and "LIBDIR_REL=" in linux
 assert "KDE_HELPER_FILE=" in linux
@@ -176,7 +181,10 @@ uninstall = UNINSTALL.read_text()
 assert "created-early-wants" in uninstall
 assert "KDE_HELPER=" in uninstall and '"$KDE_HELPER" --remove' in uninstall
 assert "gxfp51a0-warm-keepalive.timer" in uninstall
-assert "90-gxfp51a0-local.conf" in uninstall
+assert "DBUS_SERVICE_FILE=" in uninstall
+assert "FPRINTD_WRAPPER_FILE=" in uninstall
+assert "LEGACY_LDCONF_FILE=" in uninstall
+assert "org.freedesktop.DBus.ReloadConfig" in uninstall
 assert "command -v systemctl" in uninstall
 assert "BIND_HELPER=" not in uninstall
 assert "BIND_SERVICE=" not in uninstall

@@ -47,9 +47,9 @@ rel40 valide donc ensemble :
 - aucun keepalive Claim périodique ;
 - aucun writer de dump biométrique dans les builds release.
 
-### Candidat rel41 : adaptation rapide en RAM + installation Linux portable
+### Candidat rel42 : adaptation rapide en RAM + installation Linux portable
 
-rel41 conserve intégralement le chemin biométrique rel40 validé. Il supprime les
+rel42 conserve intégralement le chemin biométrique rel40 validé. Il supprime les
 fichiers de timing persistants rel24–rel40, car un échec lifecycle/prewarm
 pouvait faire grimper définitivement le pacing au fil des boots. Après une
 frontière lifecycle fraîche, le timing repart toujours à 100 % et ne s'adapte
@@ -63,7 +63,7 @@ qu'en RAM :
   et déclenche la récupération complète déjà validée ;
 - le timing protocole/TLS peut aussi s'assouplir en session, sans persistance.
 
-La suite logicielle rel41 et le build libfprint reproductible passent. rel41 ne
+La suite logicielle rel42 et le build libfprint reproductible passent. rel42 ne
 remplace pas encore la validation humaine rel40 tant qu'il n'a pas reçu son
 propre test cold boot.
 
@@ -75,14 +75,15 @@ Depuis un checkout du dépôt :
 ./fingerprint/install-linux.sh
 ```
 
-L'installateur détecte Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL et openSUSE. Sur
-Arch/CachyOS il délègue au paquet pacman natif. Sur les autres distributions
-systemd, le libfprint audité est installé sous `/usr/local` et rendu visible
-**uniquement à fprintd** via `LD_LIBRARY_PATH` dans le service ; les autres
-programmes conservent le libfprint de la distribution. Le `libdir` Meson réel
-est détecté dynamiquement, y compris les layouts Debian multiarch et `lib64`.
-Sans systemd, le même build reste installable avec un fallback du loader et la
-gestion fprintd/PAM native de la distribution.
+L'installateur détecte Arch/CachyOS, Debian/Ubuntu, Fedora/RHEL, openSUSE et
+Alpine. Arch/CachyOS délègue au paquet pacman natif. Avec systemd, le libfprint
+local sous `/usr/local` n'est visible **que par fprintd** via un
+`LD_LIBRARY_PATH` de service. Sans systemd, la même isolation passe par un
+wrapper d'activation D-Bus prioritaire sous `/etc/dbus-1/system-services` :
+aucun `ld.so.conf` global n'est modifié. Le `libdir` Meson réel est détecté
+dynamiquement (multiarch Debian, `lib64`, `lib`) et l'ABI du fprintd de la
+distribution est validée contre le candidat stagé avant toute modification
+système.
 
 Modes utiles :
 
@@ -105,7 +106,7 @@ Arch/CachyOS peut appeler directement :
 ```
 
 L'installation ne supprime jamais les enrollments ni le cache PMK validé.
-L'upgrade rel41 ne retire que les anciens entiers de timing non secrets.
+L'upgrade rel42 ne retire que les anciens entiers de timing non secrets.
 
 Pour Plasma Login Manager 6.7.5, le dépôt contient aussi le paquet de
 compatibilité validé qui sépare l'authentification fingerprint et mot de passe :
@@ -158,7 +159,7 @@ fprintd-delete "$USER"
 
 Une installation neuve n'a pas cette étape.
 
-### Debian / Ubuntu / Fedora / autres Linux
+### Debian / Ubuntu / Fedora / openSUSE / Alpine / autres Linux
 
 L'installateur source portable reconstruit exactement le candidat libfprint
 épinglé et garde le remplacement isolé sous `/usr/local` :
@@ -167,10 +168,11 @@ L'installateur source portable reconstruit exactement le candidat libfprint
 ./fingerprint/install-linux.sh
 ```
 
-Il sait installer les dépendances sur les familles Arch/CachyOS,
-Debian/Ubuntu, Fedora et openSUSE. Sur Arch/CachyOS il délègue au paquet pacman
-natif. Sur les autres familles supportées il relie uniquement fprintd au
-libfprint local via un drop-in systemd et conserve un manifeste de rollback.
+Il sait installer les dépendances sur Arch/CachyOS, Debian/Ubuntu, Fedora,
+openSUSE et Alpine. Arch/CachyOS délègue au paquet pacman natif. Ailleurs, le
+candidat est stagé, l'ABI du fprintd de la distribution est vérifiée, puis le
+libfprint local est isolé à fprintd via un drop-in systemd ou un wrapper
+d'activation D-Bus. Un manifeste de rollback est conservé.
 
 Rollback :
 

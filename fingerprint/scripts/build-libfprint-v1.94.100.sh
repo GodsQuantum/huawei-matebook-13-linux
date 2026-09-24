@@ -94,7 +94,7 @@ required_pc=(
   cairo
   gudev-1.0
   openssl
-  udev
+  libudev
 )
 missing=()
 for dep in "${required_pc[@]}"; do
@@ -114,6 +114,22 @@ EOF
   exit 3
 fi
 say "PKG_CONFIG_DEPENDENCIES=PASS"
+
+# libfprint v1.94.100 queries pkg-config "udev" only to discover the udev
+# rules directory when the Meson option is left on auto. Debian exposes only
+# libudev.pc, so resolve the standard rules directory ourselves and pass it
+# explicitly. No distro files or pkg-config metadata are modified.
+if pkg-config --exists udev; then
+  UDEV_BASE_DIR="$(pkg-config --variable=udevdir udev)"
+elif [[ -d /usr/lib/udev ]]; then
+  UDEV_BASE_DIR=/usr/lib/udev
+elif [[ -d /lib/udev ]]; then
+  UDEV_BASE_DIR=/lib/udev
+else
+  UDEV_BASE_DIR=/usr/lib/udev
+fi
+UDEV_RULES_DIR="$UDEV_BASE_DIR/rules.d"
+say "UDEV_RULES_DIR=$UDEV_RULES_DIR"
 
 say ""
 say "===== 3. PINNED MESON / NINJA TOOL ENV ====="
@@ -191,6 +207,8 @@ say "===== 7. MESON CONFIGURE ====="
 "$MESON" setup "$BUILD_DIR" "$SRC_DIR" \
   --prefix="$MESON_PREFIX" \
   -Ddrivers=goodix51a0 \
+  -Dudev_rules_dir="$UDEV_RULES_DIR" \
+  -Dudev_hwdb=disabled \
   -Dintrospection=false \
   -Ddoc=false \
   -Dinstalled-tests=false

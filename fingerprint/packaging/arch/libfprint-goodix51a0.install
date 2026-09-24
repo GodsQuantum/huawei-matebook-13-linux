@@ -10,7 +10,7 @@ post_install() {
   udevadm settle --timeout=3 || true
   # rel37 removes the rel35/36 periodic synthetic Claim loop.
   systemctl stop gxfp51a0-warm-keepalive.timer gxfp51a0-warm-keepalive.service 2>/dev/null || true
-  # rel41 replaces rel24-rel40 disk timing learning with session-local adaptation.
+  # rel42 replaces rel24-rel40 disk timing learning with session-local adaptation.
   # These files contain no biometric/secret material and are obsolete.
   rm -f /var/lib/fprint/.goodix51a0-timing         /var/lib/fprint/.goodix51a0-capture-timing
   systemctl daemon-reload || true
