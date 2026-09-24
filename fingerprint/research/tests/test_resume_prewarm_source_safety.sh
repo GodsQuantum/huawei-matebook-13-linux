@@ -46,7 +46,7 @@ def fn(name):
 
 desync=fn("gx_capture_transport_desync")
 success=fn("gx_capture_pacing_success")
-frame=fn("gx_capture_frame")
+frame=fn("gx_capture_frame_ex")
 open_=fn("gx_dev_open")
 
 assert "#define GX_CAPTURE_CLEAN_DECAY_STREAK 16" in s

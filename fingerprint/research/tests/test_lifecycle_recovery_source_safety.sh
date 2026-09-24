@@ -57,11 +57,18 @@ assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
 assert "self->warm_sleep_clock_valid = FALSE" in abandon
 
-# A retained context is only "ready" after proving the same encrypted image
-# transport that Verify will use. FDT-only validation is insufficient.
+# A retained context refreshes the exact encrypted image path and adopts that
+# proven no-finger frame as the new background/FDT baseline. If the user is
+# already touching the sensor, never contaminate the background; lifecycle
+# boundaries were rejected before this function, so defer the rebase and let
+# the real Verify frame exercise TLS.
 assert "gx_fdt_probe (self, cur)" in warm
-assert "gx_capture_frame (self, probe, TRUE)" in warm
-assert "warm context image-validated" in warm
+assert "before_mean < GOODIX_FDT_ABS" in warm
+assert warm.index("before_mean < GOODIX_FDT_ABS") < warm.index("gx_capture_frame (self, fresh_bg, TRUE)")
+assert "gx_capture_frame (self, fresh_bg, TRUE)" in warm
+assert "memcpy (self->bg_frame, fresh_bg" in warm
+assert "memcpy (self->fdt_base, after, sizeof self->fdt_base)" in warm
+assert "WARM_REBASE refreshed background+FDT" in warm
 assert "capture_pacing_suppressed = TRUE" in warm
 assert "capture_pacing_suppressed = previous_pacing_suppression" in warm
 assert "warm context failed full readiness validation" in open_

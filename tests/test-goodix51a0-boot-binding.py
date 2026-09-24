@@ -22,6 +22,7 @@ PLM_PATCH1 = PLM_INTEGRATION / "0001-show-pam-authentication-messages.patch"
 PLM_PATCH2 = PLM_INTEGRATION / "0002-stop-notification-timer-for-pam-message.patch"
 PLM_PATCH3 = PLM_INTEGRATION / "0003-enable-fprintd-for-plasmalogin.patch"
 PLM_PATCH4 = PLM_INTEGRATION / "0004-autostart-first-fingerprint-attempt.patch"
+PLM_PATCH5 = PLM_INTEGRATION / "0005-split-fingerprint-password-auth.patch"
 
 actual = "acpi:GXFP51A0:GXFP51A0:"
 legacy = "acpi:GXFP51A0:"
@@ -89,11 +90,11 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=35" in pkgbuild
+assert "pkgrel=40" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "sleep.target.wants/gxfp51a0-resume-prewarm.service" in pkgbuild
-assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" in pkgbuild
+assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" not in pkgbuild
 assert "gxfp51a0-kde-lockscreen-integrate" in pkgbuild
 assert "90-gxfp51a0-kde-lockscreen.hook" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
@@ -119,12 +120,14 @@ plm_patch1 = PLM_PATCH1.read_text()
 plm_patch2 = PLM_PATCH2.read_text()
 plm_patch3 = PLM_PATCH3.read_text()
 plm_patch4 = PLM_PATCH4.read_text()
+plm_patch5 = PLM_PATCH5.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.3" in plm_pkgbuild
+assert "pkgrel=3.4" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
 assert "0004-autostart-first-fingerprint-attempt.patch" in plm_pkgbuild
+assert "0005-split-fingerprint-password-auth.patch" in plm_pkgbuild
 assert "function onInformationMessage(message)" in plm_patch1
 assert "notificationResetTimer.stop();" in plm_patch2
 assert "pam_fprintd.so max-tries=3 timeout=12" in plm_patch3
@@ -132,11 +135,20 @@ assert "maybeStartFingerprintLogin" in plm_patch4
 assert "fingerprintAutoAttemptDone" in plm_patch4
 assert "fingerprintAutoAttemptInFlight" in plm_patch4
 assert "startLogin(true)" in plm_patch4
+assert "plasmalogin-fingerprint" in plm_patch5
+assert "FingerprintLogin" in plm_patch5
+assert "CancelLogin" in plm_patch5
+assert "LoginCancelled" in plm_patch5
+assert "setPamService" in plm_patch5
+assert "onTextChanged" in plm_patch5
+assert "-auth        sufficient  pam_fprintd.so max-tries=3 timeout=12" in plm_patch5
+assert "+-auth      required     pam_fprintd.so max-tries=3 timeout=12" in plm_patch5
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall
 assert "gxfp51a0-kde-lockscreen-integrate --apply" in pkginstall
-assert "gxfp51a0-warm-keepalive.timer" in pkginstall
+assert "systemctl stop gxfp51a0-warm-keepalive.timer" in pkginstall
+assert "systemctl start --no-block gxfp51a0-warm-keepalive.service" not in pkginstall
 
 arch = ARCH.read_text()
 assert "native udev SPI binding, warm readiness and desktop integration" in arch

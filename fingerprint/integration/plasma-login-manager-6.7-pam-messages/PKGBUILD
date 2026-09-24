@@ -3,7 +3,7 @@
 
 pkgname=plasma-login-manager
 pkgver=6.7.5
-pkgrel=3.3
+pkgrel=3.4
 arch=(x86_64)
 pkgdesc="Plasma Login Manager with upstream PAM authentication-message fixes"
 url="https://invent.kde.org/plasma/plasma-login-manager"
@@ -18,12 +18,14 @@ source=("https://download.kde.org/stable/plasma/6.7.5/$pkgname-$pkgver.tar.xz"
         "0001-show-pam-authentication-messages.patch"
         "0002-stop-notification-timer-for-pam-message.patch"
         "0003-enable-fprintd-for-plasmalogin.patch"
-        "0004-autostart-first-fingerprint-attempt.patch")
+        "0004-autostart-first-fingerprint-attempt.patch"
+        "0005-split-fingerprint-password-auth.patch")
 sha256sums=("6ed7c3bbac1c79bc1a21c330923804aa6c3f720fafd6accb1a6a1fada684e84f"
             "3a353ef54bc168257e1ebabdb09dd917ad289a95d6ef640012a1516420f26526"
             "f049c62d21b8076643e4e665c479692faa5869c3ef535448df0362c7c2220673"
             "2bf658ddb64f6efa7e962341936ea9330cc78e60eb928cdd1c11959d6261ac03"
-            "dacbb2edf330d9abc0c3e707d112512149f48c53a56401b7a5149b45e36cf36b")
+            "dacbb2edf330d9abc0c3e707d112512149f48c53a56401b7a5149b45e36cf36b"
+            "d3409804a961c4c99737c125e28691532a57cf1ff4a7f8cf965e16ee272a9bbe")
 
 prepare() {
   cd "$pkgname-$pkgver"
@@ -31,6 +33,7 @@ prepare() {
   patch -Np1 -i ../0002-stop-notification-timer-for-pam-message.patch
   patch -Np1 -i ../0003-enable-fprintd-for-plasmalogin.patch
   patch -Np1 -i ../0004-autostart-first-fingerprint-attempt.patch
+  patch -Np1 -i ../0005-split-fingerprint-password-auth.patch
 }
 
 build() {

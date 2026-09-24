@@ -8,13 +8,13 @@ post_install() {
   udevadm control --reload || true
   udevadm trigger --subsystem-match=spi || true
   udevadm settle --timeout=3 || true
+  # rel37 removes the rel35/36 periodic synthetic Claim loop.
+  systemctl stop gxfp51a0-warm-keepalive.timer gxfp51a0-warm-keepalive.service 2>/dev/null || true
   systemctl daemon-reload || true
   systemctl restart --no-block fprintd.service || true
   if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
     /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply || true
   fi
-  systemctl restart --no-block gxfp51a0-warm-keepalive.timer || true
-  systemctl start --no-block gxfp51a0-warm-keepalive.service || true
 }
 
 post_upgrade() {

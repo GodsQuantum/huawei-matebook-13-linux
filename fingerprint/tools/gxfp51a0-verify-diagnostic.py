@@ -10,15 +10,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-SERVICE = "net.reactivated.Fprint"
-MANAGER = "/net/reactivated/Fprint/Manager"
-MANAGER_IFACE = "net.reactivated.Fprint.Manager"
-DEVICE_IFACE = "net.reactivated.Fprint.Device"
-
 SCORE_RE = re.compile(r"verify: attempt \d+(?:/\d+)? -> (\d+) matches \(best=\d+ threshold=(\d+)")
 RETRY_RE = re.compile(r"verify: no-match attempt (\d+)/(\d+); request another complete press")
 CAPTURE_MS_RE = re.compile(r"timing: whole capture (\d+) us")
 RESULT_RE = re.compile(r"Verify result: (verify-[a-z-]+) \((not )?done\)")
+TRACE_READY_RE = re.compile(r"GXFP51A0 (?:VERIFY|IDENTIFY)_TRACE physical press (\d+)/(\d+) READY")
+TRACE_DETECTED_RE = re.compile(r"GXFP51A0 (?:VERIFY|IDENTIFY)_TRACE physical press (\d+)/(\d+) DETECTED_HOLD")
+TRACE_LIFT_RE = re.compile(r"GXFP51A0 (?:VERIFY|IDENTIFY)_TRACE physical press (\d+)/(\d+) LIFT_NOW")
+TRACE_RELEASED_RE = re.compile(r"GXFP51A0 (?:VERIFY|IDENTIFY)_TRACE physical press (\d+)/(\d+) RELEASED")
+TRACE_SCORE_RE = re.compile(r"GXFP51A0 AUTH_TRACE mode=(?:verify|identify) same-press image (\d+)/(\d+) score=(\d+) threshold=(\d+)")
+TRACE_DONE_RE = re.compile(r"GXFP51A0 AUTH_TRACE mode=(?:verify|identify) same-press completed images=(\d+) best=(\d+) threshold=(\d+)")
 
 def beep():
     print("\a", end="", flush=True)
@@ -38,28 +39,6 @@ def stop_process(proc):
         proc.kill()
         proc.wait(timeout=2)
 
-def get_device_path():
-    out = subprocess.check_output(
-        ["busctl", "--system", "call", SERVICE, MANAGER,
-         MANAGER_IFACE, "GetDefaultDevice"],
-        text=True, stderr=subprocess.STDOUT, timeout=15,
-    ).strip()
-    m = re.fullmatch(r'o "([^"]+)"', out)
-    if not m:
-        raise RuntimeError(f"unexpected GetDefaultDevice output: {out}")
-    return m.group(1)
-
-def get_finger_state(device):
-    out = subprocess.check_output(
-        ["busctl", "--system", "get-property", SERVICE, device,
-         DEVICE_IFACE, "finger-needed", "finger-present"],
-        text=True, stderr=subprocess.STDOUT, timeout=3,
-    ).splitlines()
-    if len(out) != 2:
-        raise RuntimeError(f"unexpected property output: {out}")
-    parse = lambda s: s.strip().endswith("true")
-    return parse(out[0]), parse(out[1])
-
 def main():
     ap = argparse.ArgumentParser(
         description="Guided GXFP51A0/fprintd verify diagnostic")
@@ -70,7 +49,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=60)
     args = ap.parse_args()
 
-    for cmd in ("busctl", "fprintd-verify", "journalctl", "stdbuf"):
+    for cmd in ("fprintd-verify", "journalctl", "stdbuf"):
         if not shutil.which(cmd):
             raise SystemExit(f"ERROR: missing required command: {cmd}")
     if not args.user:
@@ -93,9 +72,8 @@ def main():
     print("RÈGLE : garde le doigt jusqu'à « RETIRE ».")
     print()
 
-    device = get_device_path()
-    print(f"fprintd device : {device}")
     print("Initialisation du test…")
+    print("Aucune pose ne sera demandée avant le marqueur READY du driver.")
 
     journal = subprocess.Popen(
         ["journalctl", "-u", "fprintd.service", "-f", "-n", "0",
@@ -115,7 +93,6 @@ def main():
     sel.register(journal.stdout, selectors.EVENT_READ, "journal")
 
     ready_announced = False
-    present_prev = False
     remove_announced = False
     score = threshold = capture_ms = None
     final_result = None
@@ -125,30 +102,6 @@ def main():
     with log_path.open("w", encoding="utf-8") as log:
         try:
             while time.monotonic() - start < args.timeout:
-                try:
-                    needed, present = get_finger_state(device)
-                except Exception as exc:
-                    log.write(f"[state-error] {exc}\n")
-                    needed = present = False
-
-                if needed and not ready_announced and not present:
-                    ready_announced = True
-                    print("CAPTEUR PRÊT. POSE dans :")
-                    countdown()
-                    beep()
-                    print(f">>> POSE : {physical_label} !! — ET GARDE-LE <<<", flush=True)
-
-                if present and not present_prev:
-                    beep()
-                    print(f">>> {physical_label} DÉTECTÉ — GARDE-LE <<<", flush=True)
-
-                if present_prev and not present and not remove_announced:
-                    print("!!! DOIGT RETIRÉ AVANT LE VERDICT — ATTENDS LE PROCHAIN « POSE »",
-                          flush=True)
-                    ready_announced = False
-
-                present_prev = present
-
                 for key, _ in sel.select(timeout=0.20):
                     line = key.fileobj.readline()
                     if not line:
@@ -158,21 +111,50 @@ def main():
                     log.flush()
 
                     if key.data == "journal":
+                        m = TRACE_READY_RE.search(line)
+                        if m:
+                            attempt, total = map(int, m.groups())
+                            ready_announced = True
+                            beep()
+                            print(f">>> POSE : {physical_label} — tentative physique {attempt}/{total} <<<",
+                                  flush=True)
+                            continue
+                        m = TRACE_DETECTED_RE.search(line)
+                        if m:
+                            attempt, total = map(int, m.groups())
+                            print(f">>> DÉTECTÉ {attempt}/{total} — GARDE LE DOIGT POSÉ <<<",
+                                  flush=True)
+                            continue
+                        m = TRACE_SCORE_RE.search(line)
+                        if m:
+                            image, total_images, score, threshold = map(int, m.groups())
+                            print(f"[rel38] image same-press {image}/{total_images} : "
+                                  f"score {score} / seuil {threshold}", flush=True)
+                            continue
+                        m = TRACE_DONE_RE.search(line)
+                        if m:
+                            images, best, threshold = map(int, m.groups())
+                            score = best
+                            print(f"[rel38] pose analysée : {images} image(s), "
+                                  f"meilleur score {best} / seuil {threshold}", flush=True)
+                            continue
+                        m = TRACE_LIFT_RE.search(line)
+                        if m:
+                            beep()
+                            print(f">>> RETIRE {physical_label} MAINTENANT <<<", flush=True)
+                            remove_announced = True
+                            continue
+                        m = TRACE_RELEASED_RE.search(line)
+                        if m:
+                            print(">>> RETRAIT CONFIRMÉ PAR LE DRIVER <<<", flush=True)
+                            ready_announced = False
+                            continue
                         m = SCORE_RE.search(line)
                         if m:
                             score, threshold = map(int, m.groups())
                         m = CAPTURE_MS_RE.search(line)
                         if m:
                             capture_ms = int(m.group(1)) / 1000.0
-                        m = RETRY_RE.search(line)
-                        if m:
-                            attempt, total = map(int, m.groups())
-                            ready_announced = False
-                            print(
-                                f"SCAN {attempt}/{total} NON RETENU. "
-                                "RETIRE LE DOIGT, puis attends le prochain « POSE ».",
-                                flush=True,
-                            )
                         continue
 
                     if line.startswith("Verifying:"):
@@ -208,6 +190,9 @@ def main():
                     if score_ready or journal_grace_elapsed:
                         break
                 if verify.poll() is not None and not final_result:
+                    if not ready_announced:
+                        print("ÉCHEC INIT/CLAIM : le driver n’a jamais émis READY ; "
+                              "aucune pose de doigt n’était attendue.", flush=True)
                     break
 
             if not final_result:

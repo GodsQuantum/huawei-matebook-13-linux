@@ -17,7 +17,7 @@ assert "GET_IMAGE ACK arrived but TLS image timed out; retrying once" in f
 assert "GET_IMAGE retry received no TLS image" in f
 assert "gx_capture_transport_desync (self)" in f
 assert "capture_recovery_pending" in f
-a=s.index("gx_capture_frame (")
+a=s.index("gx_capture_frame_ex (")
 b=s.index("gx_cmp_dbl", a)
 f=s[a:b]
 assert "gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX)" in f

@@ -6,7 +6,7 @@ python3 - "$driver" <<'PY2'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
-a=s.index("gx_capture_frame (")
+a=s.index("gx_capture_frame_ex (")
 b=s.index("gx_cmp_dbl", a)
 f=s[a:b]
 assert "gx_dump_capture (self, px);" in f

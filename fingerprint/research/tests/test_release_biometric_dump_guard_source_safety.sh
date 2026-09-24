@@ -13,7 +13,7 @@ guard=s.rfind("#ifdef GXFP51A0_DEVELOPER", 0, start)
 end=s.index("#endif", start)
 assert guard >= 0 and end > start
 
-a=s.index("gx_capture_frame (")
+a=s.index("gx_capture_frame_ex (")
 b=s.index("gx_cmp_dbl", a)
 capture=s[a:b]
 call=capture.index("gx_dump_capture (self, px);")
