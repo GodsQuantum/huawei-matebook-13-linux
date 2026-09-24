@@ -47,6 +47,14 @@ rel40 valide donc ensemble :
 - aucun keepalive Claim périodique ;
 - aucun writer de dump biométrique dans les builds release.
 
+### Candidat rel43 : auto-calibration protocolaire + installation Linux portable
+
+rel43 conserve intégralement le chemin biométrique rel40 validé : `WakeupMCU` Windows exact, `WARM_REBASE`, same-press Verify/Identify, seuil 7, format des templates et enrollments existants restent inchangés.
+
+rel42 avait correctement supprimé les timings persistants, mais son cold boot a révélé une régression : remettre le timing protocolaire à 100 % à chaque préparation froide provoquait des retries ACK/FDT sans IRQ, et le greeter atteignait `IDENTIFY ... READY` sans détecter le doigt. rel43 garde le pacing capture uniquement en RAM, tandis que le timing protocolaire s'auto-calibre par pas bornés de 50 points après de vrais misses ACK/FDT/TLS. Une récupération dans le même processus conserve ce timing prouvé ; rien n'est persisté entre les boots.
+
+La suite rel43 et le build reproductible passent. Le source rel43 réel passe également les gates build + ABI fprintd sur Debian stable, Fedora current, openSUSE Tumbleweed, Arch Linux et Alpine edge/musl. rel40 reste le dernier login humain validé jusqu'au cold boot d'acceptation rel43.
+
 ### Candidat rel42 : adaptation rapide en RAM + installation Linux portable
 
 rel42 conserve intégralement le chemin biométrique rel40 validé. Il supprime les
@@ -238,7 +246,7 @@ Ne jamais publier :
 - binaires/firmwares Goodix ou Huawei propriétaires ;
 - numéros de série ou identifiants privés.
 
-Le cache PMK validé reste un état runtime protégé sous `/var/lib/fprint/`. rel42 ne persiste plus aucun timing adaptatif ; les anciens fichiers de timing non secrets sont supprimés à la migration.
+Le cache PMK validé reste un état runtime protégé sous `/var/lib/fprint/`. rel43 ne persiste aucun timing adaptatif ; les anciens fichiers de timing non secrets sont supprimés à la migration.
 
 Le template fprintd v4 local est une donnée biométrique et doit être protégé
 comme tel.

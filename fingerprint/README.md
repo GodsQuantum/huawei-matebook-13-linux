@@ -47,6 +47,14 @@ rel40 therefore validates together:
 - no periodic synthetic Claim keepalive;
 - no biometric dump writer in release builds.
 
+### rel43 candidate: protocol auto-calibration + portable Linux install
+
+rel43 preserves the runtime-validated rel40 biometric path unchanged: exact-target Windows `WakeupMCU`, `WARM_REBASE`, Verify/Identify same-press, threshold 7, template format and existing enrollments are untouched.
+
+rel42 correctly removed persistent timing state but its cold-boot test exposed a regression: forcing protocol timing back to 100% on every cold preparation produced repeated no-IRQ ACK/FDT retries, and the greeter reached `IDENTIFY ... READY` without detecting the finger. rel43 keeps capture pacing RAM-only while protocol timing auto-calibrates in bounded 50-point steps after observed ACK/FDT/TLS misses. Same-process recovery keeps that proven protocol timing; nothing is persisted across boots.
+
+The full rel43 suite and reproducible build pass. The actual rel43 source also passes build/fprintd-ABI gates on Debian stable, Fedora current, openSUSE Tumbleweed, Arch Linux and Alpine edge/musl. rel40 remains the last human-validated successful login until rel43 passes its cold-boot acceptance test.
+
 ### rel42 candidate: fast session-local adaptation + portable Linux install
 
 rel42 preserves the runtime-validated rel40 biometric path unchanged. It removes

@@ -45,6 +45,14 @@ rel40 因此同时验证了：
 - 不再使用周期性 synthetic Claim keepalive；
 - release build 不含生物特征 dump writer。
 
+### rel43 候选：协议时序自动校准 + 跨发行版安装
+
+rel43 完整保留 rel40 已实机验证成功的生物识别路径：Windows 目标设备的 `WakeupMCU`、`WARM_REBASE`、Verify/Identify same-press、阈值 7、模板格式以及现有 enrollment 均不改变。
+
+rel42 正确移除了持久化 timing 状态，但 cold boot 暴露了回归：每次 cold preparation 都把 protocol timing 强制回到 100%，会连续触发无 IRQ 的 ACK/FDT retry，greeter 到达 `IDENTIFY ... READY` 后却无法检测手指。rel43 继续让 capture pacing 只存在于 RAM；protocol timing 则仅在真实 ACK/FDT/TLS miss 后以有界 50 点步长自动校准，同一进程内 recovery 保留已证明需要的 timing，并且不跨 reboot 持久化。
+
+rel43 完整软件测试和可重复 build 已通过；实际 rel43 source 也已在 Debian stable、Fedora current、openSUSE Tumbleweed、Arch Linux 与 Alpine edge/musl 上通过 build + fprintd ABI gate。rel40 仍是最后一次人工成功登录基线，直到 rel43 完成自己的 cold-boot 验收。
+
 ### rel42 候选：仅会话内自适应 + 跨发行版安装
 
 rel42 不改变 rel40 已验证的生物识别路径。它移除了 rel24–rel40 的持久化
@@ -205,7 +213,7 @@ Release 包含：
 - Goodix/Huawei 专有二进制或固件；
 - 序列号或私有机器标识。
 
-已验证的 PMK cache 仍作为受保护的 runtime 状态保存在 `/var/lib/fprint/`。rel42 不再持久化任何自适应 timing；升级时只删除旧版留下的非敏感 timing 整数。v4 fprintd 模板属于生物特征数据，应按敏感认证数据保护。驱动不会刷写传感器固件。
+已验证的 PMK cache 仍作为受保护的 runtime 状态保存在 `/var/lib/fprint/`。rel43 不持久化任何自适应 timing；升级时只删除旧版留下的非敏感 timing 整数。v4 fprintd 模板属于生物特征数据，应按敏感认证数据保护。驱动不会刷写传感器固件。
 
 ## 支持范围
 
