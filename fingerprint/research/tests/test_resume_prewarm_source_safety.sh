@@ -4,29 +4,23 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 driver="$root/driver/goodix51a0/goodix51a0.c"
 helper="$root/integration/resume-prewarm/gxfp51a0-resume-prewarm"
-hook="$root/integration/resume-prewarm/gxfp51a0-resume-prewarm.service"
-worker="$root/integration/resume-prewarm/gxfp51a0-resume-prewarm-worker.service"
+hook="$root/integration/resume-prewarm/gxfp51a0-system-sleep"
 pkg="$root/packaging/arch/PKGBUILD"
 
 grep -Fq 'GetDefaultDevice' "$helper"
 grep -Fq 'Claim s ""' "$helper"
-grep -Fq 'timeout 45s busctl' "$helper"
+grep -Fq 'timeout 50s busctl --system --timeout=45s call' "$helper"
 ! grep -Eq 'restart.*fprintd|try-restart.*fprintd|VerifyStart|EnrollStart' "$helper"
 
-grep -Fq 'Before=sleep.target' "$hook"
-grep -Fq 'RemainAfterExit=yes' "$hook"
-grep -Fq 'systemctl --no-block start gxfp51a0-resume-prewarm-worker.service' "$hook"
-grep -Fq 'TimeoutStopSec=5s' "$hook"
-grep -Fq 'WantedBy=sleep.target' "$hook"
-! grep -Fq 'busctl' "$hook"
+grep -Fq 'phase="${1:-}"' "$hook"
+grep -Fq '[[ "$phase" == "post" ]]' "$hook"
+grep -Fq 'suspend|hibernate|hybrid-sleep|suspend-then-hibernate' "$hook"
+grep -Fq 'timeout 55s "$helper"' "$hook"
+! grep -Fq 'systemctl' "$hook"
 
-grep -Fq 'After=fprintd.service' "$worker"
-grep -Fq 'ExecStart=/usr/libexec/gxfp51a0-resume-prewarm' "$worker"
-grep -Fq 'TimeoutStartSec=50s' "$worker"
-grep -Fq 'NoNewPrivileges=yes' "$worker"
-
-grep -Fq 'sleep.target.wants/gxfp51a0-resume-prewarm.service' "$pkg"
-grep -Fq 'gxfp51a0-resume-prewarm-worker.service' "$pkg"
+grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
+! grep -Fq 'gxfp51a0-resume-prewarm-worker.service' "$pkg"
+! grep -Fq 'sleep.target.wants/gxfp51a0-resume-prewarm.service' "$pkg"
 
 python3 - "$driver" <<'PY'
 from pathlib import Path

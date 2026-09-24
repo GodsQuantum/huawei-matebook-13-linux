@@ -74,9 +74,8 @@ systemctl cat fprintd.service | grep -Fq '/usr/lib/fprintd --no-timeout'
 systemctl cat fprintd.service | grep -Fq 'Before=display-manager.service'
 test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
 test -L /usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service
-test -L /usr/lib/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service
+test -x /usr/lib/systemd/system-sleep/gxfp51a0-resume-prewarm
 systemctl cat gxfp51a0-boot-prewarm.service >/dev/null
-systemctl cat gxfp51a0-resume-prewarm.service >/dev/null
 if [[ -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml ]]; then
   sudo /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply
   sudo /usr/libexec/gxfp51a0-kde-lockscreen-integrate --check

@@ -19,10 +19,7 @@ BOOT_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-boot-prewarm"
 BOOT_UNIT_FILE="/etc/systemd/system/gxfp51a0-boot-prewarm.service"
 BOOT_WANTS_LINK="$EARLY_WANTS_DIR/gxfp51a0-boot-prewarm.service"
 RESUME_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-resume-prewarm"
-RESUME_UNIT_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm.service"
-RESUME_WORKER_FILE="/etc/systemd/system/gxfp51a0-resume-prewarm-worker.service"
-RESUME_WANTS_DIR="/etc/systemd/system/sleep.target.wants"
-RESUME_WANTS_LINK="$RESUME_WANTS_DIR/gxfp51a0-resume-prewarm.service"
+RESUME_HOOK_FILE="/etc/systemd/system-sleep/gxfp51a0-resume-prewarm"
 KDE_HELPER_FILE="$LIBEXEC_DIR/gxfp51a0-kde-lockscreen-integrate"
 
 INSTALL_DEPS=1
@@ -60,7 +57,7 @@ Other distributions are supported with --no-install-deps when they provide:
   gobject-2.0, gmodule-2.0, gusb, cairo, gudev-1.0, openssl, udev, pixman-1.
 
 systemd is optional for the library itself. When systemd/fprintd.service exists,
-boot-prewarm and resume-prewarm are installed automatically. On non-systemd
+boot-prewarm and a frozen-user-slice post-resume hook are installed automatically. On non-systemd
 systems fprintd is isolated through a higher-priority D-Bus activation wrapper
 under /etc/dbus-1/system-services; no global dynamic-linker override is needed.
 The distribution's native PAM/desktop integration remains in charge.
@@ -301,7 +298,7 @@ printf '%s\n' "$UDEV_RULE_FILE" >> "$TMP_STATE/manifest"
 if (( SYSTEMD_AVAILABLE )); then
   printf '%s\n' \
     "$DROPIN_FILE" "$BOOT_HELPER_FILE" "$BOOT_UNIT_FILE" "$BOOT_WANTS_LINK" \
-    "$RESUME_HELPER_FILE" "$RESUME_UNIT_FILE" "$RESUME_WORKER_FILE" "$RESUME_WANTS_LINK" \
+    "$RESUME_HELPER_FILE" "$RESUME_HOOK_FILE" \
     >> "$TMP_STATE/manifest"
 else
   printf '%s\n' "$DBUS_SERVICE_FILE" "$FPRINTD_WRAPPER_FILE" >> "$TMP_STATE/manifest"
@@ -377,18 +374,16 @@ EOF
   run_root install -Dm0644 "$TMP_STATE/boot.service" "$BOOT_UNIT_FILE"
 
   run_root install -Dm0755 "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm" "$RESUME_HELPER_FILE"
-  run_root install -Dm0644 "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm.service" "$RESUME_UNIT_FILE"
   sed "s#/usr/libexec/gxfp51a0-resume-prewarm#$RESUME_HELPER_FILE#" \
-    "$ROOT/integration/resume-prewarm/gxfp51a0-resume-prewarm-worker.service" > "$TMP_STATE/resume-worker.service"
-  run_root install -Dm0644 "$TMP_STATE/resume-worker.service" "$RESUME_WORKER_FILE"
+    "$ROOT/integration/resume-prewarm/gxfp51a0-system-sleep" > "$TMP_STATE/resume-system-sleep"
+  run_root install -Dm0755 "$TMP_STATE/resume-system-sleep" "$RESUME_HOOK_FILE"
 
-  run_root mkdir -p "$EARLY_WANTS_DIR" "$RESUME_WANTS_DIR"
+  run_root mkdir -p "$EARLY_WANTS_DIR"
   if [[ ! -e "$EARLY_WANTS_LINK" && ! -L "$EARLY_WANTS_LINK" ]]; then
     run_root ln -s "$FPRINTD_UNIT" "$EARLY_WANTS_LINK"
     printf '%s\n' "$EARLY_WANTS_LINK" > "$TMP_STATE/created-early-wants"
   fi
   run_root ln -sfn "$BOOT_UNIT_FILE" "$BOOT_WANTS_LINK"
-  run_root ln -sfn "$RESUME_UNIT_FILE" "$RESUME_WANTS_LINK"
 
 fi
 
@@ -403,7 +398,10 @@ run_root rm -f \
   /usr/local/libexec/gxfp51a0-warm-keepalive \
   /etc/systemd/system/gxfp51a0-warm-keepalive.service \
   /etc/systemd/system/gxfp51a0-warm-keepalive.timer \
-  /etc/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer
+  /etc/systemd/system/timers.target.wants/gxfp51a0-warm-keepalive.timer \
+  /etc/systemd/system/gxfp51a0-resume-prewarm.service \
+  /etc/systemd/system/gxfp51a0-resume-prewarm-worker.service \
+  /etc/systemd/system/sleep.target.wants/gxfp51a0-resume-prewarm.service
 
 run_root mkdir -p "$STATE_DIR"
 run_root rm -rf "$STATE_DIR/backup"

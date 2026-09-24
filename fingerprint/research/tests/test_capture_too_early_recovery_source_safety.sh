@@ -13,7 +13,8 @@ a=s.index("gx_wait_sensor_clear (")
 b=s.index("gx_session_start (", a)
 f=s[a:b]
 assert "GX_CLEAR_WAIT_MS" in f
-assert "gx_fdt_probe (self, cur)" in f
+assert "gx_fdt_probe_ex (self, cur, &touchflag)" in f
+assert "!gx_fdt_touch_is_finger (touchflag)" in f
 assert "off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT" in f
 assert "calibration waiting for sensor clear" in f
 assert "sensor clear again" in f

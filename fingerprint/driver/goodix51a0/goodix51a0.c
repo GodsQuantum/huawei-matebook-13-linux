@@ -1501,7 +1501,9 @@ gx_capture_avg (FpiDeviceGoodix51A0 *self, int nframes, guint16 *avg)
 #define GX_FDT_IRQ_TIMEOUT_MS 100
 
 static int
-gx_fdt_probe (FpiDeviceGoodix51A0 *self, int *out_zones)
+gx_fdt_probe_ex (FpiDeviceGoodix51A0 *self,
+                 int                 *out_zones,
+                 guint8              *out_touchflag)
 {
   struct gxfp_target_packet packet;
   guint8 rx[256], ty, ack_status, touchflag;
@@ -1548,6 +1550,8 @@ gx_fdt_probe (FpiDeviceGoodix51A0 *self, int *out_zones)
 
       for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
         out_zones[k] = (int) zones[k];
+      if (out_touchflag)
+        *out_touchflag = touchflag;
 
       return 0;
 
@@ -1565,6 +1569,24 @@ retry:
     }
 
   return -1;
+}
+
+static guint
+gx_fdt_touch_count (guint8 touchflag)
+{
+  guint count = 0;
+
+  for (guint8 zones = touchflag & 0x3fu; zones; zones >>= 1)
+    count += zones & 1u;
+  return count;
+}
+
+#define GX_FDT_TOUCH_MIN_ZONES 5
+
+static gboolean
+gx_fdt_touch_is_finger (guint8 touchflag)
+{
+  return gx_fdt_touch_count (touchflag) >= GX_FDT_TOUCH_MIN_ZONES;
 }
 
 /* Mean of the six exact-target FDT zones: an absolute test needing no baseline. */
@@ -2004,11 +2026,14 @@ gx_wait_clean_anchor (FpiDeviceGoodix51A0 *self, int *out_mean)
       if (c && g_cancellable_is_cancelled (c))
         return FALSE;
 
-      if (gx_fdt_probe (self, cur) == 0)
+      guint8 touchflag = 0;
+
+      if (gx_fdt_probe_ex (self, cur, &touchflag) == 0)
         {
           int mean = gx_fdt_mean (cur);
 
-          if (mean >= GOODIX_FDT_ABS)
+          if (!gx_fdt_touch_is_finger (touchflag) &&
+              mean >= GOODIX_FDT_ABS)
             {
               *out_mean = mean;
               fp_info ("GXFP51A0 clean calibration anchor: mean=%d", mean);
@@ -2043,11 +2068,14 @@ gx_wait_sensor_clear (FpiDeviceGoodix51A0 *self,
 
   while (waited <= GX_CLEAR_WAIT_MS)
     {
-      if (gx_fdt_probe (self, cur) == 0)
+      guint8 touchflag = 0;
+
+      if (gx_fdt_probe_ex (self, cur, &touchflag) == 0)
         {
           int mean = gx_fdt_mean (cur);
 
-          if (off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
+          if (!gx_fdt_touch_is_finger (touchflag) &&
+              off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
             {
               if (out_mean)
                 *out_mean = mean;
@@ -2090,11 +2118,14 @@ gx_diag_press_countdown (FpiDeviceGoodix51A0 *self, int off_anchor_mean)
           fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PRESS_IN_%d", q);
           g_usleep (G_USEC_PER_SEC);
 
-          if (gx_fdt_probe (self, cur) == 0)
+          guint8 touchflag = 0;
+
+          if (gx_fdt_probe_ex (self, cur, &touchflag) == 0)
             {
               int mean = gx_fdt_mean (cur);
 
-              if (off_anchor_mean - mean > GX_DIAG_BASELINE_MAX_DRIFT)
+              if (gx_fdt_touch_is_finger (touchflag) ||
+                  off_anchor_mean - mean > GX_DIAG_BASELINE_MAX_DRIFT)
                 {
                   fp_warn ("GXFP51A0 CAPTURE_DIAGNOSTIC_COUNTDOWN_RESTART: REMOVE_FINGER mean=%d anchor=%d",
                            mean, off_anchor_mean);
@@ -2197,18 +2228,21 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
         /* A finger may land during the ~2 s background capture. Reject that
          * frame and wait for release rather than baking the finger into the
          * reference image. */
-        if (gx_fdt_probe (self, cur) != 0)
+        guint8 touchflag = 0;
+
+        if (gx_fdt_probe_ex (self, cur, &touchflag) != 0)
           return FALSE;
 
         mean = gx_fdt_mean (cur);
         if (mean > off_anchor_mean)
           off_anchor_mean = mean;
 
-        if (off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
+        if (!gx_fdt_touch_is_finger (touchflag) &&
+            off_anchor_mean - mean <= GX_DIAG_BASELINE_MAX_DRIFT)
           break;
 
-        fp_warn ("GXFP51A0 background contaminated by touch: mean=%d anchor=%d; discarding",
-                 mean, off_anchor_mean);
+        fp_warn ("GXFP51A0 background contaminated by touch: mean=%d anchor=%d touch=0x%02x; discarding",
+                 mean, off_anchor_mean, touchflag);
         if (!gx_wait_sensor_clear (self, off_anchor_mean, NULL))
           return FALSE;
       }
@@ -2232,12 +2266,17 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
         int baseline_mean;
 
         for (q = 0; q < 4; q++)
-          if (gx_fdt_probe (self, t) == 0)
-            {
-              for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
-                acc[k] += t[k];
-              nb++;
-            }
+          {
+            guint8 touchflag = 0;
+
+            if (gx_fdt_probe_ex (self, t, &touchflag) == 0 &&
+                !gx_fdt_touch_is_finger (touchflag))
+              {
+                for (k = 0; k < (int) GXFP_FDT_ZONE_COUNT; k++)
+                  acc[k] += t[k];
+                nb++;
+              }
+          }
 
         if (!nb)
           continue;
@@ -2451,10 +2490,12 @@ static gboolean
 gx_finger_present (FpiDeviceGoodix51A0 *self)
 {
   int cur[GXFP_FDT_ZONE_COUNT];
+  guint8 touchflag = 0;
 
-  if (gx_fdt_probe (self, cur) != 0)
+  if (gx_fdt_probe_ex (self, cur, &touchflag) != 0)
     return FALSE;
-  return gx_fdt_drop (self->fdt_base, cur) > GOODIX_FDT_DROP ||
+  return gx_fdt_touch_is_finger (touchflag) ||
+         gx_fdt_drop (self->fdt_base, cur) > GOODIX_FDT_DROP ||
          gx_fdt_mean (cur) < self->fdt_abs;
 }
 
@@ -2472,13 +2513,14 @@ gx_capture_retry_same_press_frame (FpiDeviceGoodix51A0 *self,
   g_autofree guint8 *rec = g_malloc0 (GOODIX_RX_MAX);
   g_autofree guint8 *plain = g_malloc0 (GOODIX_RX_MAX);
   int cur[GXFP_FDT_ZONE_COUNT];
+  guint8 touchflag = 0;
   int raw;
   gssize got;
 
   g_return_val_if_fail (finger_still_down != NULL, FALSE);
   *finger_still_down = FALSE;
 
-  if (gx_fdt_probe (self, cur) != 0)
+  if (gx_fdt_probe_ex (self, cur, &touchflag) != 0)
     {
       fp_warn ("same-press RetryCaptureIMG FDT-manual failed; stopping retries");
       return FALSE;
@@ -2489,9 +2531,11 @@ gx_capture_retry_same_press_frame (FpiDeviceGoodix51A0 *self,
     int drop = gx_fdt_drop (self->fdt_base, cur);
 
     fp_warn ("GXFP51A0 VERIFY_TRACE same-press FDT mean=%d drop=%d "
-             "floor=%d threshold_drop=%d",
-             mean, drop, self->fdt_abs, GOODIX_FDT_DROP);
-    if (!(drop > GOODIX_FDT_DROP || mean < self->fdt_abs))
+             "floor=%d threshold_drop=%d touch=0x%02x zones=%u",
+             mean, drop, self->fdt_abs, GOODIX_FDT_DROP,
+             touchflag, gx_fdt_touch_count (touchflag));
+    if (!(gx_fdt_touch_is_finger (touchflag) ||
+          drop > GOODIX_FDT_DROP || mean < self->fdt_abs))
       {
         fp_warn ("GXFP51A0 VERIFY_TRACE RetryCaptureIMG stopped: "
                  "finger not detected on current press");
@@ -2923,11 +2967,12 @@ gx_poll_on (gpointer user_data)
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
   int cur[GXFP_FDT_ZONE_COUNT];
+  guint8 touchflag = 0;
 
   if (gx_cancelled (dev, ssm))
     { self->poll_id = 0; return G_SOURCE_REMOVE; }
 
-  if (gx_fdt_probe (self, cur) != 0)
+  if (gx_fdt_probe_ex (self, cur, &touchflag) != 0)
     {
       fp_dbg ("wait-on: detection probe failed");
       goto again;
@@ -2943,7 +2988,8 @@ gx_poll_on (gpointer user_data)
         fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_WAITING_FOR_FINGER: PRESS_AND_HOLD_NOW");
     }
 
-  if (gx_fdt_drop (self->fdt_base, cur) > GOODIX_FDT_DROP ||
+  if (gx_fdt_touch_is_finger (touchflag) ||
+      gx_fdt_drop (self->fdt_base, cur) > GOODIX_FDT_DROP ||
       gx_fdt_mean (cur) < self->fdt_abs)
     {
       /* Keep NEEDED asserted: the capture still takes about 1.1 s and the
@@ -2953,9 +2999,12 @@ gx_poll_on (gpointer user_data)
       fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NEEDED |
                                             FP_FINGER_STATUS_PRESENT);
       if (t->verifying)
-        fp_warn ("GXFP51A0 %s_TRACE physical press %d/%d DETECTED_HOLD",
+        fp_warn ("GXFP51A0 %s_TRACE physical press %d/%d DETECTED_HOLD "
+                 "touch=0x%02x zones=%u mean=%d drop=%d",
                  t->identifying ? "IDENTIFY" : "VERIFY",
-                 t->tries + 1, GX_VERIFY_MAX_ATTEMPTS);
+                 t->tries + 1, GX_VERIFY_MAX_ATTEMPTS,
+                 touchflag, gx_fdt_touch_count (touchflag),
+                 gx_fdt_mean (cur), gx_fdt_drop (self->fdt_base, cur));
       fp_info ("finger status: needed=1 present=1; capture starting");
       self->poll_id = 0;
       fpi_ssm_jump_to_state (ssm, GX_ST_CAPTURE);
@@ -2979,12 +3028,14 @@ gx_poll_off (gpointer user_data)
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
   int cur[GXFP_FDT_ZONE_COUNT];
+  guint8 touchflag = 0;
   gboolean off = FALSE;
 
   if (gx_cancelled (dev, ssm))
     { self->poll_id = 0; return G_SOURCE_REMOVE; }
 
-  if (gx_fdt_probe (self, cur) == 0 &&
+  if (gx_fdt_probe_ex (self, cur, &touchflag) == 0 &&
+      !gx_fdt_touch_is_finger (touchflag) &&
       gx_fdt_drop (self->fdt_base, cur) < GOODIX_FDT_DROP / 2 &&
       gx_fdt_mean (cur) >= self->fdt_abs)
     off = TRUE;
@@ -3657,6 +3708,8 @@ gx_warm_validate (FpiDeviceGoodix51A0 *self)
   gboolean ok = FALSE;
   int cur[GXFP_FDT_ZONE_COUNT];
   int after[GXFP_FDT_ZONE_COUNT];
+  guint8 before_touchflag = 0;
+  guint8 after_touchflag = 0;
   int before_mean;
   int after_mean;
   gint64 t0 = g_get_monotonic_time ();
@@ -3665,7 +3718,7 @@ gx_warm_validate (FpiDeviceGoodix51A0 *self)
    * session went stale, not that steady-state capture pacing is too fast. */
   self->capture_pacing_suppressed = TRUE;
 
-  if (gx_fdt_probe (self, cur) != 0)
+  if (gx_fdt_probe_ex (self, cur, &before_touchflag) != 0)
     goto out;
 
   before_mean = gx_fdt_mean (cur);
@@ -3675,7 +3728,8 @@ gx_warm_validate (FpiDeviceGoodix51A0 *self)
    * boundaries were handled before this function, so an otherwise warm
    * context with a responsive FDT may proceed and let the real Verify capture
    * exercise TLS.  The previous clean background is retained for this press. */
-  if (before_mean < GOODIX_FDT_ABS)
+  if (gx_fdt_touch_is_finger (before_touchflag) ||
+      before_mean < GOODIX_FDT_ABS)
     {
       self->warm_last_activity_us = g_get_monotonic_time ();
       fp_warn ("GXFP51A0 WARM_REBASE deferred: finger already present "
@@ -3696,11 +3750,12 @@ gx_warm_validate (FpiDeviceGoodix51A0 *self)
       goto out;
     }
 
-  if (gx_fdt_probe (self, after) != 0)
+  if (gx_fdt_probe_ex (self, after, &after_touchflag) != 0)
     goto out;
 
   after_mean = gx_fdt_mean (after);
-  if (after_mean < GOODIX_FDT_ABS)
+  if (gx_fdt_touch_is_finger (after_touchflag) ||
+      after_mean < GOODIX_FDT_ABS)
     {
       self->warm_last_activity_us = g_get_monotonic_time ();
       fp_warn ("GXFP51A0 WARM_REBASE discarded: finger landed during "

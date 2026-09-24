@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+TAG="gxfp51a0-system-sleep"
+phase="${1:-}"
+verb="${2:-}"
+helper="/usr/libexec/gxfp51a0-resume-prewarm"
+
+[[ "$phase" == "post" ]] || exit 0
+case "$verb" in
+  suspend|hibernate|hybrid-sleep|suspend-then-hibernate) ;;
+  *) exit 0 ;;
+esac
+
+[[ -x "$helper" ]] || exit 0
+logger -t "$TAG" -- "post-$verb prewarm starting while user.slice is frozen"
+if timeout 55s "$helper"; then
+  logger -t "$TAG" -- "post-$verb prewarm complete"
+else
+  rc=$?
+  logger -t "$TAG" -- "post-$verb prewarm failed rc=$rc; next Claim will recover"
+fi
+exit 0

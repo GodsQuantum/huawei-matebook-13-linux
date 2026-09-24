@@ -23,10 +23,10 @@ device="$(sed -n 's/^o "\(.*\)"$/\1/p' <<<"$raw")"
   exit 0
 }
 
-if timeout 45s busctl --system call   net.reactivated.Fprint   "$device"   net.reactivated.Fprint.Device   Claim s "" >/dev/null 2>&1; then
+if timeout 50s busctl --system --timeout=45s call   net.reactivated.Fprint   "$device"   net.reactivated.Fprint.Device   Claim s "" >/dev/null 2>&1; then
   log_info "post-resume fprintd Claim completed; sensor context prewarmed"
   exit 0
 fi
 
-log_info "post-resume prewarm skipped or busy; Claim-time recovery remains active"
-exit 0
+log_info "post-resume prewarm failed or busy; Claim-time recovery remains active"
+exit 1
