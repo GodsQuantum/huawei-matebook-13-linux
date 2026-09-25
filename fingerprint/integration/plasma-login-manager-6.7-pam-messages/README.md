@@ -5,7 +5,7 @@ Compatibility package for Plasma Login Manager 6.7.5 on Arch/CachyOS.
 It keeps the upstream PAM-message fixes and the fingerprint-first greeter flow,
 then separates password and fingerprint into independent PAM services.
 
-## Current package: 6.7.5-3.5
+## Current package: 6.7.5-3.7
 
 Password PAM remains the normal `plasmalogin` stack and contains no
 `pam_fprintd`. Fingerprint auth uses `plasmalogin-fingerprint`:
@@ -14,25 +14,33 @@ Password PAM remains the normal `plasmalogin` stack and contains no
 -auth required pam_fprintd.so max-tries=1 timeout=15
 ```
 
-The native GXFP51A0 driver already owns its bounded physical-pose budget, so a
-single PAM fingerprint operation is sufficient. Stacking PAM
-`max-tries=3` on top of the driver's own retries could multiply one login
-attempt into many physical presses.
+The GXFP51A0 driver owns its bounded physical-pose budget, so PAM launches one
+fingerprint operation rather than multiplying retries.
 
-Patch `0006-fingerprint-password-preemption.patch` fixes the password race
-observed with PLM 3.4:
+### Concurrent authentication
 
-- an intermediate rejected fingerprint pose stays an informational/auth message
-  and no longer clears the greeter's fingerprint-active state prematurely;
-- a real terminal fingerprint failure is still reported by the authentication
-  completion path;
-- typing a password can cancel fingerprint auth through the existing
-  `CancelLogin` protocol;
-- if a Password `Login` nevertheless reaches the daemon while the fingerprint
-  helper is still active, the daemon queues the already-submitted credentials,
-  stops the fingerprint helper, and starts normal password PAM automatically;
-- the first submitted password is therefore never discarded merely because the
-  fingerprint helper is still draining.
+Patch `0007-parallel-password-fingerprint-auth.patch` ports the essential
+multi-authenticator shape used by KDE's newer lockscreen work back to PLM 6.7.5:
 
-The package remains package-managed; it does not contain, modify, delete, or
-re-enrol fingerprint templates.
+- password and fingerprint run in **separate Auth/helper processes**;
+- both share one prepared user/session/VT context;
+- typing in the password field does **not** cancel fingerprint;
+- submitting a password starts password PAM while fingerprint can remain active;
+- the first authenticator to succeed atomically wins;
+- the losing helper is stopped before it can start a second session;
+- a failure of one method does not terminate the other;
+- fingerprint is cancelled/restarted only when its user/session context changes
+  or when another authenticator has already won.
+
+Patch `0006-fingerprint-password-preemption.patch` remains in the patch history
+because 3.6 is layered on top of 3.5, but 0007 deliberately removes its
+password-preempts-fingerprint behavior.
+
+Patch `0008-continuous-fingerprint-availability.patch` keeps fingerprint available
+for the full greeter lifetime. Each fingerprint operation remains bounded, but a
+terminal no-match/timeout rearms a fresh attempt after a short quiet gap while
+password authentication remains fully usable in parallel. The retry timer stops
+as soon as the login UI disappears.
+
+The package remains package-managed and never contains, modifies, deletes, or
+re-enrols fingerprint templates.

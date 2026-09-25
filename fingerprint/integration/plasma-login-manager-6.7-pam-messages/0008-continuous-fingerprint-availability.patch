@@ -1,0 +1,58 @@
+diff --git a/src/frontend/greeter/qml/Login.qml b/src/frontend/greeter/qml/Login.qml
+index c968ba2..6b09f74 100644
+--- a/src/frontend/greeter/qml/Login.qml
++++ b/src/frontend/greeter/qml/Login.qml
+@@ -25,13 +25,22 @@ SessionManagementScreen {
+
+     property bool loginScreenUiVisible: false
+
+-    // The login manager historically started the first fingerprint attempt as
+-    // soon as the greeter became active. Keep that behavior without looping
+-    // after a timeout: one automatic attempt per selected user/greeter.
++    // Keep fingerprint available for the whole greeter lifetime. Each driver
++    // operation stays bounded, but a terminal no-match is rearmed after a short
++    // quiet gap while password authentication remains independent.
+     property bool fingerprintAutoAttemptDone: false
+     property bool fingerprintAutoAttemptInFlight: false
+     property bool fingerprintCancelInFlight: false
+     property bool pendingFingerprintRestart: false
++    // Keep fingerprint continuously available while the greeter is visible.
++    // A bounded PAM/driver attempt may end after several poor placements; this
++    // timer rearms a fresh independent attempt without blocking password auth.
++    Timer {
++        id: fingerprintRetryTimer
++        interval: 900
++        repeat: false
++        onTriggered: root.maybeStartFingerprintLogin()
++    }
+
+     //the y position that should be ensured visible when the on screen keyboard is visible
+     property int visibleBoundary: mapFromItem(loginButton, 0, 0).y
+@@ -65,6 +74,8 @@ SessionManagementScreen {
+     onLoginScreenUiVisibleChanged: {
+         if (loginScreenUiVisible) {
+             maybeStartFingerprintLogin();
++        } else {
++            fingerprintRetryTimer.stop();
+         }
+     }
+
+@@ -197,10 +208,17 @@ SessionManagementScreen {
+                 function onLoginCancelled() {
+                     root.fingerprintAutoAttemptInFlight = false
+                     root.fingerprintCancelInFlight = false
++                    root.fingerprintAutoAttemptDone = false
++
+                     if (root.pendingFingerprintRestart) {
++                        // User/session changed: restart immediately for the new context.
+                         root.pendingFingerprintRestart = false
+-                        root.fingerprintAutoAttemptDone = false
+                         Qt.callLater(root.maybeStartFingerprintLogin)
++                    } else if (root.loginScreenUiVisible && !root.showUsernamePrompt && root.userList.selectedUser) {
++                        // Terminal no-match/timeout: password remains usable and a new
++                        // fingerprint attempt is rearmed after a short quiet gap.
++                        fingerprintRetryTimer.restart()
++                        passwordBox.forceActiveFocus()
+                     } else {
+                         passwordBox.forceActiveFocus()
+                     }
