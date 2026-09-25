@@ -1188,3 +1188,56 @@ Runtime boundary:
 - PLM 3.7 has not yet been runtime-tested.
 - next gate is one user-initiated full reboot, then cold-login tests for fingerprint success, password success while fingerprint remains active, and fingerprint success after password text has already been typed.
 - only after those pass: deep/S3 resume, then immediate-touch resume race, before stable/main promotion.
+
+
+---
+
+# Update 2026-09-26T00:06:34+02:00 — rel48 ACK-safe transport recovery
+
+Canonical detailed handoff:
+`/home/arezki/Projets/Workstations/Capteur Empreinte Huawei/handoff/HANDOFF_2026-09-26_REL48_ACK_SAFE_PENDING_RUNTIME.md`
+
+Code commit:
+`5f20a06 fix(fingerprint): recover safely after accepted image timeout`
+
+Current branch:
+`fingerprint-rel48-ack-safe-recovery`
+
+Installed on disk:
+- `libfprint-goodix51a0 1.94.100.goodix51a0-48`
+- `plasma-login-manager 6.7.5-3.7`
+
+Runtime intentionally still old until human reboot:
+- fprintd PID 726 unchanged since 2026-09-25 09:51:47 CEST.
+- it maps the old rel47 library as `(deleted)`.
+- rel48 was installed with `pacman -U --noscriptlet`.
+- no physical rel48 test has happened yet.
+
+rel48 fixes:
+1. no replay of an already accepted GET_IMAGE after TLS-image timeout; force full session recovery;
+2. image TLS GCM/authentication failure now forces the same recovery in normal, cleanup and same-press capture paths;
+3. the original bounded retry remains only when neither ACK nor TLS proves command acceptance.
+
+Matcher is deliberately unchanged:
+- SIGFM family unchanged;
+- threshold 7 unchanged;
+- 20-view enrollment unchanged.
+
+Latest external validation:
+- Sigfrodr/libfprint-goodixtls#5 comment 5834809532 publishes the gq_sigfm adapter and an 8-bit rerun essentially matching the direct matcher distributions.
+- comment 5839233957 confirms the adapter was merged upstream and the ABI is faithful.
+- impostor maximum remains 6 against threshold 7, so do NOT lower the threshold; multi-user pooled data is still needed.
+
+Validation:
+- complete `make -C fingerprint/research test`: PASS;
+- boot-binding source test: PASS;
+- reproducible libfprint v1.94.100 build: PASS;
+- package integrity after install: 40 files, 0 modified;
+- package SHA256: `e7faa5e10b7e6579037a2aebe858c1fd4a834d42c900a8a3b0090b66002ff8a5`.
+
+NEXT:
+- no automatic reboot;
+- Arezki manually reboots;
+- first test is normal graphical login, with password still concurrently usable;
+- report `rel48 cold OK` or `rel48 cold échoué`;
+- inspect that new boot journal before any further code change.
