@@ -1133,3 +1133,58 @@ Next gate:
 4. if fingerprint does not succeed, type the password ONCE and press Enter ONCE even if fingerprint UI still appears active; wait for the transition and do not submit it a second time unless the UI explicitly reports the password itself was wrong.
 5. success criterion for fallback: no 'Existing authentication ongoing, aborting'; expected either client CancelLogin flow or daemon marker 'Password login preempts active fingerprint authentication' followed by 'Fingerprint helper stopped; starting queued password authentication', then one successful password PAM session.
 6. do not deep-suspend until this cold-login + single-password fallback gate is validated.
+
+## Update 2026-09-25 — final candidate: rel47 + PLM 3.7 true concurrent auth
+
+Final architecture installed on disk:
+- libfprint-goodix51a0 1.94.100.goodix51a0-47.
+- fprintd 1.94.5-2.1.
+- plasma-login-manager 6.7.5-3.7.
+- package integrity: libfprint 40/40 files unchanged; PLM 210/210 unchanged.
+- enrollments intact: right-index, left-index, right-middle.
+- legacy persistent timing files absent.
+- rel45 external resume-prewarm hooks absent; S3 recovery remains driver-native.
+- no package orphans; temporary PLM build dependencies removed after build.
+
+PLM 3.7 final-candidate behavior:
+- password and fingerprint use two independent Auth/helper workers.
+- both workers share exactly one prepared user/session/VT context.
+- typing a password never cancels fingerprint.
+- submitting password starts normal password PAM while fingerprint remains active.
+- fingerprint can still win after password text has already been entered.
+- first successful authenticator atomically wins; the losing helper is stopped.
+- losing helper session results are ignored, preventing duplicate sessions.
+- failure of password does not terminate fingerprint; failure of fingerprint does not terminate password.
+- each fingerprint PAM operation is bounded: max-tries=1 timeout=15 because the driver owns its 3-pose budget.
+
+Continuous fingerprint availability:
+- after a bounded fingerprint no-match/timeout, PLM rearms a new fingerprint attempt after 900 ms while the greeter remains visible.
+- password stays independently usable during and between fingerprint attempts.
+- changing user/session cancels the old fingerprint worker and restarts against the new context.
+- retry timer stops when the login UI disappears.
+- this satisfies the target: both unlock methods stay available until one succeeds.
+
+Sigfrodr issue #5 follow-up:
+- newest comment added fp_eval --backend-so ABI v1 for real driver matchers.
+- repo now contains fingerprint/research/eval/gq_sigfm_fpeval.c + builder + synthetic ABI smoke.
+- adapter exports fpeval_extract/fpeval_score/fpeval_free/fpeval_name and executes the exact shipped goodix_sift.c + fastbrief/sigfm.c matcher.
+- source and synthetic ABI tests PASS.
+- this is evaluation-only; release driver still has no biometric capture dump hook and no network/data export.
+- threshold remains 7. Do not lower it: contributor validation observed impostor max 6, so threshold margin is intentionally preserved.
+
+Validation:
+- full fingerprint/research suite PASS, including native S3 recovery, bounded Identify/Verify, continuous concurrent PLM auth, and real SIGFM fp_eval ABI.
+- test-fingerprint-tooling.py PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- PLM 6.7.5-3.7 full KDE build PASS.
+- final PLM package SHA256: 1968bc837a94d0e8eb1e850a59cd8d06dc8688cc2394d1c9058ee20ae83a64b2.
+- Git branch fingerprint-final-plm37.
+- concurrent-auth commit 9de46b1e61a554662692be32365d54a8e09178ea.
+- fp_eval adapter commit 2b088436458b2404eeb0eeffb0c70dcec153a2cb.
+
+Runtime boundary:
+- current plasmalogin PID 914 entered 09:51:53, before PLM 3.7 installation, so it still executes the old mapped daemon until reboot.
+- current fprintd PID 726 entered 09:51:47 and executes rel47.
+- PLM 3.7 has not yet been runtime-tested.
+- next gate is one user-initiated full reboot, then cold-login tests for fingerprint success, password success while fingerprint remains active, and fingerprint success after password text has already been typed.
+- only after those pass: deep/S3 resume, then immediate-touch resume race, before stable/main promotion.
