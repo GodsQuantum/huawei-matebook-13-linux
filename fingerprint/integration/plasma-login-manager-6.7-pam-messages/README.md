@@ -2,23 +2,37 @@
 
 Compatibility package for Plasma Login Manager 6.7.5 on Arch/CachyOS.
 
-It backports two upstream KDE fixes:
-- `8f6c2d3205df3a0aab5c156d3b7e2950eda8beb0` — show PAM authentication messages in the greeter.
-- `db5e466d3c3816f2cac627ca66cea9c6734f7ecc` — keep an active PAM prompt visible instead of clearing it with an old failure timer.
+It keeps the upstream PAM-message fixes and the fingerprint-first greeter flow,
+then separates password and fingerprint into independent PAM services.
 
-It also carries the Arch `plasmalogin` PAM profile with:
+## Current package: 6.7.5-3.5
+
+Password PAM remains the normal `plasmalogin` stack and contains no
+`pam_fprintd`. Fingerprint auth uses `plasmalogin-fingerprint`:
+
 ```text
-auth sufficient pam_fprintd.so max-tries=3 timeout=12
+-auth required pam_fprintd.so max-tries=1 timeout=15
 ```
 
-The local compatibility patch `0004-autostart-first-fingerprint-attempt.patch`
-restores the reference-machine behavior validated before the regression: when
-the greeter becomes active with a selected user and an empty password field, it
-starts exactly one fingerprint-first PAM attempt automatically. The PAM cue
-therefore appears under the password field without pressing Enter first. If the
-attempt times out, the normal password UI is restored without an artificial
-generic “Login Failed” message.
+The native GXFP51A0 driver already owns its bounded physical-pose budget, so a
+single PAM fingerprint operation is sufficient. Stacking PAM
+`max-tries=3` on top of the driver's own retries could multiply one login
+attempt into many physical presses.
 
-The package is versioned `6.7.5-3.3`. It keeps the integration package-managed:
-no `/etc/pam.d/plasmalogin` override is required, and it never contains or
-modifies fingerprint templates.
+Patch `0006-fingerprint-password-preemption.patch` fixes the password race
+observed with PLM 3.4:
+
+- an intermediate rejected fingerprint pose stays an informational/auth message
+  and no longer clears the greeter's fingerprint-active state prematurely;
+- a real terminal fingerprint failure is still reported by the authentication
+  completion path;
+- typing a password can cancel fingerprint auth through the existing
+  `CancelLogin` protocol;
+- if a Password `Login` nevertheless reaches the daemon while the fingerprint
+  helper is still active, the daemon queues the already-submitted credentials,
+  stops the fingerprint helper, and starts normal password PAM automatically;
+- the first submitted password is therefore never discarded merely because the
+  fingerprint helper is still draining.
+
+The package remains package-managed; it does not contain, modify, delete, or
+re-enrol fingerprint templates.

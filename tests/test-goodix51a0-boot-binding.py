@@ -108,12 +108,13 @@ plm_patch3 = PLM_PATCH3.read_text()
 plm_patch4 = PLM_PATCH4.read_text()
 plm_patch5 = PLM_PATCH5.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.4" in plm_pkgbuild
+assert "pkgrel=3.5" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
 assert "0004-autostart-first-fingerprint-attempt.patch" in plm_pkgbuild
 assert "0005-split-fingerprint-password-auth.patch" in plm_pkgbuild
+assert "0006-fingerprint-password-preemption.patch" in plm_pkgbuild
 assert "function onInformationMessage(message)" in plm_patch1
 assert "notificationResetTimer.stop();" in plm_patch2
 assert "pam_fprintd.so max-tries=3 timeout=12" in plm_patch3
