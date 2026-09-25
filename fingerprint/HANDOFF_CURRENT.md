@@ -1074,3 +1074,62 @@ Next gates:
 3. expected: capture pacing seeded from protocol calibration (likely 250% on Pegasus), low-score <=4 pose causes quick reposition instead of 3 repeated weak images, success reports immediately at >=7.
 4. only after cold succeeds: normal deep/S3 resume test.
 5. after deep succeeds: immediate-touch race test.
+
+## Update 2026-09-25 morning — rel47 cold failure + PLM 3.5 password-preemption fix
+
+True rel47 cold-boot runtime:
+- boot: 2026-09-25 08:34:37 CEST.
+- fprintd started 08:34:44 with libfprint-goodix51a0 1.94.100.goodix51a0-47.
+- transport/session path healthy: protocol auto-calibration reached 300%, WARM_REBASE succeeded, WakeupMCU succeeded, FDT/touchflag detected every press, GET_IMAGE retry recovered each first image.
+- rel47 low-score reposition logic worked: each weak first image (4,3,3) ended the same-press capture after one image and requested a new physical pose.
+- first driver Identify operation consumed exactly three physical poses; best scores remained 4/7, 3/7, 3/7, so biometric match legitimately failed at threshold 7.
+- threshold 7 remains unchanged; templates/enrollments remain valid because prior rel44/45 boots matched the same enrolled data at 11/7 and 7/7.
+
+Double-password root cause:
+- pam_fprintd was still configured max-tries=3 while rel47 already owns a 3-physical-pose budget internally, so PAM could restart the full driver Identify operation and multiply one login into many presses.
+- at 08:35:06 an intermediate rejected fingerprint pose generated Auth::ERROR_AUTHENTICATION.
+- PLM 3.4 Display::slotAuthError() incorrectly emitted loginFailed immediately for that intermediate message although the fingerprint helper remained active.
+- the greeter therefore cleared its fingerprint-active state while plasmalogin-helper still owned Auth.
+- at 08:35:18 the first password Login reached the daemon; startAuth() logged 'Existing authentication ongoing, aborting', so the submitted password was discarded without being checked.
+- after the fingerprint helper timed out/exited, a second password submission at 08:35:23 succeeded.
+
+PLM 6.7.5-3.5 fix:
+- new patch 0006-fingerprint-password-preemption.patch.
+- dedicated fingerprint PAM changed to pam_fprintd max-tries=1 timeout=15 because the driver itself already owns the bounded pose budget.
+- intermediate Auth::ERROR_AUTHENTICATION messages from plasmalogin-fingerprint remain visible but are no longer emitted as terminal loginFailed while the helper is active.
+- cancellation/preemption results are suppressed until the helper has actually stopped.
+- daemon-side safety net: if a password Login nevertheless arrives while plasmalogin-fingerprint is active, the daemon stores the already-submitted socket/user/password/session, stops the fingerprint helper, then launches normal password PAM automatically when helper exit is observed.
+- first submitted password can therefore no longer be thrown away solely because fingerprint auth is still draining.
+- existing client-side CancelLogin/LoginCancelled path remains.
+- password PAM remains independent and contains no pam_fprintd.
+
+PLM 3.5 validation:
+- source safety test PASS: single PAM fingerprint operation + password preemption.
+- full fingerprint/research suite PASS.
+- test-fingerprint-tooling.py PASS.
+- test-goodix51a0-boot-binding.py PASS.
+- real KDE Plasma Login Manager 6.7.5 source build PASS.
+- built package SHA256: 9946e44f7e058667730ed9b03df192b65009c0c0c7764a7ad9265ad3e6602a97.
+- built package contains /usr/lib/pam.d/plasmalogin-fingerprint with max-tries=1 timeout=15.
+- built /usr/bin/plasmalogin contains server-preemption markers.
+- installed plasma-login-manager 6.7.5-3.5 package integrity: 210 files, 0 modified.
+- libfprint-goodix51a0 rel47 integrity: 40 files, 0 modified.
+- temporary build dependencies cmake, ninja, extra-cmake-modules, cppdap and rhash were installed only for the build and then fully removed; no package orphans remain.
+
+Runtime boundary:
+- current plasmalogin PID 905 started 08:34:49 before PLM 3.5 installation, so it still executes PLM 3.4 mapped in memory.
+- current fprintd PID 724 started 08:34:44 and already executes rel47.
+- PLM 3.5 has NOT yet been runtime-tested.
+
+Git:
+- branch fingerprint-rel47-adaptive-identify.
+- rel47 driver commit f44fedd4466493ca582bac0a8ca6cde3a2ee2c51.
+- PLM 3.5 password-preemption commit f7e733988071ec48e4c8bc9bab47e2578233c350.
+
+Next gate:
+1. user-initiated full reboot to load PLM 3.5.
+2. at cold greeter, try fingerprint normally; driver budget is at most 3 physical poses for the single PAM fingerprint operation.
+3. if fingerprint succeeds, report success and inspect logs.
+4. if fingerprint does not succeed, type the password ONCE and press Enter ONCE even if fingerprint UI still appears active; wait for the transition and do not submit it a second time unless the UI explicitly reports the password itself was wrong.
+5. success criterion for fallback: no 'Existing authentication ongoing, aborting'; expected either client CancelLogin flow or daemon marker 'Password login preempts active fingerprint authentication' followed by 'Fingerprint helper stopped; starting queued password authentication', then one successful password PAM session.
+6. do not deep-suspend until this cold-login + single-password fallback gate is validated.
