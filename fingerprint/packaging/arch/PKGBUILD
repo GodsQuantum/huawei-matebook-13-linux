@@ -1,6 +1,6 @@
 pkgname=libfprint-goodix51a0
 pkgver=1.94.100.goodix51a0
-pkgrel=47
+pkgrel=48
 pkgdesc="libfprint 1.94.100 with experimental Goodix GXFP51A0 SPI driver"
 arch=('x86_64')
 url="https://fprint.freedesktop.org/"
@@ -45,7 +45,7 @@ package() {
   # passive. Prewarm the reader once before the display manager before the first finger. Deep-resume recovery is driver-native: an active
   # authentication detects CLOCK_BOOTTIME-vs-MONOTONIC sleep advancement and
   # rebuilds TLS/background/FDT without any systemd/D-Bus helper.
-  # rel37 deliberately has no periodic synthetic Claim: real Claims refresh the
+  # The production driver deliberately has no periodic synthetic Claim: real Claims refresh the
   # no-finger background/FDT baseline and warm validation handles staleness.
   install -d "$pkgdir/usr/lib/systemd/system/graphical.target.wants"
   ln -s ../fprintd.service \

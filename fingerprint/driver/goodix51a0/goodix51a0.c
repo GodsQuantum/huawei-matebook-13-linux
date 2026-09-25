@@ -1279,38 +1279,24 @@ gx_take_tls_frame (FpiDeviceGoodix51A0 *self, guint8 *rec, gsize cap)
 
 
 static int
-gx_retry_get_image_after_tls_timeout (FpiDeviceGoodix51A0 *self,
-                                      guint8 *rec,
-                                      gsize cap)
+gx_fail_get_image_after_tls_timeout (FpiDeviceGoodix51A0 *self)
 {
-  struct gxfp_target_packet packet;
-  gboolean ack_seen = FALSE;
-  gboolean tls_seen = FALSE;
+  /* Reaching this point means gx_send_plain_drain() already observed evidence
+   * that GET_IMAGE was accepted (normally its cleartext ACK), then no TLS image
+   * arrived during the full bounded TLS wait.  The command may still complete
+   * late.  Replaying it here is unsafe: two accepted GET_IMAGE commands can
+   * leave two application records in flight, so the next semantic capture can
+   * consume a stale record even when AES-GCM sequence authentication itself
+   * still succeeds.  The only unambiguous recovery boundary is a fresh MCU/TLS
+   * session.  By contrast, gx_send_plain_drain() still retries once when
+   * neither ACK nor TLS was observed, because there is no evidence that command
+   * reached the sensor. */
+  fp_warn ("GXFP51A0 GET_IMAGE was accepted but TLS image timed out; "
+           "not replaying accepted command; forcing full session recovery");
 
-  if (!gxfp_build_get_image (&packet))
-    return -1;
-
-  self->capture_retry_seen = TRUE;
-  fp_warn ("GXFP51A0 GET_IMAGE ACK arrived but TLS image timed out; retrying once");
-  if (!gx_send_plain_drain (self, packet.inner, packet.inner_len,
-                            &ack_seen, &tls_seen))
-    {
-      if (!self->capture_recovery_pending)
-        gx_capture_transport_desync (self);
-      return -1;
-    }
-
-  {
-    int raw = gx_take_tls_frame (self, rec, cap);
-
-    if (raw < 0 && !self->capture_recovery_pending)
-      {
-        fp_warn ("GXFP51A0 GET_IMAGE retry received no TLS image; "
-                 "marking capture transport desynchronised");
-        gx_capture_transport_desync (self);
-      }
-    return raw;
-  }
+  if (!self->capture_recovery_pending)
+    gx_capture_transport_desync (self);
+  return -1;
 }
 
 
@@ -1343,7 +1329,7 @@ gx_send_capture_cleanup (FpiDeviceGoodix51A0 *self)
           gssize got;
 
           if (raw < 0)
-            raw = gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX);
+            raw = gx_fail_get_image_after_tls_timeout (self);
 
           got = raw > 0
                   ? gx_tls_decrypt_record (self->tls, rec, (gsize) raw,
@@ -1353,6 +1339,8 @@ gx_send_capture_cleanup (FpiDeviceGoodix51A0 *self)
             {
               fp_warn ("capture cleanup image record failed (%d raw, %ld plain)",
                        raw, (long) got);
+              if (!self->capture_recovery_pending)
+                gx_capture_transport_desync (self);
               goto out;
             }
         }
@@ -1397,13 +1385,16 @@ gx_capture_frame_ex (FpiDeviceGoodix51A0 *self,
     gssize got;
 
     if (raw < 0)
-      raw = gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX);
+      raw = gx_fail_get_image_after_tls_timeout (self);
 
     got = raw > 0 ? gx_tls_decrypt_record (self->tls, rec, (gsize) raw,
                                            img, GOODIX_RX_MAX) : -1;
     if (got < 0)
       {
-        fp_warn ("cannot decrypt the image record (%d raw bytes)", raw);
+        fp_warn ("cannot authenticate/decrypt the image record (%d raw bytes); "
+                 "forcing full session recovery", raw);
+        if (!self->capture_recovery_pending)
+          gx_capture_transport_desync (self);
         return FALSE;
       }
     total = (int) got;
@@ -2581,7 +2572,7 @@ gx_capture_retry_same_press_frame (FpiDeviceGoodix51A0 *self,
 
   raw = gx_take_tls_frame (self, rec, GOODIX_RX_MAX);
   if (raw < 0)
-    raw = gx_retry_get_image_after_tls_timeout (self, rec, GOODIX_RX_MAX);
+    raw = gx_fail_get_image_after_tls_timeout (self);
 
   got = raw > 0
           ? gx_tls_decrypt_record (self->tls, rec, (gsize) raw,
@@ -2589,8 +2580,11 @@ gx_capture_retry_same_press_frame (FpiDeviceGoodix51A0 *self,
           : -1;
   if (got != (gssize) GXFP_IMAGE_PLAINTEXT_LEN)
     {
-      fp_warn ("same-press RetryCaptureIMG failed (%d raw, %ld plain)",
+      fp_warn ("same-press RetryCaptureIMG failed (%d raw, %ld plain); "
+               "forcing full session recovery",
                raw, (long) got);
+      if (!self->capture_recovery_pending)
+        gx_capture_transport_desync (self);
       return FALSE;
     }
 
