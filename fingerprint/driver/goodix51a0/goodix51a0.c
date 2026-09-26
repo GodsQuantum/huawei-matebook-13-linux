@@ -2793,7 +2793,6 @@ enum {
 #define GX_RECOVERY_OFF_POLLS 2 /* ~1 s worst-case with failed FDT probes */
 #define GX_VERIFY_MAX_ATTEMPTS 3 /* physical presses; fixed budget */
 #define GX_SAME_PRESS_CAPTURE_ATTEMPTS 3 /* initial image + 2 RetryCaptureIMG */
-#define GX_REPOSE_SCORE_CUTOFF 4 /* very weak pose: reposition beats same-pose recapture */
 
 /* ------------------------------------------------------------------ */
 /*  Off-loading the blocking work                                      */
@@ -3311,20 +3310,12 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
       if (score >= GX_MATCH_THRESHOLD)
         break;
 
-      /* Community FAR/FRR evaluation confirms threshold 7 should stay fixed,
-       * while low genuine poses are the dominant false-reject source.  A very
-       * weak first image (<=4) almost always repeats the same low score on this
-       * partial sensor, so spending two more images on the identical pose is
-       * slower and less useful than asking for a fresh placement.  Scores 5-6
-       * remain close enough to threshold to keep Windows-style RetryCaptureIMG.
-       * Quality-gate rejects also continue to recapture same-press above. */
-      if (attempt == 1 && score <= GX_REPOSE_SCORE_CUTOFF)
-        {
-          fp_info ("GXFP51A0 AUTH_TRACE mode=%s low-score pose=%d; "
-                   "requesting reposition instead of same-press recapture",
-                   mode, score);
-          break;
-        }
+      /* Keep Windows-style RetryCaptureIMG available for every non-matching
+       * usable image.  Reference-machine rel40 validation proved that a later
+       * image from the SAME physical press can cross the fixed threshold even
+       * when the first image is weak.  Each image remains an independent
+       * biometric decision: scores are never summed or fused, and threshold 7
+       * is unchanged. */
     }
 
   if (cleanup_needed && !self->capture_recovery_pending)

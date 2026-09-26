@@ -327,6 +327,30 @@ to rel48. It upgrades the KDE lockscreen helper to v4, preserving the
 window-ready startup timer while removing the incompatible partial 1-second
 heartbeat backport described above. Password unlock was also human-validated.
 
+### rel50 candidate: resume rearm + full same-press budget
+
+Later human validation exposed two independent regressions. On a normal lock the
+reader was armed, but six captured poses all scored 3/7; on a subsequent real
+S3 resume, KScreenLocker displayed normally but did not start any fprintd
+operation at all. The user must never have to guess when the reader is ready:
+once the lock screen is visible, fingerprint and password are expected to be
+available concurrently.
+
+rel50 keeps threshold 7, SIGFM, template-v4, TLS recovery, GPIO behavior and the
+three-physical-pose budget unchanged. It removes the rel47 early-reposition
+shortcut that discarded same-press images 2/3 whenever image 1 scored <=4.
+Reference rel40 testing had already proved this unsafe optimization: a later
+image from the same physical press reached 7 after the first image was unusable.
+Each rel50 image remains an independent biometric decision; scores are never
+summed or fused.
+
+The KDE helper moves to v5. It uses Plasma's native
+SessionManagement.resumingFromSuspend signal to request one authentication
+rearm after S3. If KScreenLocker 6.7.5 is still unwinding its pre-suspend PAM
+conversation, the helper waits for the authenticator state transition and
+retries once. There is no periodic heartbeat, system-sleep hook, daemon, or
+persistent timer.
+
 ### Arch / CachyOS
 
 From the repository root:

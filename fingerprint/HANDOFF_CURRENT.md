@@ -1381,3 +1381,63 @@ Next human gate after rel49:
 3. later, one more S3 resume test while waiting for the fingerprint prompt/READY
    before touching the reader, to distinguish readiness latency from recognition.
 No re-enrollment is indicated.
+
+---
+
+## Update 2026-09-26 12:34 CEST — rel50 installed, pending human lock/S3 validation
+
+Trigger:
+- normal lock fingerprint failed; password succeeded;
+- real S3 resume fingerprint did not react to multiple touches.
+
+Exact diagnosis:
+- normal lock DID start fprintd and captured multiple physical poses;
+- six observed usable images scored 3/7, with safe no-ACK/no-TLS GET_IMAGE retry;
+- no accepted-GET_IMAGE replay, GCM/digest failure or transport desync;
+- rel47's score<=4 shortcut discarded same-press images 2/3 on every weak pose;
+- historical rel40 runtime proved a later image from the same physical press can
+  rescue authentication (image 2 reached threshold 7);
+- after the later S3 resume there were ZERO fprintd log entries before password
+  unlock: KScreenLocker 6.7.5 had not rearmed fingerprint at all.
+
+rel50 changes:
+- threshold stays 7; matcher/SIGFM/template format/enrollments unchanged;
+- restores all 3 independent same-press images for every non-matching usable
+  physical pose; scores are never fused;
+- retains fixed 3-physical-pose driver budget;
+- KDE helper v5 uses SessionManagement.resumingFromSuspend();
+- resume rearm is one-shot: immediate if authenticator is idle, otherwise waits
+  for the old PAM state transition and starts once;
+- no periodic heartbeat, external suspend hook, daemon, persistent timer or
+  timing file added.
+
+Validation:
+- targeted KDE migration/rollback test PASS;
+- qmllint on v5-patched real LockScreenUi.qml PASS;
+- full fingerprint/research suite PASS;
+- boot-binding/native lifecycle source test PASS;
+- reproducible rel50 build PASS;
+- artifact gates: dump hook absent, active sensor IO/GPIO/MMIO/firmware actions
+  during build NONE;
+- package SHA256:
+  1e7165bf6c0bf289839eedda01ffd7ba6a6d0e9828019f610972d081c3c304d7;
+- installed libfprint-goodix51a0 1.94.100.goodix51a0-50;
+- fprintd restarted intentionally only to load rel50, PID 27787 at 12:33:12;
+- QML v5 applied live and qmllint PASS;
+- enrollments remain right-index, left-index, right-middle;
+- normal boot-prewarm helper run once after daemon restart to remove the
+  artificial cold-daemon penalty from the next human test.
+
+Important PAM decision:
+- /usr/lib/pam.d/kde-fingerprint still uses distro default pam_fprintd retry
+  policy. Do NOT force max-tries=1 yet: KScreenLocker 6.7.5 cannot cleanly
+  rearm only the noninteractive fingerprint backend after that terminal PAM
+  cycle while leaving password untouched. rel50 should first be validated.
+
+Next human tests:
+1. normal lock: touch an enrolled finger immediately when the lock UI is visible;
+   do not wait for any hidden READY state. Keep the same placement down long
+   enough for same-press recaptures. Password must remain usable.
+2. after logs are inspected, user-initiated deep S3; when lock UI appears, touch
+   immediately. QML v5 must cause a fresh fprintd operation automatically.
+3. inspect logs before any further code change.

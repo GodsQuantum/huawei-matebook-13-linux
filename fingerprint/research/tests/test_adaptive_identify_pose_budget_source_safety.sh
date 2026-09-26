@@ -3,9 +3,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 d="$root/driver/goodix51a0/goodix51a0.c"
 
-grep -Fq '#define GX_REPOSE_SCORE_CUTOFF 4' "$d"
-grep -Fq 'attempt == 1 && score <= GX_REPOSE_SCORE_CUTOFF' "$d"
-grep -Fq 'requesting reposition instead of same-press recapture' "$d"
+grep -Fq '#define GX_SAME_PRESS_CAPTURE_ATTEMPTS 3' "$d"
+! grep -Fq 'GX_REPOSE_SCORE_CUTOFF' "$d"
+! grep -Fq 'requesting reposition instead of same-press recapture' "$d"
+grep -Fq 'Keep Windows-style RetryCaptureIMG available for every non-matching' "$d"
 grep -Fq 'identify: match reported on press %d/%d' "$d"
 grep -Fq 'identify: no-match reported after %d fixed presses' "$d"
 grep -Fq 'identify: no-match press %d/%d' "$d"

@@ -2,12 +2,15 @@
 set -Eeuo pipefail
 
 TARGET="${GXFP51A0_KDE_LOCKSCREEN_QML:-/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml}"
+V5_MARKER="GXFP51A0 window-ready fingerprint integration v5"
 V4_MARKER="GXFP51A0 window-ready fingerprint integration v4"
 V3_MARKER="GXFP51A0 window-ready fingerprint integration v3"
 V2_MARKER="GXFP51A0 instant fingerprint integration v2"
 V1_MARKER="GXFP51A0 instant fingerprint integration: arm PAM immediately"
 START_BEGIN="// GXFP51A0 window-ready startup timer BEGIN"
 START_END="// GXFP51A0 window-ready startup timer END"
+RESUME_BEGIN="// GXFP51A0 resume rearm BEGIN"
+RESUME_END="// GXFP51A0 resume rearm END"
 HB_BEGIN="// GXFP51A0 upstream fingerprint heartbeat backport BEGIN"
 HB_END="// GXFP51A0 upstream fingerprint heartbeat backport END"
 mode="${1:---apply}"
@@ -61,19 +64,21 @@ rewrite_v2_to_stock() {
   mv -f "$tmp" "$TARGET"
 }
 
-rewrite_v3_to_stock() {
+rewrite_modern_to_stock() {
   local tmp
   tmp="$(mktemp "${TARGET}.XXXXXX")"
   awk '
-    /\/\/ GXFP51A0 window-ready startup timer BEGIN/ { skip=1; next }
-    skip && /\/\/ GXFP51A0 window-ready startup timer END/ { skip=0; next }
+    /\/\/ GXFP51A0 window-ready startup timer BEGIN/ { startup=1; next }
+    startup && /\/\/ GXFP51A0 window-ready startup timer END/ { startup=0; next }
+    /\/\/ GXFP51A0 resume rearm BEGIN/ { resume=1; next }
+    resume && /\/\/ GXFP51A0 resume rearm END/ { resume=0; next }
     /\/\/ GXFP51A0 upstream fingerprint heartbeat backport BEGIN/ { hb=1; next }
     hb && /\/\/ GXFP51A0 upstream fingerprint heartbeat backport END/ { hb=0; next }
-    skip || hb { next }
+    startup || resume || hb { next }
 
     $0 == "        Component.onCompleted: {" { hold=$0; next }
     hold != "" && $0 == "            launchAnimation.start();" { hold=hold "\n" $0; next }
-    hold != "" && $0 ~ /GXFP51A0 window-ready fingerprint integration v[34]/ { hold=hold "\n" $0; mark=1; next }
+    hold != "" && $0 ~ /GXFP51A0 window-ready fingerprint integration v[345]/ { hold=hold "\n" $0; mark=1; next }
     hold != "" && mark && $0 == "            gxfp51a0StartupAuthTimer.start();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "        }" {
       print "        Component.onCompleted: launchAnimation.start();"
@@ -106,12 +111,67 @@ rewrite_v3_to_v4() {
   mv -f "$tmp" "$TARGET"
 }
 
-apply_v4() {
+rewrite_v4_to_v5() {
+  local tmp
+  tmp="$(mktemp "${TARGET}.XXXXXX")"
+  awk '
+    $0 == "        onBlockUIChanged: {" && !inserted {
+      print "        // GXFP51A0 resume rearm BEGIN"
+      print "        property bool gxfp51a0ResumeRearmPending: false"
+      print "        Connections {"
+      print "            target: sessionManagement"
+      print "            function onResumingFromSuspend() {"
+      print "                lockScreenRoot.gxfp51a0ResumeRearmPending = true;"
+      print "                // If PAM is already idle this starts immediately. If the"
+      print "                // pre-suspend password conversation is still unwinding,"
+      print "                // startAuthenticating() is a no-op and onStateChanged below"
+      print "                // retries exactly once when the old backend reaches Idle."
+      print "                authenticator.startAuthenticating();"
+      print "            }"
+      print "        }"
+      print "        Connections {"
+      print "            target: authenticator"
+      print "            function onStateChanged() {"
+      print "                if (!lockScreenRoot.gxfp51a0ResumeRearmPending) {"
+      print "                    return;"
+      print "                }"
+      print "                lockScreenRoot.gxfp51a0ResumeRearmPending = false;"
+      print "                authenticator.startAuthenticating();"
+      print "            }"
+      print "        }"
+      print "        // GXFP51A0 resume rearm END"
+      inserted=1
+    }
+    {
+      gsub(/GXFP51A0 window-ready fingerprint integration v4/,
+           "GXFP51A0 window-ready fingerprint integration v5")
+      print
+    }
+    END {
+      if (!inserted)
+        exit 42
+    }
+  ' "$TARGET" > "$tmp" || {
+    rm -f "$tmp"
+    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v5 resume rearm applied" >&2
+    return 42
+  }
+  chmod --reference="$TARGET" "$tmp"
+  chown --reference="$TARGET" "$tmp"
+  mv -f "$tmp" "$TARGET"
+}
+
+apply_v5() {
   local tmp
 
-  grep -Fq "$V4_MARKER" "$TARGET" && return 0
+  grep -Fq "$V5_MARKER" "$TARGET" && return 0
+  if grep -Fq "$V4_MARKER" "$TARGET"; then
+    rewrite_v4_to_v5
+    return 0
+  fi
   if grep -Fq "$V3_MARKER" "$TARGET"; then
     rewrite_v3_to_v4
+    rewrite_v4_to_v5
     return 0
   fi
   grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
@@ -146,13 +206,33 @@ apply_v4() {
       print "            }"
       print "        }"
       print "        // GXFP51A0 window-ready startup timer END"
+      print "        // GXFP51A0 resume rearm BEGIN"
+      print "        property bool gxfp51a0ResumeRearmPending: false"
+      print "        Connections {"
+      print "            target: sessionManagement"
+      print "            function onResumingFromSuspend() {"
+      print "                lockScreenRoot.gxfp51a0ResumeRearmPending = true;"
+      print "                authenticator.startAuthenticating();"
+      print "            }"
+      print "        }"
+      print "        Connections {"
+      print "            target: authenticator"
+      print "            function onStateChanged() {"
+      print "                if (!lockScreenRoot.gxfp51a0ResumeRearmPending) {"
+      print "                    return;"
+      print "                }"
+      print "                lockScreenRoot.gxfp51a0ResumeRearmPending = false;"
+      print "                authenticator.startAuthenticating();"
+      print "            }"
+      print "        }"
+      print "        // GXFP51A0 resume rearm END"
       inserted=1
     }
 
     $0 == "        Component.onCompleted: launchAnimation.start();" {
       print "        Component.onCompleted: {"
       print "            launchAnimation.start();"
-      print "            // GXFP51A0 window-ready fingerprint integration v4"
+      print "            // GXFP51A0 window-ready fingerprint integration v5"
       print "            gxfp51a0StartupAuthTimer.start();"
       print "        }"
       completed=1
@@ -165,7 +245,7 @@ apply_v4() {
         exit 42
     }
   ' "$TARGET" > "$tmp" || {
-    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v4 lockscreen patch applied" >&2
+    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v5 lockscreen patch applied" >&2
     return 42
   }
 
@@ -177,21 +257,24 @@ apply_v4() {
 
 case "$mode" in
   --apply)
-    apply_v4
+    apply_v5
     ;;
   --remove)
     grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
     grep -Fq "$V2_MARKER" "$TARGET" && rewrite_v2_to_stock
-    grep -Fq "$V3_MARKER" "$TARGET" && rewrite_v3_to_stock
-    grep -Fq "$V4_MARKER" "$TARGET" && rewrite_v3_to_stock
+    if grep -Fq "$V3_MARKER" "$TARGET" || grep -Fq "$V4_MARKER" "$TARGET" || grep -Fq "$V5_MARKER" "$TARGET"; then
+      rewrite_modern_to_stock
+    fi
     ;;
   --check)
-    grep -Fq "$V4_MARKER" "$TARGET"
+    grep -Fq "$V5_MARKER" "$TARGET"
     grep -Fq 'id: gxfp51a0StartupAuthTimer' "$TARGET"
     grep -Fq 'if (lockScreenRoot.Window.window)' "$TARGET"
     grep -Fq 'gxfp51a0StartupAuthTimer.start();' "$TARGET"
     grep -Fq 'Window.window.requestActivate();' "$TARGET"
-    grep -Fq 'authenticator.startAuthenticating();' "$TARGET"
+    grep -Fq 'property bool gxfp51a0ResumeRearmPending: false' "$TARGET"
+    grep -Fq 'function onResumingFromSuspend()' "$TARGET"
+    grep -Fq 'function onStateChanged()' "$TARGET"
     ! grep -Fq 'GXFP51A0 upstream fingerprint heartbeat backport BEGIN' "$TARGET"
     ;;
   *)
