@@ -88,7 +88,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=54" in pkgbuild
+assert "pkgrel=55" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "systemd/system-sleep/gxfp51a0-resume-prewarm" not in pkgbuild
@@ -100,7 +100,10 @@ assert "gxfp51a0-spidev-bind" not in pkgbuild
 assert "gx_active_sleep_recovery" in driver
 assert "active S3 boundary detected during authentication" in driver
 assert "gx_cold_prepare (self)" in driver
-assert "BOOTTIME-vs-MONOTONIC poll guard" in driver
+assert "fpi_device_suspend_complete (dev, NULL)" in driver
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in driver[driver.index("gx_dev_suspend"):driver.index("gx_dev_resume")]
+assert "fpi_device_critical_enter (dev)" in driver
+assert driver.count("fpi_device_critical_leave") >= 2
 
 plm_pkgbuild = PLM_PKGBUILD.read_text()
 plm_patch1 = PLM_PATCH1.read_text()

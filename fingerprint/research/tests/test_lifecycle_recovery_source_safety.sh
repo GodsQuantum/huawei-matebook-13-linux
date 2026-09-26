@@ -81,11 +81,16 @@ assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_o
 assert "gx_gpio_reset (self)" in open_
 assert "self->capture_gap_scale = 0" in open_
 
-# For an active action, upstream libfprint requires an error when the action
-# cannot safely continue across suspend; NOT_SUPPORTED triggers cancellation.
-assert "FP_DEVICE_ERROR_NOT_SUPPORTED" in suspend
-assert "fpi_device_suspend_complete" in suspend
+# rel55 guarantees that the current Verify/Identify action can continue after
+# resume: suspend only arms deterministic cold recovery, while the next poll
+# crosses GX_ST_SESSION before stale hardware state is touched. Per libfprint,
+# successful suspend completion therefore preserves the action instead of
+# cancelling pam_fprintd.
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend
+assert "fpi_device_suspend_complete (dev, NULL)" in suspend
+assert "gx_resume_bootstrap_preserve (self)" in suspend
 assert "self->force_cold_reset = TRUE" in suspend
+assert "preserving active authentication" in suspend
 assert "fpi_device_resume_complete (dev, NULL)" in resume
 assert "g_cancellable_cancel" not in resume
 

@@ -29,6 +29,9 @@ poll_on=fn("gx_poll_on")
 poll_off=fn("gx_poll_off")
 suspend=fn("gx_dev_suspend")
 resume=fn("gx_dev_resume")
+run_async=fn("gx_run_async")
+session_done=fn("gx_session_done")
+capture_done=fn("gx_capture_done")
 
 assert "CLOCK_BOOTTIME" in s and "CLOCK_MONOTONIC" in s
 assert "#define GX_SLEEP_DELTA_STALE_US (250 * 1000)" in s
@@ -50,11 +53,17 @@ assert "self->capture_gap_scale = 0" in session
 assert "self->capture_pacing_suppressed = TRUE" in session
 
 assert "self->force_cold_reset = TRUE" in suspend
-assert "fpi_device_suspend_complete" in suspend
-assert "BOOTTIME-vs-MONOTONIC poll guard" in resume
+assert "gx_resume_bootstrap_preserve (self)" in suspend
+assert "fpi_device_suspend_complete (dev, NULL)" in suspend
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend
+assert "preserving active authentication" in suspend
+assert "fpi_device_critical_enter (dev)" in run_async
+assert "fpi_device_critical_leave (w->dev)" in session_done
+assert "fpi_device_critical_leave (dev)" in capture_done
+assert "fpi_device_resume_complete (dev, NULL)" in resume
 PY2
 
-grep -Fq 'pkgrel=54' "$pkg"
+grep -Fq 'pkgrel=55' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"

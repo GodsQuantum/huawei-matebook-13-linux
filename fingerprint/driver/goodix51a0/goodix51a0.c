@@ -2927,6 +2927,12 @@ gx_session_done (GObject *src, GAsyncResult *res, gpointer user_data)
   GxWork *w = g_task_get_task_data (G_TASK (res));
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (w->dev);
 
+  /* The blocking TLS/session transaction has returned to the main loop.
+   * Release the libfprint critical section before advancing/completing the
+   * state machine so any queued suspend/cancel request can be delivered at a
+   * coherent protocol boundary. */
+  fpi_device_critical_leave (w->dev);
+
   if (!w->ok)
     {
       fpi_ssm_mark_failed (w->ssm, fpi_device_error_new_msg (
@@ -2997,6 +3003,12 @@ gx_run_async (FpiSsm *ssm, FpDevice *dev, GTaskThreadFunc fn,
     }
 
   g_task_set_task_data (task, w, (GDestroyNotify) gx_work_free);
+
+  /* TLS/session setup and GET_IMAGE are synchronous SPI/TLS transactions.
+   * Do not let libfprint inject suspend/resume/cancel between an accepted
+   * command and its reply. External requests remain queued and are flushed
+   * when the matching completion callback leaves this critical section. */
+  fpi_device_critical_enter (dev);
   g_task_run_in_thread (task, fn);
   g_object_unref (task);
 }
@@ -3403,6 +3415,10 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
   GxTask *t = fpi_ssm_get_data (ssm);
   GxSiftFeatures *f = g_steal_pointer (&w->feat);
+
+  /* Match gx_run_async(): GET_IMAGE/same-press transport is now at a complete
+   * main-loop boundary, so queued suspend/cancel requests may safely run. */
+  fpi_device_critical_leave (dev);
 
   if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
     {
@@ -4180,26 +4196,30 @@ gx_dev_suspend (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
 
-  /* The ST411 does not preserve TLS/FDT state across S3, so an interactive
-   * action cannot safely continue after resume.  libfprint explicitly asks
-   * such drivers to return NOT_SUPPORTED: it cancels the current action before
-   * forwarding the suspend result to fprintd, which accepts this condition. */
+  /* ST411 loses sensor-side TLS/FDT state across S3, but this driver can
+   * recover the *same* libfprint action after resume: lightweight WAIT_ON/OFF
+   * polling detects the BOOTTIME-vs-MONOTONIC jump and sends the SSM through
+   * GX_ST_SESSION, whose force_cold_reset path rebuilds MCU/TLS/FDT before any
+   * further biometric I/O. Returning success here is therefore intentional:
+   * libfprint keeps Verify/Identify alive instead of cancelling pam_fprintd.
+   *
+   * Blocking session/image transactions are protected by libfprint critical
+   * sections, so suspend cannot be injected halfway through an ACK/TLS record. */
   gx_resume_bootstrap_preserve (self);
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
-  fp_info ("GXFP51A0 suspend: cancelling active action; cold reset required after resume");
-  fpi_device_suspend_complete (
-    dev, fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED));
+  fp_info ("GXFP51A0 suspend: preserving active authentication; native cold "
+           "recovery armed for resume");
+  fpi_device_suspend_complete (dev, NULL);
 }
 
 static void
 gx_dev_resume (FpDevice *dev)
 {
-  /* If libfprint cancelled the action, the following Claim/Open sees
-   * force_cold_reset. If a desktop kept an already-open action alive, the
-   * BOOTTIME-vs-MONOTONIC poll guard detects the same S3 boundary and jumps
-   * through GX_ST_SESSION for an in-operation cold rebuild. */
+  /* gx_dev_suspend() deliberately keeps the interactive action alive. The
+   * next lightweight WAIT_ON/OFF poll observes the S3 clock jump and routes
+   * that same action through GX_ST_SESSION before touching stale sensor state. */
   fpi_device_resume_complete (dev, NULL);
 }
 

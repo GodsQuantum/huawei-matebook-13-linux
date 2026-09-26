@@ -13,8 +13,8 @@ grep -Fq 'clean background for first authentication' "$d"
 
 # Bootstrap must be armed only from actual suspend/S3 handling.
 grep -A20 -F 'active S3 boundary detected during authentication' "$d" | grep -Fq 'gx_resume_bootstrap_preserve (self);'
-grep -A22 -F 'GXFP51A0 suspend: cancelling active action' "$d" >/dev/null || true
-grep -B8 -F 'GXFP51A0 suspend: cancelling active action' "$d" | grep -Fq 'gx_resume_bootstrap_preserve (self);'
+grep -A22 -F 'GXFP51A0 suspend: preserving active authentication' "$d" >/dev/null || true
+grep -B8 -F 'GXFP51A0 suspend: preserving active authentication' "$d" | grep -Fq 'gx_resume_bootstrap_preserve (self);'
 grep -A18 -F 'if (slept || self->force_cold_reset)' "$d" | grep -Fq 'if (slept && !self->resume_bg_valid)'
 grep -A18 -F 'if (slept || self->force_cold_reset)' "$d" | grep -Fq 'gx_resume_bootstrap_preserve (self);'
 

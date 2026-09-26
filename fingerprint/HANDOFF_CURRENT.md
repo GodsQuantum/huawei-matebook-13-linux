@@ -1748,3 +1748,111 @@ Do not modify matcher/threshold/TLS/FDT before this rel54 human S3 test.
 - implementation commit: `20b4a69 fix(lockscreen): carry PAM authentication across S3`
 - branch: `fingerprint-rel54-upstream-kscreenlocker-s3`
 - pushed to origin.
+
+---
+
+## Update 2026-09-26 19:33 CEST — rel55 installed, pending human validation
+
+User report triggering rel55:
+- `rel54 deep échoué`
+- user requested stepping back from regressions and a focused rel55.
+
+Reference baseline:
+- rel51 is the last human-validated good normal lock release:
+  - `rel51 lock OK`
+  - window-ready QML v5 startup;
+  - one biometric pose;
+  - score 13 / threshold 7.
+- rel52 introduced direct `Component.onCompleted -> startAuthenticating()`;
+  subsequent regressions started from that integration change.
+
+rel54 failure at 18:56:
+- greeter appeared at 18:56:16.322;
+- deep S3 entered 18:56:17.131, resumed 18:56:22.701;
+- ZERO fprintd/GXFP51A0 activity before or after that S3;
+- therefore fingerprint auth had not started before sleep and v8 had no
+  post-resume start path.
+
+rel55 lifecycle correction:
+1. Goodix `gx_dev_suspend()` no longer returns
+   `FP_DEVICE_ERROR_NOT_SUPPORTED`.
+   libfprint documents that a suspend error cancels the current action.
+2. Suspend now:
+   - preserves clean RAM-only background/FDT bootstrap;
+   - sets `force_cold_reset=TRUE`;
+   - invalidates warm/production readiness;
+   - calls `fpi_device_suspend_complete(dev, NULL)`.
+   Verify/Identify therefore remains the same active action across S3.
+3. Existing `gx_active_sleep_recovery()` detects the BOOTTIME-vs-MONOTONIC
+   sleep jump in WAIT_ON/WAIT_OFF and jumps the live SSM to `GX_ST_SESSION`.
+4. `gx_session_start()` sees `force_cold_reset`, resets/rebuilds MCU/TLS/FDT
+   and uses the rel53 held-finger RAM bootstrap when appropriate.
+5. `gx_run_async()` now enters a libfprint critical section around blocking
+   session/TLS or GET_IMAGE work; `gx_session_done()` and
+   `gx_capture_done()` leave it on return to the main loop.
+   fprintd currently owns a logind delay inhibitor:
+   `net.reactivated.Fprint ... sleep ... delay`, with 5 s logind delay max.
+
+KDE v9:
+- normal lock returns to rel51 window-ready startup;
+- NO direct `authenticator.startAuthenticating()` in Component.onCompleted;
+- startup timer still reveals UI and stock onUiVisibleChanged starts password +
+  fingerprint together;
+- on resume only, one idempotent kick:
+  `gxfp51a0StartupAuthTimer.restart(); authenticator.startAuthenticating();`
+- if auth already survives S3, KScreenLocker state guard makes start a no-op;
+- if greeter slept before auth began, it starts immediately on resume;
+- no pending flag, PAM delay timer, heartbeat, keepalive, or system-sleep hook.
+- KScreenLocker upstream MR !340 / commit 992f3fa8 remains installed so KDE
+  itself does not cancel PAM on suspend.
+
+Unchanged:
+- SIGFM matcher;
+- threshold 7;
+- 3 same-press image budget;
+- enrollment data;
+- GPIO behaviour;
+- PMK/TLS crypto;
+- capture recipe.
+
+Validation before install:
+- complete fingerprint/research test suite PASS;
+- lifecycle/S3/bootstrap/TLS timeout/transport tests PASS;
+- KDE v9 stock and v8 migration/rollback test PASS;
+- boot binding test PASS;
+- reproducible libfprint build PASS;
+- build artifact gates: sensor I/O NONE, GPIO writes NONE, MMIO writes NONE,
+  firmware actions NONE;
+- copied real LockScreenUi.qml + v9 qmllint PASS.
+
+Installed:
+- kscreenlocker 6.7.5-1.2 (upstream S3 PAM fix from rel54);
+- libfprint-goodix51a0 1.94.100.goodix51a0-55;
+- plasma-login-manager 6.7.5-3.8;
+- fprintd 1.94.5-2.1;
+- rel55 package SHA256:
+  `b559c0555f2a681ff64e0d9381e4a22fe1711f1c7258e7ff5bc96406b6f8b1ac`;
+- driver source SHA256:
+  `8d8c9bd730218951578d1876e647cbeb9e53e3e4303ac714f17d1d7e7af94747`;
+- libfprint package integrity 40/40 clean;
+- KScreenLocker integrity 346/346 clean;
+- fprintd PID 109705 since 19:32:28;
+- prewarm Claim completed successfully 19:32:35;
+- sleep delay inhibitor present for fprintd;
+- enrollments intact: right-index, left-index, right-middle;
+- no orphan packages.
+
+NEXT HUMAN GATES:
+A. First perform a normal lock test. Expected behaviour should reproduce rel51.
+B. Then perform a real deep S3 -> wake -> use fingerprint naturally/immediately.
+Password must remain concurrently usable in both tests.
+
+Do NOT auto-lock, auto-suspend, reboot or re-enroll.
+If deep fails, inspect exact sequence:
+- KScreenLocker start/resume;
+- fprintd suspend/resume;
+- `GXFP51A0 suspend: preserving active authentication; native cold recovery armed for resume`;
+- `GXFP51A0 active S3 boundary detected during authentication`;
+- `GXFP51A0 active resume recovery: rebuilding cold sensor context`;
+- RAM bootstrap marker if finger already present;
+- READY/DETECTED_HOLD/score.

@@ -443,6 +443,38 @@ now fixed at the KScreenLocker C++ layer. No heartbeat, keepalive, external
 sleep hook, matcher change, threshold change, PAM policy change or re-enrollment
 is introduced.
 
+### rel55 candidate: native S3 authentication continuity
+
+rel55 deliberately steps back to the last human-validated lock-screen startup
+behaviour (rel51) while fixing the suspend lifecycle at the driver boundary.
+
+The key contradiction in rel53/54 was that the driver already knew how to
+detect a real S3 inside an active Verify/Identify operation and rebuild its
+MCU/TLS/FDT state through `GX_ST_SESSION`, but `gx_dev_suspend()` returned
+`FP_DEVICE_ERROR_NOT_SUPPORTED`. libfprint defines that error path as one
+which cancels the current action before reporting suspend to the application.
+rel55 instead returns successful suspend completion after arming
+`force_cold_reset` and preserving the clean RAM-only background bootstrap.
+The same Verify/Identify operation therefore survives resume and performs its
+native cold rebuild before further biometric I/O.
+
+The synchronous TLS/session and GET_IMAGE worker transactions are wrapped in
+libfprint critical sections so suspend/cancel is delivered only at a coherent
+protocol boundary. fprintd already owns a logind sleep-delay inhibitor on the
+reference machine; no system-sleep hook or extra service is added.
+
+KDE helper v9 restores rel51's normal window-ready startup timing: authentication
+is not started directly from `Component.onCompleted`. A single idempotent
+`onResumingFromSuspend()` kick remains to cover the edge case where the greeter
+was created immediately before S3 and authentication had not started yet. If
+authentication is already running, KScreenLocker's existing state guard makes
+that call a no-op.
+
+The upstream KScreenLocker MR !340 / commit `992f3fa8` from rel54 remains in
+place, so the password PAM conversation is not falsely cancelled on suspend.
+Password and fingerprint remain concurrent. Matcher, threshold 7, same-press
+policy, enrollment data and GPIO behaviour are unchanged.
+
 ### Arch / CachyOS
 
 From the repository root:

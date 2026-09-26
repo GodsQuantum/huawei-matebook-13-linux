@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 TARGET="${GXFP51A0_KDE_LOCKSCREEN_QML:-/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml}"
+V9_MARKER="GXFP51A0 native-S3-continuity fingerprint integration v9"
 V8_MARKER="GXFP51A0 upstream-suspend-safe fingerprint integration v8"
 V7_MARKER="GXFP51A0 resume-delay-aware fingerprint integration v7"
 V6_MARKER="GXFP51A0 parallel-start fingerprint integration v6"
@@ -81,7 +82,7 @@ rewrite_modern_to_stock() {
 
     $0 == "        Component.onCompleted: {" { hold=$0; next }
     hold != "" && $0 == "            launchAnimation.start();" { hold=hold "\n" $0; next }
-    hold != "" && $0 ~ /GXFP51A0 (window-ready fingerprint integration v[345]|parallel-start fingerprint integration v6|resume-delay-aware fingerprint integration v7|upstream-suspend-safe fingerprint integration v8)/ { hold=hold "\n" $0; mark=1; next }
+    hold != "" && $0 ~ /GXFP51A0 (window-ready fingerprint integration v[345]|parallel-start fingerprint integration v6|resume-delay-aware fingerprint integration v7|upstream-suspend-safe fingerprint integration v8|native-S3-continuity fingerprint integration v9)/ { hold=hold "\n" $0; mark=1; next }
     hold != "" && mark && $0 == "            authenticator.startAuthenticating();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "            gxfp51a0StartupAuthTimer.start();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "        }" {
@@ -414,25 +415,80 @@ apply_v8() {
   rewrite_v7_to_v8
 }
 
+rewrite_v8_to_v9() {
+  local tmp
+  tmp="$(mktemp "${TARGET}.XXXXXX")"
+  awk '
+    /\/\/ GXFP51A0 window-ready startup timer END/ && !kick {
+      print
+      print "        // GXFP51A0 resume rearm BEGIN"
+      print "        Connections {"
+      print "            target: sessionManagement"
+      print "            function onResumingFromSuspend() {"
+      print "                // If authentication was already running, this is a no-op."
+      print "                // If the greeter reached S3 before startup auth began, this"
+      print "                // starts password + fingerprint immediately on resume."
+      print "                gxfp51a0StartupAuthTimer.restart();"
+      print "                authenticator.startAuthenticating();"
+      print "            }"
+      print "        }"
+      print "        // GXFP51A0 resume rearm END"
+      kick=1
+      next
+    }
+    /GXFP51A0 upstream-suspend-safe fingerprint integration v8/ && !done {
+      sub(/GXFP51A0 upstream-suspend-safe fingerprint integration v8/,
+          "GXFP51A0 native-S3-continuity fingerprint integration v9")
+      print
+      getline
+      if ($0 != "            authenticator.startAuthenticating();") {
+        print
+      }
+      done=1
+      next
+    }
+    { print }
+    END { if (!kick || !done) exit 42 }
+  ' "$TARGET" > "$tmp" || {
+    rm -f "$tmp"
+    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v9 migration applied" >&2
+    return 42
+  }
+  chmod --reference="$TARGET" "$tmp"
+  chown --reference="$TARGET" "$tmp"
+  mv -f "$tmp" "$TARGET"
+}
+
+apply_v9() {
+  grep -Fq "$V9_MARKER" "$TARGET" && return 0
+  if ! grep -Fq "$V8_MARKER" "$TARGET"; then
+    apply_v8
+  fi
+  rewrite_v8_to_v9
+}
+
 case "$mode" in
   --apply)
-    apply_v8
+    apply_v9
     ;;
   --remove)
     grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
     grep -Fq "$V2_MARKER" "$TARGET" && rewrite_v2_to_stock
-    if grep -Fq "$V3_MARKER" "$TARGET" || grep -Fq "$V4_MARKER" "$TARGET" || grep -Fq "$V5_MARKER" "$TARGET" || grep -Fq "$V6_MARKER" "$TARGET" || grep -Fq "$V7_MARKER" "$TARGET" || grep -Fq "$V8_MARKER" "$TARGET"; then
+    if grep -Fq "$V3_MARKER" "$TARGET" || grep -Fq "$V4_MARKER" "$TARGET" || grep -Fq "$V5_MARKER" "$TARGET" || grep -Fq "$V6_MARKER" "$TARGET" || grep -Fq "$V7_MARKER" "$TARGET" || grep -Fq "$V8_MARKER" "$TARGET" || grep -Fq "$V9_MARKER" "$TARGET"; then
       rewrite_modern_to_stock
     fi
     ;;
   --check)
-    grep -Fq "$V8_MARKER" "$TARGET"
+    grep -Fq "$V9_MARKER" "$TARGET"
     grep -Fq 'id: gxfp51a0StartupAuthTimer' "$TARGET"
     grep -Fq 'if (lockScreenRoot.Window.window)' "$TARGET"
     grep -Fq 'gxfp51a0StartupAuthTimer.start();' "$TARGET"
-    grep -A4 -F 'GXFP51A0 upstream-suspend-safe fingerprint integration v8' "$TARGET" | grep -Fq 'authenticator.startAuthenticating();'
+    grep -A4 -F 'GXFP51A0 native-S3-continuity fingerprint integration v9' "$TARGET" | grep -Fq 'gxfp51a0StartupAuthTimer.start();'
+    ! grep -A4 -F 'GXFP51A0 native-S3-continuity fingerprint integration v9' "$TARGET" | grep -Fq 'authenticator.startAuthenticating();'
     grep -Fq 'Window.window.requestActivate();' "$TARGET"
-    ! grep -Fq 'GXFP51A0 resume rearm BEGIN' "$TARGET"
+    grep -Fq 'function onResumingFromSuspend()' "$TARGET"
+    grep -A8 -F 'function onResumingFromSuspend()' "$TARGET" | grep -Fq 'authenticator.startAuthenticating();'
+    grep -A8 -F 'function onResumingFromSuspend()' "$TARGET" | grep -Fq 'gxfp51a0StartupAuthTimer.restart();'
     ! grep -Fq 'gxfp51a0ResumeRearmPending' "$TARGET"
     ! grep -Fq 'gxfp51a0ResumeRearmTimer' "$TARGET"
     ! grep -Fq 'onLoginFailedDelayStarted' "$TARGET"
