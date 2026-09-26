@@ -1742,3 +1742,9 @@ Expected success evidence:
 - normal match score >= unchanged threshold 7.
 
 Do not modify matcher/threshold/TLS/FDT before this rel54 human S3 test.
+
+### rel54 repository finalization
+
+- implementation commit: `20b4a69 fix(lockscreen): carry PAM authentication across S3`
+- branch: `fingerprint-rel54-upstream-kscreenlocker-s3`
+- pushed to origin.
