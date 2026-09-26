@@ -3,7 +3,7 @@
 
 pkgname=plasma-login-manager
 pkgver=6.7.5
-pkgrel=3.7
+pkgrel=3.8
 arch=(x86_64)
 pkgdesc="Plasma Login Manager with upstream PAM authentication-message fixes"
 url="https://invent.kde.org/plasma/plasma-login-manager"
@@ -22,7 +22,8 @@ source=("https://download.kde.org/stable/plasma/6.7.5/$pkgname-$pkgver.tar.xz"
         "0005-split-fingerprint-password-auth.patch"
         "0006-fingerprint-password-preemption.patch"
         "0007-parallel-password-fingerprint-auth.patch"
-        "0008-continuous-fingerprint-availability.patch")
+        "0008-continuous-fingerprint-availability.patch"
+        "0009-fix-retry-timer-qml-ownership.patch")
 sha256sums=("6ed7c3bbac1c79bc1a21c330923804aa6c3f720fafd6accb1a6a1fada684e84f"
             "3a353ef54bc168257e1ebabdb09dd917ad289a95d6ef640012a1516420f26526"
             "f049c62d21b8076643e4e665c479692faa5869c3ef535448df0362c7c2220673"
@@ -31,7 +32,8 @@ sha256sums=("6ed7c3bbac1c79bc1a21c330923804aa6c3f720fafd6accb1a6a1fada684e84f"
             "d3409804a961c4c99737c125e28691532a57cf1ff4a7f8cf965e16ee272a9bbe"
             "1c32ad1693ef7d67fa1449a7b87abc582f5b0eb24c23f0f47301f0d0ac5c7555"
             "c67d0612225eac16346bb960905fa5c708da0144951b809f0f01bb685a6854e5"
-            "463e4bc5fd4ae37c2c9b7129c2b9bcf8fa683f9daaecf95a181f2dc8f0f7254f")
+            "463e4bc5fd4ae37c2c9b7129c2b9bcf8fa683f9daaecf95a181f2dc8f0f7254f"
+            "731491e80985b89bbc611f5c3f91878d9ba15f4c25a7cf5c1e71e5d14b7f2cbd")
 
 prepare() {
   cd "$pkgname-$pkgver"
@@ -43,6 +45,7 @@ prepare() {
   patch -Np1 -i ../0006-fingerprint-password-preemption.patch
   patch -Np1 -i ../0007-parallel-password-fingerprint-auth.patch
   patch -Np1 -i ../0008-continuous-fingerprint-availability.patch
+  patch -Np1 -i ../0009-fix-retry-timer-qml-ownership.patch
 }
 
 build() {

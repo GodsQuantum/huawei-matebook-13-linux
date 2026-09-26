@@ -5,7 +5,7 @@ Compatibility package for Plasma Login Manager 6.7.5 on Arch/CachyOS.
 It keeps the upstream PAM-message fixes and the fingerprint-first greeter flow,
 then separates password and fingerprint into independent PAM services.
 
-## Current package: 6.7.5-3.7
+## Current package: 6.7.5-3.8
 
 Password PAM remains the normal `plasmalogin` stack and contains no
 `pam_fprintd`. Fingerprint auth uses `plasmalogin-fingerprint`:
@@ -41,6 +41,12 @@ for the full greeter lifetime. Each fingerprint operation remains bounded, but a
 terminal no-match/timeout rearms a fresh attempt after a short quiet gap while
 password authentication remains fully usable in parallel. The retry timer stops
 as soon as the login UI disappears.
+
+Patch `0009-fix-retry-timer-qml-ownership.patch` fixes the PLM 3.7 blank-greeter
+regression: `SessionManagementScreen` accepts visual `QQuickItem` children, while
+`Timer` is non-visual. The retry timer is therefore bound to an object property
+instead of being inserted directly into the visual child list. `qmllint` and the
+compiled QML cache both pass with this form.
 
 The package remains package-managed and never contains, modifies, deletes, or
 re-enrols fingerprint templates.

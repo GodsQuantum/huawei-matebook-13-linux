@@ -20,6 +20,7 @@ PLM_PATCH2 = PLM_INTEGRATION / "0002-stop-notification-timer-for-pam-message.pat
 PLM_PATCH3 = PLM_INTEGRATION / "0003-enable-fprintd-for-plasmalogin.patch"
 PLM_PATCH4 = PLM_INTEGRATION / "0004-autostart-first-fingerprint-attempt.patch"
 PLM_PATCH5 = PLM_INTEGRATION / "0005-split-fingerprint-password-auth.patch"
+PLM_PATCH9 = PLM_INTEGRATION / "0009-fix-retry-timer-qml-ownership.patch"
 
 actual = "acpi:GXFP51A0:GXFP51A0:"
 legacy = "acpi:GXFP51A0:"
@@ -107,8 +108,9 @@ plm_patch2 = PLM_PATCH2.read_text()
 plm_patch3 = PLM_PATCH3.read_text()
 plm_patch4 = PLM_PATCH4.read_text()
 plm_patch5 = PLM_PATCH5.read_text()
+plm_patch9 = PLM_PATCH9.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.7" in plm_pkgbuild
+assert "pkgrel=3.8" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
@@ -117,6 +119,7 @@ assert "0005-split-fingerprint-password-auth.patch" in plm_pkgbuild
 assert "0006-fingerprint-password-preemption.patch" in plm_pkgbuild
 assert "0007-parallel-password-fingerprint-auth.patch" in plm_pkgbuild
 assert "0008-continuous-fingerprint-availability.patch" in plm_pkgbuild
+assert "0009-fix-retry-timer-qml-ownership.patch" in plm_pkgbuild
 assert "function onInformationMessage(message)" in plm_patch1
 assert "notificationResetTimer.stop();" in plm_patch2
 assert "pam_fprintd.so max-tries=3 timeout=12" in plm_patch3
@@ -132,6 +135,8 @@ assert "setPamService" in plm_patch5
 assert "onTextChanged" in plm_patch5
 assert "-auth        sufficient  pam_fprintd.so max-tries=3 timeout=12" in plm_patch5
 assert "+-auth      required     pam_fprintd.so max-tries=3 timeout=12" in plm_patch5
+assert "property Timer fingerprintRetryTimer: Timer {" in plm_patch9
+assert "-    Timer {" in plm_patch9
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
 assert "systemctl restart --no-block fprintd.service" in pkginstall

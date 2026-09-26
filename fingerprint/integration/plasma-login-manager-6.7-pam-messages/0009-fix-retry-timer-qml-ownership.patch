@@ -1,0 +1,14 @@
+diff --git a/src/frontend/greeter/qml/Login.qml b/src/frontend/greeter/qml/Login.qml
+index 6b09f74..ff5d80a 100644
+--- a/src/frontend/greeter/qml/Login.qml
++++ b/src/frontend/greeter/qml/Login.qml
+@@ -32,8 +32,7 @@ SessionManagementScreen {
+     // Keep fingerprint continuously available while the greeter is visible.
+     // A bounded PAM/driver attempt may end after several poor placements; this
+     // timer rearms a fresh independent attempt without blocking password auth.
+-    Timer {
+-        id: fingerprintRetryTimer
++    property Timer fingerprintRetryTimer: Timer {
+         interval: 900
+         repeat: false
+         onTriggered: root.maybeStartFingerprintLogin()

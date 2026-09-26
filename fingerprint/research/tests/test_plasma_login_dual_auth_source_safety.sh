@@ -6,13 +6,15 @@ p5="$i/0005-split-fingerprint-password-auth.patch"
 p6="$i/0006-fingerprint-password-preemption.patch"
 p7="$i/0007-parallel-password-fingerprint-auth.patch"
 p8="$i/0008-continuous-fingerprint-availability.patch"
+p9="$i/0009-fix-retry-timer-qml-ownership.patch"
 pkg="$i/PKGBUILD"
 
-grep -Fq 'pkgrel=3.7' "$pkg"
+grep -Fq 'pkgrel=3.8' "$pkg"
 grep -Fq '0005-split-fingerprint-password-auth.patch' "$pkg"
 grep -Fq '0006-fingerprint-password-preemption.patch' "$pkg"
 grep -Fq '0007-parallel-password-fingerprint-auth.patch' "$pkg"
 grep -Fq '0008-continuous-fingerprint-availability.patch' "$pkg"
+grep -Fq '0009-fix-retry-timer-qml-ownership.patch' "$pkg"
 
 # Password and fingerprint remain separate PAM services.
 grep -Fq -- '-auth        sufficient  pam_fprintd.so max-tries=3 timeout=12' "$p5"
@@ -76,5 +78,13 @@ grep -Fq 'fingerprintRetryTimer.restart()' "$p8"
 grep -Fq 'fingerprintRetryTimer.stop()' "$p8"
 grep -Fq 'root.fingerprintAutoAttemptDone = false' "$p8"
 grep -Fq 'password remains usable' "$p8"
+
+# SessionManagementScreen's default child list accepts visual QQuickItems only.
+# Timer is a non-visual QObject; bind it to an object-typed property instead of
+# inserting it as a direct child, otherwise Login.qml is rejected at runtime.
+grep -Fq 'property Timer fingerprintRetryTimer: Timer {' "$p9"
+grep -Fq -- '-    Timer {' "$p9"
+grep -Fq -- '-        id: fingerprintRetryTimer' "$p9"
+! grep -Fq -- '+    Timer {' "$p9"
 
 echo 'test_plasma_login_dual_auth_source_safety: OK (continuous concurrent password + fingerprint)'

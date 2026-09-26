@@ -1241,3 +1241,27 @@ NEXT:
 - first test is normal graphical login, with password still concurrently usable;
 - report `rel48 cold OK` or `rel48 cold échoué`;
 - inspect that new boot journal before any further code change.
+
+---
+
+# Update 2026-09-26 03:05 CEST — PLM 3.8 greeter QML recovery
+
+First rel48 reboot showed wallpaper + cursor but no login controls. Current-boot journal proved this was PLM 3.7 QML, not libfprint: Login.qml:38 rejected QQmlTimer as a direct child because SessionManagementScreen expects QQuickItem children.
+
+Fix:
+- added 0009-fix-retry-timer-qml-ownership.patch;
+- plasma-login-manager bumped 6.7.5-3.7 -> 6.7.5-3.8;
+- retry timer is now an object property, not a direct visual child;
+- concurrent password/fingerprint design is otherwise unchanged.
+
+Validation:
+- patched Login.qml qmllint RC=0;
+- full KDE/CMake build PASS, including QML cache generation;
+- full fingerprint research suite PASS;
+- installed PLM 3.8 integrity: 210 files, 0 modified;
+- restarted ONLY plasmalogin.service;
+- fprintd PID stayed 737, so rel48 runtime was not restarted;
+- post-fix journal has no Type Login unavailable / QQmlTimer / QQuickItem fatal error;
+- greeter now sends FingerprintLogin and rel48 reaches IDENTIFY_TRACE physical press 1/3 READY.
+
+The first post-repair automatic fingerprint attempt timed out because no finger was presented. Human biometric success and password concurrency still need the user test. Temporary build dependencies and build trees were removed.
