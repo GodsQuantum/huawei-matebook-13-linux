@@ -228,11 +228,13 @@ exists before setting uiVisible=true. Stock Plasma then runs requestActivate()
 and authenticator.startAuthenticating() in its normal order, without the rel31
 null-window exception.
 
-rel32 also backports KDE plasma-desktop commit e5616c6a (2026-08-18) narrowly:
-while the lock UI is visible, a 1-second heartbeat calls
-authenticator.startAuthenticating(). Current Plasma master uses the same pattern
-to keep the authentication backend alive. The backport is skipped automatically
-if a future distro package already contains the upstream heartbeat.
+rel32 initially backported the 1-second authentication heartbeat from KDE
+plasma-desktop commit e5616c6a. Later S3/password validation showed that this
+single QML fragment is not safe to transplant onto the older KScreenLocker
+6.7.5 backend: after a PAM failure that backend can be in its enforced fail
+delay while the heartbeat calls startAuthenticating() again, producing
+"Authentication attempt too soon". rel49 therefore removes only that partial
+heartbeat backport and retains the proven window-ready startup gate.
 
 The integration remains one-file, conditional on KDE, package-managed,
 idempotent and reversible. Its migration/rollback tests prove that removing the
@@ -308,6 +310,23 @@ pam_fprintd policy while retaining the bounded 12-second login window.
 No biometric threshold, enrollment format, matcher or capture recipe changes in
 rel35.
 
+### rel48 / rel49 validated candidate
+
+rel48 fixes the accepted-GET_IMAGE timeout boundary: a GET_IMAGE may be retried
+only when neither an ACK nor a TLS record was observed. Once the command was
+accepted, an image timeout poisons the capture session and triggers full recovery
+instead of replaying the command into an ambiguous TLS record sequence.
+
+Reference-machine validation on 2026-09-26 passed both cold graphical login and
+a real ACPI S3/deep resume. Cold login matched at score 23 with threshold 7. The
+first post-S3 capture matched at score 11 with threshold 7, with no TLS digest
+failure, GCM error or capture desynchronisation.
+
+rel49 is integration-only: the built libfprint shared object is byte-identical
+to rel48. It upgrades the KDE lockscreen helper to v4, preserving the
+window-ready startup timer while removing the incompatible partial 1-second
+heartbeat backport described above. Password unlock was also human-validated.
+
 ### Arch / CachyOS
 
 From the repository root:
@@ -324,13 +343,14 @@ The installer:
 4. grants fprintd only the additional gpiochip device access needed by this
    driver;
 5. installs an early cold-boot prewarm ordered before the display manager;
-6. installs the package-owned post-resume prewarm hook/worker;
+6. keeps deep-resume recovery inside libfprint itself, with no external
+   system-sleep hook or worker;
 7. deliberately installs no periodic synthetic Claim keepalive;
 8. when KDE Plasma 6.7.5 is present, installs the reversible window-ready
    lock-screen integration and its pacman reapply hook;
 9. when Plasma Login Manager 6.7.5 is installed, builds/installs the
-   package-managed password/fingerprint preemption compatibility package;
-10. removes obsolete rel24–rel40 timing integers, reloads udev and restarts
+   package-managed concurrent password/fingerprint compatibility package;
+10. removes obsolete development timing state, reloads udev and restarts
     fprintd without touching enrollments or the PMK cache.
 
 Non-KDE desktops are left unchanged. On KDE, one package-owned
@@ -445,8 +465,9 @@ Never commit or publish:
 - proprietary Goodix/Huawei binaries or firmware;
 - serial numbers or private machine identifiers.
 
-The PMK cache and learned timing value are runtime state under
-`/var/lib/fprint/`; neither is shipped in the package or repository.
+The PMK cache is private runtime state under `/var/lib/fprint/` and is never
+shipped in the package or repository. Production timing adaptation is
+session-local in RAM; rel49 does not persist learned timing files.
 
 The v4 local fprintd template is biometric data. It includes normalized
 per-view information used by the matcher/research diagnostics and should be

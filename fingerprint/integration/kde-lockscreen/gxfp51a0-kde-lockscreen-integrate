@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 TARGET="${GXFP51A0_KDE_LOCKSCREEN_QML:-/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml}"
+V4_MARKER="GXFP51A0 window-ready fingerprint integration v4"
 V3_MARKER="GXFP51A0 window-ready fingerprint integration v3"
 V2_MARKER="GXFP51A0 instant fingerprint integration v2"
 V1_MARKER="GXFP51A0 instant fingerprint integration: arm PAM immediately"
@@ -72,7 +73,7 @@ rewrite_v3_to_stock() {
 
     $0 == "        Component.onCompleted: {" { hold=$0; next }
     hold != "" && $0 == "            launchAnimation.start();" { hold=hold "\n" $0; next }
-    hold != "" && $0 ~ /GXFP51A0 window-ready fingerprint integration v3/ { hold=hold "\n" $0; mark=1; next }
+    hold != "" && $0 ~ /GXFP51A0 window-ready fingerprint integration v[34]/ { hold=hold "\n" $0; mark=1; next }
     hold != "" && mark && $0 == "            gxfp51a0StartupAuthTimer.start();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "        }" {
       print "        Component.onCompleted: launchAnimation.start();"
@@ -87,23 +88,39 @@ rewrite_v3_to_stock() {
   mv -f "$tmp" "$TARGET"
 }
 
-apply_v3() {
-  local tmp inject_hb=1
+rewrite_v3_to_v4() {
+  local tmp
+  tmp="$(mktemp "${TARGET}.XXXXXX")"
+  awk '
+    /\/\/ GXFP51A0 upstream fingerprint heartbeat backport BEGIN/ { hb=1; next }
+    hb && /\/\/ GXFP51A0 upstream fingerprint heartbeat backport END/ { hb=0; next }
+    hb { next }
+    {
+      gsub(/GXFP51A0 window-ready fingerprint integration v3/,
+           "GXFP51A0 window-ready fingerprint integration v4")
+      print
+    }
+  ' "$TARGET" > "$tmp"
+  chmod --reference="$TARGET" "$tmp"
+  chown --reference="$TARGET" "$tmp"
+  mv -f "$tmp" "$TARGET"
+}
 
-  grep -Fq "$V3_MARKER" "$TARGET" && return 0
+apply_v4() {
+  local tmp
+
+  grep -Fq "$V4_MARKER" "$TARGET" && return 0
+  if grep -Fq "$V3_MARKER" "$TARGET"; then
+    rewrite_v3_to_v4
+    return 0
+  fi
   grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
   grep -Fq "$V2_MARKER" "$TARGET" && rewrite_v2_to_stock
-
-  # KDE master has shipped this heartbeat since e5616c6a (2026-08-18).
-  # Do not duplicate it when the distro already carries the upstream change.
-  if grep -Fq 'heart beat keeping the backend active' "$TARGET"; then
-    inject_hb=0
-  fi
 
   tmp="$(mktemp "${TARGET}.XXXXXX")"
   trap 'rm -f "$tmp"' RETURN
 
-  awk -v inject_hb="$inject_hb" '
+  awk '
     $0 == "        onBlockUIChanged: {" && !inserted {
       print "        // GXFP51A0 window-ready startup timer BEGIN"
       print "        Timer {"
@@ -129,23 +146,13 @@ apply_v3() {
       print "            }"
       print "        }"
       print "        // GXFP51A0 window-ready startup timer END"
-      if (inject_hb == 1) {
-        print "        // GXFP51A0 upstream fingerprint heartbeat backport BEGIN"
-        print "        Timer { // KDE e5616c6a: keep backend active while lock UI is visible"
-        print "            interval: 1000"
-        print "            running: parent.uiVisible"
-        print "            repeat: true"
-        print "            onTriggered: authenticator.startAuthenticating()"
-        print "        }"
-        print "        // GXFP51A0 upstream fingerprint heartbeat backport END"
-      }
       inserted=1
     }
 
     $0 == "        Component.onCompleted: launchAnimation.start();" {
       print "        Component.onCompleted: {"
       print "            launchAnimation.start();"
-      print "            // GXFP51A0 window-ready fingerprint integration v3"
+      print "            // GXFP51A0 window-ready fingerprint integration v4"
       print "            gxfp51a0StartupAuthTimer.start();"
       print "        }"
       completed=1
@@ -158,7 +165,7 @@ apply_v3() {
         exit 42
     }
   ' "$TARGET" > "$tmp" || {
-    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no rel32 lockscreen patch applied" >&2
+    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v4 lockscreen patch applied" >&2
     return 42
   }
 
@@ -170,25 +177,22 @@ apply_v3() {
 
 case "$mode" in
   --apply)
-    apply_v3
+    apply_v4
     ;;
   --remove)
     grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
     grep -Fq "$V2_MARKER" "$TARGET" && rewrite_v2_to_stock
     grep -Fq "$V3_MARKER" "$TARGET" && rewrite_v3_to_stock
+    grep -Fq "$V4_MARKER" "$TARGET" && rewrite_v3_to_stock
     ;;
   --check)
-    grep -Fq "$V3_MARKER" "$TARGET"
+    grep -Fq "$V4_MARKER" "$TARGET"
     grep -Fq 'id: gxfp51a0StartupAuthTimer' "$TARGET"
     grep -Fq 'if (lockScreenRoot.Window.window)' "$TARGET"
     grep -Fq 'gxfp51a0StartupAuthTimer.start();' "$TARGET"
     grep -Fq 'Window.window.requestActivate();' "$TARGET"
     grep -Fq 'authenticator.startAuthenticating();' "$TARGET"
-    if ! grep -Fq 'heart beat keeping the backend active' "$TARGET"; then
-      grep -Fq 'GXFP51A0 upstream fingerprint heartbeat backport BEGIN' "$TARGET"
-      grep -Fq 'interval: 1000' "$TARGET"
-      grep -Fq 'running: parent.uiVisible' "$TARGET"
-    fi
+    ! grep -Fq 'GXFP51A0 upstream fingerprint heartbeat backport BEGIN' "$TARGET"
     ;;
   *)
     echo "usage: $0 [--apply|--remove|--check]" >&2

@@ -1312,3 +1312,72 @@ Remaining acceptance gates before final promotion:
 3. inspect that resume journal for safe recovery and absence of accepted-command replay / TLS digest failure.
 
 Do not change matcher threshold, enrollments, FDT, WakeupMCU, PLM dual-auth architecture, or GPIO behavior based on this successful cold test.
+
+---
+
+# Update 2026-09-26 12:10 CEST — S3/password validated; rel49 KDE PAM-delay fix
+
+Human tests:
+- real ACPI S3/deep suspend-resume completed;
+- user reported two physical finger placements after resume;
+- separate password unlock succeeded.
+
+S3 journal interpretation:
+- suspend was genuine PM suspend entry (deep) / ACPI S3;
+- fprintd PID 739 survived the entire suspend/resume;
+- after resume, calibration logged mean=229 floor=340 before READY;
+- this strongly indicates the first physical touch occurred while the driver
+  still needed a finger-off calibration baseline;
+- at 11:51:38.904 the driver announced IDENTIFY press 1/3 READY;
+- the first pose actually captured then matched immediately:
+  score=11, threshold=7, candidate=0;
+- no second matcher pose was needed by the driver.
+
+Transport/lifecycle result:
+- one no-evidence GET_IMAGE retry (neither ACK nor TLS) was used safely;
+- no accepted-GET_IMAGE replay;
+- no TLS digest/GCM failure;
+- no capture transport desynchronisation;
+- no external resume helper was involved.
+Thus rel48 passed its intended deep-S3 recovery gate.
+
+KScreenLocker 6.7.5 separately logged:
+- pam_unix(kde:auth) conversation failed after resume;
+- "Authentication attempt too soon. This shouldn't happen!".
+Source audit showed the rel32/v3 QML heartbeat was a partial backport from a
+newer KDE authenticator architecture. On 6.7.5 it can call
+startAuthenticating() during the old PAM fail-delay and provides no useful
+fingerprint rearm while the authenticator state is still Authenticating.
+
+rel49 therefore changes integration only:
+- KDE helper marker becomes window-ready fingerprint integration v4;
+- keeps the 25 ms Window.window startup gate;
+- removes only the custom 1-second heartbeat block;
+- v1/v2/v3 migrations remain reversible;
+- helper --remove still restores stock structure;
+- targeted KDE test, native-resume test, boot-binding test and full research
+  suite pass.
+
+Package validation:
+- built libfprint rel49 SHA equals installed rel48 library SHA exactly:
+  c1a702c28cadef536df29f2519bd7c63adf0fb30cdad551079d398e37dd1ab8c;
+- libfprint binary is therefore byte-identical rel48 -> rel49;
+- rel49 package installed with --noscriptlet;
+- fprintd PID/timestamp stayed 739 / 11:46:56;
+- helper v4 applied explicitly;
+- live LockScreenUi.qml qmllint RC=0;
+- fingerprint package integrity: 40 files, 0 modified.
+
+GitHub refresh:
+- Sigfrodr/libfprint-goodixtls issue #5 has no newer comment after
+  Sigfrodr's 2026-09-25 20:37 UTC message already recorded;
+- latest gq_sigfm evidence remains ABI-faithful and still does NOT justify
+  lowering threshold 7 or changing the matcher;
+- no newer GXFP51A0/GodsQuantum issue update was found.
+
+Next human gate after rel49:
+1. normal lock -> password unlock, preferably promptly;
+2. normal lock -> one fingerprint unlock;
+3. later, one more S3 resume test while waiting for the fingerprint prompt/READY
+   before touching the reader, to distinguish readiness latency from recognition.
+No re-enrollment is indicated.
