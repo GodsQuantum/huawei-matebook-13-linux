@@ -3683,12 +3683,10 @@ gx_transport_open (FpDevice *dev, GError **error)
 }
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
-#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
-/* A completed Claim/Open may be followed immediately by another client Claim,
- * especially boot-prewarm -> login.  Re-running a background GET_IMAGE in that
- * narrow handoff window is redundant and can collide with a finger already
- * placed on the reader.  The token below is one-shot and much shorter than the
- * normal warm TTL; older contexts still take the full rel31 validation path. */
+/* A retained warm context is only an optimization. Sleep/lifecycle loss still
+ * invalidates it before hardware I/O, and every awake reopen actively validates
+ * FDT plus a fresh encrypted background image before authentication proceeds.
+ * Therefore wall-clock idle alone need not force a blind cold rebuild. */
 
 static gboolean
 gx_sleep_delta_us (gint64 *out)
@@ -3721,25 +3719,6 @@ gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
     {
       fp_info ("GXFP51A0 sleep boundary detected: boottime-monotonic advanced by %d ms",
                (int) ((now - self->warm_sleep_delta_us) / 1000));
-      return TRUE;
-    }
-
-  return FALSE;
-}
-
-static gboolean
-gx_warm_idle_expired (FpiDeviceGoodix51A0 *self)
-{
-  gint64 now;
-
-  if (!self->warm_valid || self->warm_last_activity_us <= 0)
-    return FALSE;
-
-  now = g_get_monotonic_time ();
-  if (now - self->warm_last_activity_us > GX_WARM_IDLE_TTL_US)
-    {
-      fp_info ("GXFP51A0 warm context idle for %d s; forcing cold rebuild",
-               (int) ((now - self->warm_last_activity_us) / G_USEC_PER_SEC));
       return TRUE;
     }
 
@@ -3983,13 +3962,14 @@ gx_dev_open (FpDevice *dev)
   GError *err = NULL;
   gboolean cold_boundary_done = FALSE;
   gboolean slept = gx_warm_crossed_sleep (self);
-  gboolean expired = gx_warm_idle_expired (self);
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
 
-  /* An idle libfprint device may not receive the driver suspend vfunc.  Detect
-   * that case before reopening hardware handles, while stale TLS can still be
-   * discarded host-side without sending anything to the sensor. */
-  if (slept || expired || self->force_cold_reset)
+  /* An idle libfprint device may not receive the driver suspend vfunc. Detect
+   * real lifecycle loss before reopening hardware handles. Ordinary awake
+   * wall-clock idle is not a trust boundary: retained state is actively
+   * validated below with FDT plus a fresh encrypted background GET_IMAGE, and
+   * any failed validation falls back to deterministic cold preparation. */
+  if (slept || self->force_cold_reset)
     {
       fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
@@ -4010,7 +3990,7 @@ gx_dev_open (FpDevice *dev)
       return;
     }
 
-  if (slept || expired || self->force_cold_reset)
+  if (slept || self->force_cold_reset)
     {
       gx_gpio_reset (self);
       self->force_cold_reset = FALSE;

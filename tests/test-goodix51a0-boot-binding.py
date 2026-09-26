@@ -88,7 +88,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=50" in pkgbuild
+assert "pkgrel=51" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "systemd/system-sleep/gxfp51a0-resume-prewarm" not in pkgbuild

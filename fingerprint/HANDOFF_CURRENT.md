@@ -1441,3 +1441,77 @@ Next human tests:
 2. after logs are inspected, user-initiated deep S3; when lock UI appears, touch
    immediately. QML v5 must cause a fresh fprintd operation automatically.
 3. inspect logs before any further code change.
+
+---
+
+## Update 2026-09-26 13:17 CEST — rel50 human PASS; rel51 warm-latency candidate
+
+Human rel50 result:
+- normal graphical lock fingerprint unlock: PASS;
+- user perceived three placements;
+- exact journal shows only two driver biometric poses after READY:
+  - physical press 1: same-press images 1/2/3 all score 4/7;
+  - physical press 2: image 1 score 15/7 -> immediate success.
+- the user's apparent extra first placement happened during cold preparation:
+  calibration saw finger-present mean=225 before READY.
+- rel50 therefore validated both the restored same-press 3-image path and the
+  unchanged threshold=7 matcher.
+
+Latency diagnosis:
+- greeter process logged at 13:06:03.148;
+- driver READY at 13:06:11.917: about 8.77 s later;
+- rel50 warm context had last been prepared around 12:33, so the historical
+  5-minute GX_WARM_IDLE_TTL_US forced an unnecessary cold rebuild;
+- that 5-minute limit was introduced before the current robust S3 boundary and
+  full warm FDT+encrypted-GET_IMAGE validation architecture existed.
+
+rel51 design:
+- remove only GX_WARM_IDLE_TTL_US / gx_warm_idle_expired();
+- ordinary awake wall-clock idle no longer discards a retained TLS/FDT context;
+- real S3 is still detected before hardware I/O using
+  CLOCK_BOOTTIME-CLOCK_MONOTONIC;
+- force_cold_reset still forces cold preparation;
+- every retained awake context is still actively validated by FDT plus a fresh
+  encrypted background GET_IMAGE (WARM_REBASE);
+- warm validation failure still abandons host TLS state, resets MCU and falls
+  back to deterministic cold preparation;
+- no keepalive, no periodic timer/service, no external resume hook added;
+- matcher, threshold=7, templates, enrollments, same-press behavior, QML v5,
+  GPIO and PMK/TLS security boundaries unchanged.
+
+Software/build validation:
+- full fingerprint/research suite PASS;
+- lifecycle/native-resume/boot-binding gates PASS;
+- reproducible libfprint v1.94.100 build PASS;
+- release biometric dump hook absent;
+- build active sensor I/O/GPIO/MMIO/firmware actions NONE;
+- package libfprint-goodix51a0 1.94.100.goodix51a0-51;
+- package SHA256:
+  6d74059cc3636a03303ce94c85d51e1858e9358dcdc36f8f78b7a22da6034e06.
+
+Installed/runtime benchmark:
+- rel51 installed and fprintd restarted intentionally to load it;
+- fprintd PID 40754, ActiveEnterTimestamp 13:16:13 CEST;
+- first cold prewarm Claim after daemon restart: 4.935 s;
+- immediate retained-context Claim: 1.834 s;
+- second retained-context Claim: 1.830 s;
+- WARM_REBASE itself measured 1.744 s then 1.741 s;
+- both warm rebases produced idle=352, floor=328.
+Thus the normal awake-lock preparation floor is currently ~1.8 s rather than
+the previous 5-9 s cold path, without background freshness being skipped.
+
+Important UX interpretation:
+- user should still touch immediately when lock UI appears; there is no hidden
+  user-facing READY contract.
+- on an awake retained context, if a finger is already present during
+  WARM_REBASE, the driver intentionally defers rebase and retains the previous
+  clean background rather than contaminating it.
+- after real S3 a cold rebuild remains required by this sensor, but KDE QML v5
+  requests rearm on resumingFromSuspend, allowing preparation to begin during
+  graphical wake rather than waiting for user interaction.
+
+Next gate:
+1. normal rel51 graphical lock, finger immediately on visible UI;
+2. inspect exact greeter->WARM_REBASE/READY/detect/match timeline;
+3. then user-triggered S3 test, again touching immediately when UI appears;
+4. do not change threshold/enrollments based on latency work.

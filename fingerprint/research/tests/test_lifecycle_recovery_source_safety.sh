@@ -20,7 +20,6 @@ def fn(name):
 
 sleep=fn("gx_sleep_delta_us")
 cross=fn("gx_warm_crossed_sleep")
-idle=fn("gx_warm_idle_expired")
 abandon=fn("gx_warm_abandon")
 warm=fn("gx_warm_validate")
 open_=fn("gx_dev_open")
@@ -42,15 +41,13 @@ assert "!self->warm_sleep_clock_valid" in cross
 assert "now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US" in cross
 assert "sleep boundary detected" in cross
 
-# A warm session is an optimization, never a permanent trust boundary. A
-# context left unused for five minutes is rebuilt before any sensor traffic.
-assert "GX_WARM_IDLE_TTL_US" in s
-assert "5 * 60 * G_USEC_PER_SEC" in s
-assert "warm_last_activity_us" in idle
-assert "warm context idle for %d s; forcing cold rebuild" in idle
-assert "gx_warm_idle_expired (self)" in open_
-assert open_.index("gx_warm_idle_expired (self)") < open_.index("gx_transport_open")
-assert "slept || expired || self->force_cold_reset" in open_
+# Awake wall-clock idle alone must not destroy a healthy TLS/FDT context.
+# Every retained context is still actively image-validated below; actual sleep,
+# forced reset or validation failure remains a cold boundary.
+assert "GX_WARM_IDLE_TTL_US" not in s
+assert "gx_warm_idle_expired" not in s
+assert "warm context idle for %d s; forcing cold rebuild" not in s
+assert "slept || self->force_cold_reset" in open_
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
 assert "gx_tls_teardown" not in abandon

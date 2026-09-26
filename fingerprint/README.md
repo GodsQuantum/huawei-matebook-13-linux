@@ -351,6 +351,29 @@ conversation, the helper waits for the authenticator state transition and
 retries once. There is no periodic heartbeat, system-sleep hook, daemon, or
 persistent timer.
 
+### rel51 candidate: retained warm context without arbitrary idle expiry
+
+A successful rel50 lock test exposed the remaining latency cost. The greeter
+appeared about 8.8 seconds before READY because the retained sensor context had
+been idle longer than the historical five-minute TTL and was discarded even
+though the machine had never suspended.
+
+rel51 removes that wall-clock expiry only. A retained context is still actively
+validated on every open with FDT plus a fresh encrypted background GET_IMAGE.
+A real S3 boundary, force-cold-reset flag, transport/TLS failure, or failed warm
+validation still forces deterministic cold preparation. No periodic keepalive
+is installed.
+
+Reference-machine no-finger benchmarks after installing rel51:
+- cold Claim after fprintd restart: 4.935 s;
+- immediate warm Claim: 1.834 s;
+- second warm Claim: 1.830 s;
+- measured WARM_REBASE: about 1.74 s.
+
+The goal is therefore not to skip background freshness, but to reduce ordinary
+awake lock preparation from the multi-second cold path to the validated warm
+rebase path.
+
 ### Arch / CachyOS
 
 From the repository root:
