@@ -1,0 +1,84 @@
+# Based on Arch Linux kscreenlocker 6.7.5 packaging.
+# Local delta: KDE upstream MR !340 / commit 992f3fa8 only.
+
+pkgname=kscreenlocker
+pkgver=6.7.5
+_dirver=$(echo $pkgver | cut -d. -f1-3)
+pkgrel=1.2
+pkgdesc='Library and components for secure lock screen architecture'
+arch=(x86_64)
+url='https://kde.org/plasma-desktop/'
+license=(LGPL-2.0-or-later)
+depends=(glibc
+         kcmutils
+         kconfig
+         kcoreaddons
+         kcrash
+         kdeclarative
+         kglobalaccel
+         ki18n
+         kidletime
+         kio
+         kirigami
+         knotifications
+         kpackage
+         ksvg
+         kwindowsystem
+         kxmlgui
+         layer-shell-qt
+         libkscreen
+         libstdc++
+         libx11
+         libxcb
+         libxi
+         pam
+         libplasma
+         qt6-base
+         qt6-declarative
+         wayland
+         xcb-util-keysyms)
+makedepends=(extra-cmake-modules
+             kdoctools)
+groups=(plasma)
+source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz{,.sig}
+        0001-upstream-992f3fa8-keep-pam-across-suspend.patch
+        kde.pam
+        kde-fingerprint.pam
+        kde-smartcard.pam)
+sha256sums=('6c41ce2cb79d2b85d4fbe5a3a61c09e40c70e5a869ae6f0352c7e1cb3b44606b'
+            'SKIP'
+            '27820f3909750edccc14ba225dd13c81a79ec0921bf326cffa2c715d606cf3e4'
+            'adba7bb7c27eb3a572e5e9d3cea0dbeebe59d3634472d1863d14fe892cb13b2b'
+            '32734b4e1ec8b7f7e32b6cb2d68285c5c4f15f53736bba085096e76095181241'
+            '5d9c31cbf66e8e455b9559c929f184efd598f714743d5a1e6ce20adb44dc4b2d')
+validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'
+              '0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D'
+              'D07BD8662C56CB291B316EB2F5675605C74E02CF'
+              '1FA881591C26B276D7A5518EEAAF29B42A678C20')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -Np1 -i "$srcdir/0001-upstream-992f3fa8-keep-pam-across-suspend.patch"
+
+  # Source-safety gate: this package must remove the suspend cancellation and
+  # nothing may reintroduce LogindIntegration into the greeter constructor.
+  ! grep -Fq 'm_authenticators->cancel();' greeter/greeterapp.cpp
+  ! grep -Fq 'm_logindIntegration' greeter/greeterapp.cpp
+  ! grep -Fq 'm_logindIntegration' greeter/greeterapp.h
+  grep -Fq 'Deliberately do NOT cancel authentication on suspend' greeter/greeterapp.cpp
+}
+
+build() {
+  cmake -B build -S "$pkgname-$pkgver" \
+    -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 "$srcdir/kde.pam" "$pkgdir/usr/lib/pam.d/kde"
+  install -Dm644 "$srcdir/kde-fingerprint.pam" "$pkgdir/usr/lib/pam.d/kde-fingerprint"
+  install -Dm644 "$srcdir/kde-smartcard.pam" "$pkgdir/usr/lib/pam.d/kde-smartcard"
+}

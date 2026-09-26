@@ -418,6 +418,31 @@ delay plus a small scheduling margin and only restarts when the authenticator is
 Idle. The wait is bounded and resume-only; there is still no periodic heartbeat,
 keepalive service or external sleep hook.
 
+### rel54 candidate: upstream KScreenLocker suspend/PAM fix
+
+The rel53 deep-S3 failure showed **zero fprintd activity after resume**. The
+driver-side S3 recovery therefore never ran. KScreenLocker itself was cancelling
+the in-progress PAM conversation on logind `PrepareForSleep`; on resume that
+produced `pam_unix(kde:auth): unexpected response from failed conversation
+function` and left the fingerprint authenticator unable to continue.
+
+This matches KDE bug 481808. rel54 carries KDE KScreenLocker MR !340 / commit
+`992f3fa8f4c4ade5dad7df789e1883a5d5e8ac2c` on top of the official Plasma
+6.7.5 source. The upstream fix removes the suspend-time PAM cancellation and
+leaves the authentication conversation parked across S3.
+
+The Goodix driver source in rel54 is byte-for-byte unchanged from rel53.
+KScreenLocker is packaged locally as `6.7.5-1.2`, which supersedes CachyOS
+`6.7.5-1.1` while allowing any future Plasma 6.7.6+ package to supersede it
+normally.
+
+The lockscreen QML helper is v8. It keeps only the proven parallel startup of
+password and fingerprint authentication. All custom resume-rearm timers and
+`loginFailedDelayStarted` QML workarounds are removed because suspend/resume is
+now fixed at the KScreenLocker C++ layer. No heartbeat, keepalive, external
+sleep hook, matcher change, threshold change, PAM policy change or re-enrollment
+is introduced.
+
 ### Arch / CachyOS
 
 From the repository root:

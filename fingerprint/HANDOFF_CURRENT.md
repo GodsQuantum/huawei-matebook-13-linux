@@ -1661,3 +1661,84 @@ Next human gate:
   absence of repeated "calibration waiting for sensor clear",
   absence of "Authentication attempt too soon",
   match score and timing.
+
+---
+
+## Update 2026-09-26 — rel53 deep failure diagnosed; rel54 installed
+
+User report:
+- `rel53 deep échoué`.
+
+Observed S3 cycles:
+- 16:08:23 deep suspend -> 16:19:40 resume;
+- 16:21:15 deep suspend -> 16:21:29 resume.
+
+Critical rel53 evidence:
+- both resume windows had ZERO fprintd journal activity;
+- rel53's driver-side active-S3 recovery and RAM bootstrap never got a chance to
+  execute;
+- KScreenLocker logged on both resumes:
+  - `pam_unix(kde:auth): unexpected response from failed conversation function`
+  - `pam_unix(kde:auth): conversation failed`
+  - `pam_unix(kde:auth): auth could not identify password for [arezki]`
+
+Root cause:
+- Plasma/KScreenLocker 6.7.5 cancels the in-progress PAM conversation from
+  `LogindIntegration::prepareForSleep`.
+- This is KDE bug 481808.
+- KDE MR !340 / commit
+  `992f3fa8f4c4ade5dad7df789e1883a5d5e8ac2c`
+  ("Don't cancel in-progress authentication on suspend") removes that cancel and
+  leaves authentication parked across suspend/resume.
+
+rel54 architecture:
+- Goodix driver C source and SOURCE_MANIFEST are byte-for-byte unchanged from
+  rel53.
+- KScreenLocker 6.7.5 is locally packaged as 6.7.5-1.2 with only the adapted
+  upstream 992f3fa8 semantic patch.
+- Installed CachyOS version before patch was 6.7.5-1.1.
+- Future 6.7.6+ packages naturally supersede local 6.7.5-1.2.
+- QML helper is v8:
+  - retains early parallel `authenticator.startAuthenticating()`;
+  - removes ALL custom resume-rearm QML;
+  - no `gxfp51a0ResumeRearmPending`;
+  - no resume timer;
+  - no `onLoginFailedDelayStarted`;
+  - no heartbeat/keepalive/external sleep hook.
+
+Package/build validation:
+- official KDE 6.7.5 tarball signature verified. Signing subkey
+  B3CB366552540BE06EE9AD9711968C44928CAEFC belongs to already-approved KDE
+  main key 0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D (Bhushan Shah).
+- KScreenLocker package: 6.7.5-1.2
+  SHA256 83bae55a9def12f20d483b3f3792594d375e1abc4be2456935b6c8ff8bb66dd7.
+- libfprint package: 1.94.100.goodix51a0-54
+  SHA256 854d4c317d9de2615ef3be51127a75a5b31db1aef35581848e0105152f203a03.
+- full fingerprint research suite PASS.
+- KScreenLocker suspend-PAM source safety PASS.
+- QML v8 stock migration + rel53-v7 migration + rollback PASS.
+- native resume lifecycle safety PASS.
+- installed `pacman -Qkk`: kscreenlocker 346/346 clean; libfprint 40/40 clean.
+- PAM files remain byte-identical to distro versions.
+- enrollment labels intact: right-index, left-index, right-middle.
+- fprintd restarted after install; PID 90570.
+- rel54 prewarm Claim completed successfully at 16:43:23.
+- temporary build dependencies removed; no orphan packages remain.
+
+Next HUMAN validation:
+1. user triggers a real deep S3;
+2. wake normally and use fingerprint immediately; do not alter natural gesture;
+3. password must remain concurrently usable;
+4. inspect logs after result.
+
+Expected success evidence:
+- NO `pam_unix(kde:auth): unexpected response from failed conversation function`;
+- fprintd remains active/reachable after resume;
+- driver should now get its chance to detect:
+  `GXFP51A0 active S3 boundary detected during authentication; scheduling native cold recovery`;
+- if a finger is already down during rebuild:
+  `GXFP51A0 preserved RAM-only clean background for post-S3 held-finger bootstrap`
+  and possibly `GXFP51A0 RESUME_BOOTSTRAP finger already present`;
+- normal match score >= unchanged threshold 7.
+
+Do not modify matcher/threshold/TLS/FDT before this rel54 human S3 test.

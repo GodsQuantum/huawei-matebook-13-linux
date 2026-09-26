@@ -1,0 +1,51 @@
+--- a/greeter/greeterapp.cpp
++++ b/greeter/greeterapp.cpp
+@@ -10,8 +10,6 @@
+ #include "shell_integration.h"
+ #include "wallpaper_integration.h"
+
+-#include "../logind.h"
+-
+ #include <config-kscreenlocker.h>
+ #include <iostream>
+ #include <unistd.h>
+@@ -133,7 +131,6 @@
+     , m_graceTime(0)
+     , m_noLock(false)
+     , m_shellIntegration(new ShellIntegration(this))
+-    , m_logindIntegration(new LogindIntegration(this))
+ {
+     auto interactive = std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SERVICE), KUser().loginName());
+     std::vector<std::unique_ptr<PamAuthenticator>> noninteractive;
+@@ -142,9 +139,11 @@
+     noninteractive.push_back(
+         std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
+     m_authenticators = new PamAuthenticators(std::move(interactive), std::move(noninteractive), this);
+-    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this] {
+-        m_authenticators->cancel();
+-    });
++    // Deliberately do NOT cancel authentication on suspend. Aborting an in-progress PAM
++    // conversation makes pam_authenticate() return a failure, which is both misreported as a
++    // failed login on resume and, with pam_faillock in the auth stack, recorded as a real failed
++    // attempt that counts toward account lockout. Leaving the conversation parked across
++    // suspend/resume means the prompt resumes on wake and a correct password completes normally.
+     initialize();
+
+     if (KWindowSystem::isPlatformX11()) {
+--- a/greeter/greeterapp.h
++++ b/greeter/greeterapp.h
+@@ -25,7 +25,6 @@
+ }
+
+ class Authenticator;
+-class LogindIntegration;
+
+ struct org_kde_ksld;
+
+@@ -94,6 +93,5 @@
+
+     KPackage::Package m_wallpaperPackage;
+     ShellIntegration *m_shellIntegration;
+-    LogindIntegration *m_logindIntegration;
+ };
+ } // namespace
