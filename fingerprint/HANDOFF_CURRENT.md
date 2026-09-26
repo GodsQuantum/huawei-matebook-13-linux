@@ -1515,3 +1515,63 @@ Next gate:
 2. inspect exact greeter->WARM_REBASE/READY/detect/match timeline;
 3. then user-triggered S3 test, again touching immediately when UI appears;
 4. do not change threshold/enrollments based on latency work.
+
+---
+
+## Update 2026-09-26 — rel51 human lock PASS; rel52 parallel greeter auth installed
+
+Human rel51 normal-lock result: PASS.
+
+Exact rel51 timeline:
+- kscreenlocker_greet process visible in journal: 13:55:41.604605;
+- WARM_REBASE completed at 13:55:45.717594 in 1753 ms;
+- WakeupMCU completed at 13:55:45.773896;
+- driver press 1/3 READY at 13:55:45.774067;
+- first actual detected physical press at 13:55:48.962514;
+- GET_IMAGE used one safe no-ACK/no-TLS retry;
+- first captured image scored 13/7 and authenticated;
+- only one biometric pose was required.
+
+Latency interpretation:
+- greeter-process -> READY was about 4.17 s;
+- WARM_REBASE itself was only about 1.75 s;
+- therefore roughly 2.4 s were spent before libfprint open/preparation began.
+- KDE Plasma 6.7.5 source confirms PamAuthenticators::startAuthenticating()
+  returns immediately when state is already Authenticating.
+- the historical rel30 experiment also proved a Component.onCompleted direct
+  auth call begins fprintd work immediately; its defect was only that the UI
+  remained hidden. rel32 fixed the UI by waiting for Window.window, but thereby
+  delayed the sensor start as well.
+
+rel52 design (integration-only):
+- driver/libfprint is bit-identical to rel51;
+- KDE helper v6 calls authenticator.startAuthenticating() immediately from
+  Component.onCompleted;
+- the existing 25 ms Window.window gate remains and independently controls
+  uiVisible/requestActivate;
+- when uiVisible later triggers Plasma's stock startAuthenticating() call, KDE
+  6.7.5 safely returns because state is already Authenticating;
+- resume v5 one-shot rearm remains unchanged;
+- no periodic heartbeat/keepalive/timer service is introduced.
+
+Validation:
+- helper v6 migration tests PASS from stock, v4, v5 and historical v3;
+- helper --remove restores stock test fixture byte-for-byte;
+- live/copied QML qmllint PASS;
+- full fingerprint/research suite PASS;
+- rel52 package SHA256:
+  783a83ab296673cfd77d3c4738263ba5e63740c78e5f659dd175ab3eac53efda;
+- rel51 live libfprint SHA256 == rel52 packaged libfprint SHA256:
+  27d3c8f007bdf9d8113a62b5ab2227c9a6ce098a815c66d98936efc5d4aa415c;
+- installed libfprint-goodix51a0 1.94.100.goodix51a0-52;
+- fprintd was NOT restarted: PID remains 40754, ActiveEnterTimestamp remains
+  13:16:13 CEST;
+- package integrity: 40 files, 0 modified.
+
+Next human gate:
+1. normal graphical lock;
+2. touch immediately when UI appears;
+3. inspect greeter -> WARM_REBASE -> READY -> match timestamps;
+4. target: sensor preparation should now overlap the ~2.4 s greeter/window
+   startup and ideally be READY at or before visible UI;
+5. only after this, validate real S3 again.

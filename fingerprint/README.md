@@ -374,6 +374,24 @@ The goal is therefore not to skip background freshness, but to reduce ordinary
 awake lock preparation from the multi-second cold path to the validated warm
 rebase path.
 
+Human validation subsequently passed: one rel51 lock used one actual biometric
+pose and matched at score 13 with threshold 7. The remaining measured latency
+was in KDE startup rather than the sensor: greeter process to READY was about
+4.17 seconds while WARM_REBASE itself was about 1.75 seconds.
+
+### rel52 candidate: parallel greeter authentication
+
+rel52 is integration-only; its libfprint binary is byte-identical to rel51.
+KScreenLocker 6.7.5's PamAuthenticators::startAuthenticating() is idempotent
+while already Authenticating. The v6 helper therefore starts authentication
+immediately from Component.onCompleted while preserving the proven Window.window
+gate solely for UI activation. Sensor preparation and greeter/window creation
+can now overlap instead of running serially.
+
+The stock onUiVisibleChanged startAuthenticating() call remains in place; once
+the early call is active it becomes a harmless no-op. Resume rearm v5 remains,
+and no periodic heartbeat or keepalive is reintroduced.
+
 ### Arch / CachyOS
 
 From the repository root:
