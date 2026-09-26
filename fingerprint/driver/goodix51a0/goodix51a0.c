@@ -97,6 +97,10 @@ struct _FpiDeviceGoodix51A0
   int           tls_rxlen, tls_rxpos;
 
   guint16      *bg_frame;    /* averaged background, NULL until calibrated */
+  guint16      *resume_bg_frame; /* RAM-only clean pre-S3 background bootstrap */
+  int           resume_fdt_base[GXFP_FDT_ZONE_COUNT];
+  int           resume_fdt_abs;
+  gboolean      resume_bg_valid; /* only armed when a real S3 invalidates warm TLS */
   guint         poll_id;     /* finger-detection timeout source */
   int           poll_count;  /* poll iterations, bounded to avoid hanging */
   GPtrArray    *enroll_feats;/* descriptor sets accumulated during enrolment */
@@ -129,6 +133,8 @@ static void gx_protocol_timing_miss (FpiDeviceGoodix51A0 *self,
                                      const gchar          *source);
 static gboolean gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self);
 static void gx_warm_abandon (FpiDeviceGoodix51A0 *self);
+static void gx_resume_bootstrap_clear (FpiDeviceGoodix51A0 *self);
+static gboolean gx_resume_bootstrap_preserve (FpiDeviceGoodix51A0 *self);
 static gboolean gx_cold_prepare (FpiDeviceGoodix51A0 *self);
 
 static const FpIdEntry goodix51a0_id_table[] = {
@@ -2162,6 +2168,46 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
     }
   g_usleep (100 * 1000);
 
+  /* After a real S3 the sensor/TLS session must be rebuilt, but the last clean
+   * no-finger background is still useful host-side. If the user is already
+   * holding a finger when the new TLS session comes up, waiting for a fresh
+   * empty-sensor calibration creates the exact bad UX we want to avoid: the
+   * lock screen is visible but authentication cannot begin until the user
+   * guesses that they must lift. Bootstrap the first post-S3 press from the
+   * RAM-only pre-suspend background/FDT baseline instead. If the sensor is
+   * clear, fall through to the normal fresh calibration path below. */
+  if (!capture_diagnostic && self->resume_bg_valid && self->resume_bg_frame)
+    {
+      int cur[GXFP_FDT_ZONE_COUNT];
+      guint8 touchflag = 0;
+
+      if (gx_fdt_probe_ex (self, cur, &touchflag) == 0)
+        {
+          int mean = gx_fdt_mean (cur);
+
+          if (gx_fdt_touch_is_finger (touchflag) || mean < GOODIX_FDT_ABS)
+            {
+              if (!self->bg_frame)
+                self->bg_frame = g_new (guint16, GOODIX_IMG_PIXELS);
+
+              memcpy (self->bg_frame, self->resume_bg_frame,
+                      sizeof (guint16) * GOODIX_IMG_PIXELS);
+              memcpy (self->fdt_base, self->resume_fdt_base,
+                      sizeof self->fdt_base);
+              self->fdt_abs = self->resume_fdt_abs;
+              self->have_fdt = TRUE;
+              self->bg_dirty = FALSE;
+
+              fp_warn ("GXFP51A0 RESUME_BOOTSTRAP finger already present "
+                       "(mean=%d touch=0x%02x); using RAM-only pre-S3 "
+                       "clean background for first authentication",
+                       mean, touchflag);
+              gx_resume_bootstrap_clear (self);
+              return TRUE;
+            }
+        }
+    }
+
   if (capture_diagnostic)
     {
       fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PREPARING_BACKGROUND: KEEP_FINGER_OFF_SENSOR");
@@ -2308,6 +2354,9 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
       !gx_diag_press_countdown (self, off_anchor_mean))
     return FALSE;
 
+  if (self->have_fdt && !capture_diagnostic)
+    gx_resume_bootstrap_clear (self);
+
   return self->have_fdt;
 }
 
@@ -2329,6 +2378,9 @@ gx_recover_capture_context (FpiDeviceGoodix51A0 *self)
 {
   gchar fw[64] = { 0 };
 
+  /* A transport desync is not a suspend bootstrap boundary. Never carry a
+   * previously saved background through unrelated recovery. */
+  gx_resume_bootstrap_clear (self);
   gx_invalidate_capture_context (self);
   gx_tls_teardown (self);
 
@@ -2995,6 +3047,7 @@ gx_active_sleep_recovery (FpDevice *dev, FpiSsm *ssm)
 
   fp_warn ("GXFP51A0 active S3 boundary detected during authentication; "
            "scheduling native cold recovery");
+  gx_resume_bootstrap_preserve (self);
   self->force_cold_reset = TRUE;
   self->capture_recovery_pending = FALSE;
   self->capture_gap_scale = 0;
@@ -3726,6 +3779,42 @@ gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
 }
 
 static void
+gx_resume_bootstrap_clear (FpiDeviceGoodix51A0 *self)
+{
+  if (self->resume_bg_frame)
+    {
+      OPENSSL_cleanse (self->resume_bg_frame,
+                       sizeof (guint16) * GOODIX_IMG_PIXELS);
+      g_clear_pointer (&self->resume_bg_frame, g_free);
+    }
+  memset (self->resume_fdt_base, 0, sizeof self->resume_fdt_base);
+  self->resume_fdt_abs = 0;
+  self->resume_bg_valid = FALSE;
+}
+
+static gboolean
+gx_resume_bootstrap_preserve (FpiDeviceGoodix51A0 *self)
+{
+  if (!self->warm_valid || !self->bg_frame || !self->have_fdt ||
+      self->bg_dirty)
+    return FALSE;
+
+  if (!self->resume_bg_frame)
+    self->resume_bg_frame = g_new (guint16, GOODIX_IMG_PIXELS);
+
+  memcpy (self->resume_bg_frame, self->bg_frame,
+          sizeof (guint16) * GOODIX_IMG_PIXELS);
+  memcpy (self->resume_fdt_base, self->fdt_base,
+          sizeof self->resume_fdt_base);
+  self->resume_fdt_abs = self->fdt_abs;
+  self->resume_bg_valid = TRUE;
+
+  fp_info ("GXFP51A0 preserved RAM-only clean background for post-S3 "
+           "held-finger bootstrap");
+  return TRUE;
+}
+
+static void
 gx_warm_abandon (FpiDeviceGoodix51A0 *self)
 {
   /* Host-only invalidation.  Use this after suspend or another lifecycle
@@ -3752,6 +3841,7 @@ gx_warm_discard (FpiDeviceGoodix51A0 *self)
   if (self->tls_up && self->spi_fd >= 0 && self->irq_fd >= 0)
     gx_tls_teardown (self);
   gx_warm_abandon (self);
+  gx_resume_bootstrap_clear (self);
 }
 
 static gboolean
@@ -3971,6 +4061,12 @@ gx_dev_open (FpDevice *dev)
    * any failed validation falls back to deterministic cold preparation. */
   if (slept || self->force_cold_reset)
     {
+      /* If this is a real sleep boundary while the device was closed, keep a
+       * RAM-only copy of the last proven clean background before invalidating
+       * TLS/FDT. Active-suspend paths preserve the same copy in suspend(). */
+      if (slept && !self->resume_bg_valid)
+        gx_resume_bootstrap_preserve (self);
+
       fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
@@ -4088,6 +4184,7 @@ gx_dev_suspend (FpDevice *dev)
    * action cannot safely continue after resume.  libfprint explicitly asks
    * such drivers to return NOT_SUPPORTED: it cancels the current action before
    * forwarding the suspend result to fprintd, which accepts this condition. */
+  gx_resume_bootstrap_preserve (self);
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
@@ -4273,6 +4370,9 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
+  self->resume_bg_frame = NULL;
+  self->resume_fdt_abs = 0;
+  self->resume_bg_valid = FALSE;
   self->force_cold_reset = FALSE;
 }
 

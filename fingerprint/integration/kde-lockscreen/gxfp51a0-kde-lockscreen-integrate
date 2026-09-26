@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 TARGET="${GXFP51A0_KDE_LOCKSCREEN_QML:-/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml}"
+V7_MARKER="GXFP51A0 resume-delay-aware fingerprint integration v7"
 V6_MARKER="GXFP51A0 parallel-start fingerprint integration v6"
 V5_MARKER="GXFP51A0 window-ready fingerprint integration v5"
 V4_MARKER="GXFP51A0 window-ready fingerprint integration v4"
@@ -79,7 +80,7 @@ rewrite_modern_to_stock() {
 
     $0 == "        Component.onCompleted: {" { hold=$0; next }
     hold != "" && $0 == "            launchAnimation.start();" { hold=hold "\n" $0; next }
-    hold != "" && $0 ~ /GXFP51A0 (window-ready fingerprint integration v[345]|parallel-start fingerprint integration v6)/ { hold=hold "\n" $0; mark=1; next }
+    hold != "" && $0 ~ /GXFP51A0 (window-ready fingerprint integration v[345]|parallel-start fingerprint integration v6|resume-delay-aware fingerprint integration v7)/ { hold=hold "\n" $0; mark=1; next }
     hold != "" && mark && $0 == "            authenticator.startAuthenticating();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "            gxfp51a0StartupAuthTimer.start();" { hold=hold "\n" $0; next }
     hold != "" && mark && $0 == "        }" {
@@ -190,23 +191,111 @@ rewrite_v5_to_v6() {
   mv -f "$tmp" "$TARGET"
 }
 
-apply_v6() {
+rewrite_v6_to_v7() {
+  local tmp
+  tmp="$(mktemp "${TARGET}.XXXXXX")"
+  awk '
+    /\/\/ GXFP51A0 resume rearm BEGIN/ && !done {
+      print "        // GXFP51A0 resume rearm BEGIN"
+      print "        property bool gxfp51a0ResumeRearmPending: false"
+      print "        property bool gxfp51a0ResumeDelayActive: false"
+      print "        Timer {"
+      print "            id: gxfp51a0ResumeRearmTimer"
+      print "            interval: 100"
+      print "            repeat: false"
+      print "            property int polls: 0"
+      print "            onTriggered: {"
+      print "                if (!lockScreenRoot.gxfp51a0ResumeRearmPending) {"
+      print "                    return;"
+      print "                }"
+      print "                if (lockScreenRoot.gxfp51a0ResumeDelayActive) {"
+      print "                    lockScreenRoot.gxfp51a0ResumeDelayActive = false;"
+      print "                }"
+      print "                if (authenticator.state === 0) {"
+      print "                    lockScreenRoot.gxfp51a0ResumeRearmPending = false;"
+      print "                    authenticator.startAuthenticating();"
+      print "                    return;"
+      print "                }"
+      print "                polls++;"
+      print "                if (polls < 50) {"
+      print "                    interval = 100;"
+      print "                    restart();"
+      print "                }"
+      print "            }"
+      print "        }"
+      print "        Connections {"
+      print "            target: sessionManagement"
+      print "            function onResumingFromSuspend() {"
+      print "                lockScreenRoot.gxfp51a0ResumeRearmPending = true;"
+      print "                lockScreenRoot.gxfp51a0ResumeDelayActive = false;"
+      print "                gxfp51a0ResumeRearmTimer.polls = 0;"
+      print "                gxfp51a0ResumeRearmTimer.interval = 100;"
+      print "                gxfp51a0ResumeRearmTimer.restart();"
+      print "            }"
+      print "        }"
+      print "        Connections {"
+      print "            target: authenticator"
+      print "            function onStateChanged() {"
+      print "                if (lockScreenRoot.gxfp51a0ResumeRearmPending"
+      print "                    && !lockScreenRoot.gxfp51a0ResumeDelayActive) {"
+      print "                    gxfp51a0ResumeRearmTimer.interval = 50;"
+      print "                    gxfp51a0ResumeRearmTimer.restart();"
+      print "                }"
+      print "            }"
+      print "            function onLoginFailedDelayStarted(what, source, uSecDelay) {"
+      print "                if (!lockScreenRoot.gxfp51a0ResumeRearmPending || what !== 0) {"
+      print "                    return;"
+      print "                }"
+      print "                lockScreenRoot.gxfp51a0ResumeDelayActive = true;"
+      print "                gxfp51a0ResumeRearmTimer.interval = Math.max(100, Math.ceil(uSecDelay / 1000) + 50);"
+      print "                gxfp51a0ResumeRearmTimer.restart();"
+      print "            }"
+      print "        }"
+      print "        // GXFP51A0 resume rearm END"
+      skip=1; done=1; next
+    }
+    skip && /\/\/ GXFP51A0 resume rearm END/ { skip=0; next }
+    skip { next }
+    {
+      gsub(/GXFP51A0 parallel-start fingerprint integration v6/,
+           "GXFP51A0 resume-delay-aware fingerprint integration v7")
+      print
+    }
+    END { if (!done) exit 42 }
+  ' "$TARGET" > "$tmp" || {
+    rm -f "$tmp"
+    echo "GXFP51A0: unsupported KDE LockScreenUi.qml; no v7 resume rearm applied" >&2
+    return 42
+  }
+  chmod --reference="$TARGET" "$tmp"
+  chown --reference="$TARGET" "$tmp"
+  mv -f "$tmp" "$TARGET"
+}
+
+apply_v7() {
   local tmp
 
-  grep -Fq "$V6_MARKER" "$TARGET" && return 0
+  grep -Fq "$V7_MARKER" "$TARGET" && return 0
+  if grep -Fq "$V6_MARKER" "$TARGET"; then
+    rewrite_v6_to_v7
+    return 0
+  fi
   if grep -Fq "$V5_MARKER" "$TARGET"; then
     rewrite_v5_to_v6
+    rewrite_v6_to_v7
     return 0
   fi
   if grep -Fq "$V4_MARKER" "$TARGET"; then
     rewrite_v4_to_v5
     rewrite_v5_to_v6
+    rewrite_v6_to_v7
     return 0
   fi
   if grep -Fq "$V3_MARKER" "$TARGET"; then
     rewrite_v3_to_v4
     rewrite_v4_to_v5
     rewrite_v5_to_v6
+    rewrite_v6_to_v7
     return 0
   fi
   grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
@@ -289,29 +378,33 @@ apply_v6() {
   chown --reference="$TARGET" "$tmp"
   mv -f "$tmp" "$TARGET"
   trap - RETURN
+  rewrite_v6_to_v7
 }
 
 case "$mode" in
   --apply)
-    apply_v6
+    apply_v7
     ;;
   --remove)
     grep -Fq "$V1_MARKER" "$TARGET" && rewrite_v1_to_stock
     grep -Fq "$V2_MARKER" "$TARGET" && rewrite_v2_to_stock
-    if grep -Fq "$V3_MARKER" "$TARGET" || grep -Fq "$V4_MARKER" "$TARGET" || grep -Fq "$V5_MARKER" "$TARGET" || grep -Fq "$V6_MARKER" "$TARGET"; then
+    if grep -Fq "$V3_MARKER" "$TARGET" || grep -Fq "$V4_MARKER" "$TARGET" || grep -Fq "$V5_MARKER" "$TARGET" || grep -Fq "$V6_MARKER" "$TARGET" || grep -Fq "$V7_MARKER" "$TARGET"; then
       rewrite_modern_to_stock
     fi
     ;;
   --check)
-    grep -Fq "$V6_MARKER" "$TARGET"
+    grep -Fq "$V7_MARKER" "$TARGET"
     grep -Fq 'id: gxfp51a0StartupAuthTimer' "$TARGET"
     grep -Fq 'if (lockScreenRoot.Window.window)' "$TARGET"
     grep -Fq 'gxfp51a0StartupAuthTimer.start();' "$TARGET"
-    grep -A4 -F 'GXFP51A0 parallel-start fingerprint integration v6' "$TARGET" | grep -Fq 'authenticator.startAuthenticating();'
+    grep -A4 -F 'GXFP51A0 resume-delay-aware fingerprint integration v7' "$TARGET" | grep -Fq 'authenticator.startAuthenticating();'
     grep -Fq 'Window.window.requestActivate();' "$TARGET"
     grep -Fq 'property bool gxfp51a0ResumeRearmPending: false' "$TARGET"
     grep -Fq 'function onResumingFromSuspend()' "$TARGET"
+    grep -Fq 'id: gxfp51a0ResumeRearmTimer' "$TARGET"
     grep -Fq 'function onStateChanged()' "$TARGET"
+    grep -Fq 'function onLoginFailedDelayStarted(what, source, uSecDelay)' "$TARGET"
+    grep -Fq 'Math.ceil(uSecDelay / 1000) + 50' "$TARGET"
     ! grep -Fq 'GXFP51A0 upstream fingerprint heartbeat backport BEGIN' "$TARGET"
     ;;
   *)

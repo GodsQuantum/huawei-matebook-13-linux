@@ -389,8 +389,34 @@ gate solely for UI activation. Sensor preparation and greeter/window creation
 can now overlap instead of running serially.
 
 The stock onUiVisibleChanged startAuthenticating() call remains in place; once
-the early call is active it becomes a harmless no-op. Resume rearm v5 remains,
-and no periodic heartbeat or keepalive is reintroduced.
+the early call is active it becomes a harmless no-op. No periodic heartbeat or
+keepalive is reintroduced.
+
+### rel53 candidate: immediate held-finger recovery after S3
+
+A later rel52 test happened after a real 35-minute ACPI S3. It exposed a
+different boundary than an ordinary lock: the sensor/TLS session correctly
+required cold reconstruction, but the user had already placed a finger as soon
+as the lock UI appeared. Cold calibration repeatedly rejected that finger as a
+contaminated background and waited for an empty sensor. This is technically
+safe but wrong UX: a visible lock screen must not require the user to guess
+that the fingerprint reader secretly needs a lift first.
+
+rel53 preserves only the last proven-clean background image and FDT baseline in
+process RAM when a real S3 boundary invalidates warm TLS. TLS, MCU and protocol
+state are still rebuilt from the normal cold path. If FDT reports that a finger
+is already present after the new TLS session comes up, the first authentication
+may use that clean pre-S3 background instead of blocking on a new no-finger
+calibration. If the sensor is clear, normal fresh calibration remains
+mandatory. The bootstrap is cleansed/freed after use, is never written to disk,
+and unrelated transport recovery explicitly clears it.
+
+KScreenLocker 6.7.5 also reported `Authentication attempt too soon` immediately
+after resume. Helper v7 therefore makes resume rearm aware of PAM's native
+`loginFailedDelayStarted(..., uSecDelay)` signal. It waits the reported PAM
+delay plus a small scheduling margin and only restarts when the authenticator is
+Idle. The wait is bounded and resume-only; there is still no periodic heartbeat,
+keepalive service or external sleep hook.
 
 ### Arch / CachyOS
 

@@ -1575,3 +1575,89 @@ Next human gate:
 4. target: sensor preparation should now overlap the ~2.4 s greeter/window
    startup and ideally be READY at or before visible UI;
 5. only after this, validate real S3 again.
+
+---
+
+## Update 2026-09-26 15:55 CEST — rel52 failure diagnosed; rel53 installed
+
+User report:
+- rel52 normal-looking lock test: fingerprint failed.
+
+Important hidden condition:
+- this was NOT an ordinary awake rel52 lock;
+- Pegasus had entered a real ACPI S3 deep suspend at 14:44:36 and resumed at
+  15:19:40 before the 15:27 rel52 test.
+
+Exact rel52 failure trace:
+- rel52 did start fprintd;
+- S3 correctly invalidated the warm TLS context, so driver used cold prep;
+- user touched immediately when the graphical lock UI appeared;
+- cold calibration then repeatedly observed a present finger and correctly
+  refused to bake it into the no-finger background:
+  - 15:28:00 mean=247, waiting for sensor clear;
+  - 15:28:05 contaminated background mean=228 touch=0x3f;
+  - 15:28:10 contaminated mean=252;
+  - 15:28:17 contaminated mean=218;
+- READY was not reached until 15:28:19 after lift/reposition;
+- subsequent actual biometric poses scored 4/5/4, then 3/4/4, then 3 and did
+  not match.
+This proves the remaining UX defect was post-S3 cold calibration with a finger
+already held down, not an ordinary rel51/rel52 matcher regression.
+
+KDE resume evidence:
+- the pre-existing lock greeter at resume logged
+  "Authentication attempt too soon. This shouldn't happen!";
+- KScreenLocker 6.7.5 source exposes
+  loginFailedDelayStarted(..., const uint uSecDelay) and state Idle/Authenticating.
+
+rel53 driver:
+- retains last proven-clean background + FDT baseline in process RAM only when
+  an actual S3 boundary invalidates warm TLS;
+- sensor TLS/MCU session is still rebuilt cold after S3;
+- after new TLS, if FDT already says finger present, first auth bootstraps from
+  that pre-S3 clean background rather than waiting for finger-off calibration;
+- if finger is absent, normal fresh calibration is unchanged;
+- RAM bootstrap is OPENSSL_cleanse'd/freed after adoption;
+- unrelated transport recovery clears it explicitly;
+- never written to /var, /run or any persistent file;
+- threshold 7, matcher, templates, same-press policy and enrollments unchanged.
+
+KDE helper v7:
+- retains rel52 early Component.onCompleted authentication for awake locks;
+- resume rearm no longer blindly restarts PAM;
+- bounded resume-only timer waits for authenticator Idle;
+- loginFailedDelayStarted for interactive PAM sets the exact uSecDelay + 50 ms
+  scheduling margin before another rearm attempt;
+- max state polling window 50 x 100 ms;
+- no permanent heartbeat, daemon, keepalive or external sleep hook.
+
+Validation:
+- dedicated test_resume_held_finger_bootstrap_source_safety.sh PASS;
+- full fingerprint/research suite PASS;
+- KDE v7 migration/rollback test PASS;
+- copied real QML qmllint PASS;
+- native resume, TLS transport, privacy, matcher and same-press tests PASS;
+- reproducible package build PASS;
+- artifact gates: active sensor I/O/GPIO/MMIO/firmware during build NONE;
+- package libfprint-goodix51a0 1.94.100.goodix51a0-53;
+- package SHA256:
+  70c1e917391d47b0ff0f9e4bd13181add2148c919a67cf32ed1a1dde2c3f422a;
+- installed package integrity: 40 files, 0 modified;
+- PLM remains 6.7.5-3.8;
+- fprintd restarted intentionally to load rel53, PID 72232 since 15:53:37;
+- enrollments intact: right-index, left-index, right-middle;
+- one boot-prewarm Claim completed successfully at 15:54:29 under rel53,
+  establishing a clean warm background for the next S3 bootstrap.
+
+Next human gate:
+- user initiates real deep S3;
+- when lock UI appears, touch enrolled finger IMMEDIATELY and keep normal
+  behavior: do not deliberately wait for READY and do not deliberately lift
+  just to satisfy calibration;
+- password must remain concurrently usable;
+- after result, inspect for:
+  "preserved RAM-only clean background for post-S3 held-finger bootstrap",
+  "RESUME_BOOTSTRAP finger already present",
+  absence of repeated "calibration waiting for sensor clear",
+  absence of "Authentication attempt too soon",
+  match score and timing.
