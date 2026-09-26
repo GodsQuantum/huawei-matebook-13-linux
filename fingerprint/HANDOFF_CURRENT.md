@@ -1856,3 +1856,9 @@ If deep fails, inspect exact sequence:
 - `GXFP51A0 active resume recovery: rebuilding cold sensor context`;
 - RAM bootstrap marker if finger already present;
 - READY/DETECTED_HOLD/score.
+
+### rel55 repository finalization
+
+- implementation commit: `035f923 fix(fingerprint): preserve authentication across S3`
+- branch: `fingerprint-rel55-native-s3-continuity`
+- pushed to origin.
