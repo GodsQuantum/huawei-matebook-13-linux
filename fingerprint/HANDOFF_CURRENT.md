@@ -1265,3 +1265,50 @@ Validation:
 - greeter now sends FingerprintLogin and rel48 reaches IDENTIFY_TRACE physical press 1/3 READY.
 
 The first post-repair automatic fingerprint attempt timed out because no finger was presented. Human biometric success and password concurrency still need the user test. Temporary build dependencies and build trees were removed.
+
+---
+
+# Update 2026-09-26 11:49 CEST — rel48 cold boot VALIDATED
+
+Human result: fingerprint login SUCCESS after a full reboot.
+
+Current boot evidence:
+- boot: 2026-09-26 11:46 CEST;
+- plasma-login-manager 6.7.5-3.8;
+- libfprint-goodix51a0 1.94.100.goodix51a0-48;
+- fprintd PID 739 started in this boot, so rel48 is genuinely loaded;
+- gxfp51a0 boot-prewarm completed before the display manager;
+- PLM greeter loaded normally with no fatal QML error.
+
+Successful auth path:
+- 11:47:05 PLM received FingerprintLogin;
+- WARM_REBASE succeeded;
+- WakeupMCU write completed;
+- physical press 1/3 became READY then DETECTED_HOLD;
+- first GET_IMAGE produced neither ACK nor TLS, so the allowed bounded retry 2/2 ran;
+- retry succeeded;
+- SIGFM Identify score = 23, threshold = 7, candidate = 0;
+- same-press completed after one image;
+- PLM logged: Authentication race won by fingerprint;
+- PAM opened plasmalogin-fingerprint session for arezki;
+- graphical Wayland session started successfully.
+
+Critical rel48 validation:
+- old unsafe marker 'ACK arrived but TLS image timed out; retrying once' is ABSENT;
+- no accepted-command late-TLS replay occurred;
+- no 'not replaying accepted command' recovery was needed on this cold boot;
+- no TLS digest/GCM failure;
+- no capture transport desync;
+- no Type Login unavailable / QQmlTimer / QQuickItem greeter failure.
+
+Interpretation:
+- the safe no-evidence retry path is proven functional in real cold-login use;
+- matcher margin was strong on this press: 23 vs threshold 7;
+- rel48 + PLM 3.8 cold graphical fingerprint login is now human-validated.
+
+Remaining acceptance gates before final promotion:
+1. verify password remains usable while fingerprint is actively waiting (human test);
+2. perform one deep suspend/S3 resume and fingerprint login;
+3. inspect that resume journal for safe recovery and absence of accepted-command replay / TLS digest failure.
+
+Do not change matcher threshold, enrollments, FDT, WakeupMCU, PLM dual-auth architecture, or GPIO behavior based on this successful cold test.
