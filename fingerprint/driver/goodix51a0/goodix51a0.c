@@ -97,10 +97,6 @@ struct _FpiDeviceGoodix51A0
   int           tls_rxlen, tls_rxpos;
 
   guint16      *bg_frame;    /* averaged background, NULL until calibrated */
-  guint16      *resume_bg_frame; /* RAM-only clean pre-S3 background bootstrap */
-  int           resume_fdt_base[GXFP_FDT_ZONE_COUNT];
-  int           resume_fdt_abs;
-  gboolean      resume_bg_valid; /* only armed when a real S3 invalidates warm TLS */
   guint         poll_id;     /* finger-detection timeout source */
   int           poll_count;  /* poll iterations, bounded to avoid hanging */
   GPtrArray    *enroll_feats;/* descriptor sets accumulated during enrolment */
@@ -120,7 +116,6 @@ struct _FpiDeviceGoodix51A0
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
-  gboolean      sensor_sleeping; /* exact Windows 0x60 low-power state across idle close */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -134,8 +129,6 @@ static void gx_protocol_timing_miss (FpiDeviceGoodix51A0 *self,
                                      const gchar          *source);
 static gboolean gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self);
 static void gx_warm_abandon (FpiDeviceGoodix51A0 *self);
-static void gx_resume_bootstrap_clear (FpiDeviceGoodix51A0 *self);
-static gboolean gx_resume_bootstrap_preserve (FpiDeviceGoodix51A0 *self);
 static gboolean gx_cold_prepare (FpiDeviceGoodix51A0 *self);
 
 static const FpIdEntry goodix51a0_id_table[] = {
@@ -184,7 +177,6 @@ gx_wakeup_mcu (FpiDeviceGoodix51A0 *self)
     }
 
   g_usleep (5000);
-  self->sensor_sleeping = FALSE;
   fp_warn ("GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete");
   return TRUE;
 }
@@ -657,26 +649,6 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
 
   return FALSE;
 }
-
-static gboolean
-gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
-{
-  struct gxfp_target_packet packet;
-
-  if (!gxfp_build_sleep (&packet))
-    return FALSE;
-
-  if (!gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL))
-    {
-      fp_warn ("GXFP51A0 Windows sleep transition 0x60 was not acknowledged");
-      return FALSE;
-    }
-
-  self->sensor_sleeping = TRUE;
-  fp_info ("GXFP51A0 Windows sleep transition 0x60/01 00 acknowledged");
-  return TRUE;
-}
-
 
 static bool
 gx_factory_staging_read_cb (void *user, uint32_t selector,
@@ -2190,46 +2162,6 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
     }
   g_usleep (100 * 1000);
 
-  /* After a real S3 the sensor/TLS session must be rebuilt, but the last clean
-   * no-finger background is still useful host-side. If the user is already
-   * holding a finger when the new TLS session comes up, waiting for a fresh
-   * empty-sensor calibration creates the exact bad UX we want to avoid: the
-   * lock screen is visible but authentication cannot begin until the user
-   * guesses that they must lift. Bootstrap the first post-S3 press from the
-   * RAM-only pre-suspend background/FDT baseline instead. If the sensor is
-   * clear, fall through to the normal fresh calibration path below. */
-  if (!capture_diagnostic && self->resume_bg_valid && self->resume_bg_frame)
-    {
-      int cur[GXFP_FDT_ZONE_COUNT];
-      guint8 touchflag = 0;
-
-      if (gx_fdt_probe_ex (self, cur, &touchflag) == 0)
-        {
-          int mean = gx_fdt_mean (cur);
-
-          if (gx_fdt_touch_is_finger (touchflag) || mean < GOODIX_FDT_ABS)
-            {
-              if (!self->bg_frame)
-                self->bg_frame = g_new (guint16, GOODIX_IMG_PIXELS);
-
-              memcpy (self->bg_frame, self->resume_bg_frame,
-                      sizeof (guint16) * GOODIX_IMG_PIXELS);
-              memcpy (self->fdt_base, self->resume_fdt_base,
-                      sizeof self->fdt_base);
-              self->fdt_abs = self->resume_fdt_abs;
-              self->have_fdt = TRUE;
-              self->bg_dirty = FALSE;
-
-              fp_warn ("GXFP51A0 RESUME_BOOTSTRAP finger already present "
-                       "(mean=%d touch=0x%02x); using RAM-only pre-S3 "
-                       "clean background for first authentication",
-                       mean, touchflag);
-              gx_resume_bootstrap_clear (self);
-              return TRUE;
-            }
-        }
-    }
-
   if (capture_diagnostic)
     {
       fp_info ("GXFP51A0 CAPTURE_DIAGNOSTIC_PREPARING_BACKGROUND: KEEP_FINGER_OFF_SENSOR");
@@ -2376,9 +2308,6 @@ gx_prepare_capture_context_once (FpiDeviceGoodix51A0 *self,
       !gx_diag_press_countdown (self, off_anchor_mean))
     return FALSE;
 
-  if (self->have_fdt && !capture_diagnostic)
-    gx_resume_bootstrap_clear (self);
-
   return self->have_fdt;
 }
 
@@ -2400,9 +2329,6 @@ gx_recover_capture_context (FpiDeviceGoodix51A0 *self)
 {
   gchar fw[64] = { 0 };
 
-  /* A transport desync is not a suspend bootstrap boundary. Never carry a
-   * previously saved background through unrelated recovery. */
-  gx_resume_bootstrap_clear (self);
   gx_invalidate_capture_context (self);
   gx_tls_teardown (self);
 
@@ -2949,12 +2875,6 @@ gx_session_done (GObject *src, GAsyncResult *res, gpointer user_data)
   GxWork *w = g_task_get_task_data (G_TASK (res));
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (w->dev);
 
-  /* The blocking TLS/session transaction has returned to the main loop.
-   * Release the libfprint critical section before advancing/completing the
-   * state machine so any queued suspend/cancel request can be delivered at a
-   * coherent protocol boundary. */
-  fpi_device_critical_leave (w->dev);
-
   if (!w->ok)
     {
       fpi_ssm_mark_failed (w->ssm, fpi_device_error_new_msg (
@@ -3025,12 +2945,6 @@ gx_run_async (FpiSsm *ssm, FpDevice *dev, GTaskThreadFunc fn,
     }
 
   g_task_set_task_data (task, w, (GDestroyNotify) gx_work_free);
-
-  /* TLS/session setup and GET_IMAGE are synchronous SPI/TLS transactions.
-   * Do not let libfprint inject suspend/resume/cancel between an accepted
-   * command and its reply. External requests remain queued and are flushed
-   * when the matching completion callback leaves this critical section. */
-  fpi_device_critical_enter (dev);
   g_task_run_in_thread (task, fn);
   g_object_unref (task);
 }
@@ -3081,7 +2995,6 @@ gx_active_sleep_recovery (FpDevice *dev, FpiSsm *ssm)
 
   fp_warn ("GXFP51A0 active S3 boundary detected during authentication; "
            "scheduling native cold recovery");
-  gx_resume_bootstrap_preserve (self);
   self->force_cold_reset = TRUE;
   self->capture_recovery_pending = FALSE;
   self->capture_gap_scale = 0;
@@ -3438,10 +3351,6 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
   GxTask *t = fpi_ssm_get_data (ssm);
   GxSiftFeatures *f = g_steal_pointer (&w->feat);
 
-  /* Match gx_run_async(): GET_IMAGE/same-press transport is now at a complete
-   * main-loop boundary, so queued suspend/cancel requests may safely run. */
-  fpi_device_critical_leave (dev);
-
   if (g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE"))
     {
       guint nfeatures = f ? gx_sift_keypoints (f) : 0;
@@ -3775,13 +3684,11 @@ gx_transport_open (FpDevice *dev, GError **error)
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
 #define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
-/* A retained warm context is only an optimization. Real S3 is a hard lifecycle
- * boundary, and an awake context also has a bounded lifetime. rel51 proved that
- * WARM_REBASE is excellent for short/medium awake reuse, but the rel55 human
- * test after ~6.5 h idle showed a stale sensor-side imaging state can still
- * answer FDT/TLS validation while producing genuine scores only in the 2-4
- * range. Restore rel50's proven 5-minute trust bound: after that, rebuild cold
- * instead of trusting a responsive but potentially degraded imaging session. */
+/* A completed Claim/Open may be followed immediately by another client Claim,
+ * especially boot-prewarm -> login.  Re-running a background GET_IMAGE in that
+ * narrow handoff window is redundant and can collide with a finger already
+ * placed on the reader.  The token below is one-shot and much shorter than the
+ * normal warm TTL; older contexts still take the full rel31 validation path. */
 
 static gboolean
 gx_sleep_delta_us (gint64 *out)
@@ -3840,42 +3747,6 @@ gx_warm_idle_expired (FpiDeviceGoodix51A0 *self)
 }
 
 static void
-gx_resume_bootstrap_clear (FpiDeviceGoodix51A0 *self)
-{
-  if (self->resume_bg_frame)
-    {
-      OPENSSL_cleanse (self->resume_bg_frame,
-                       sizeof (guint16) * GOODIX_IMG_PIXELS);
-      g_clear_pointer (&self->resume_bg_frame, g_free);
-    }
-  memset (self->resume_fdt_base, 0, sizeof self->resume_fdt_base);
-  self->resume_fdt_abs = 0;
-  self->resume_bg_valid = FALSE;
-}
-
-static gboolean
-gx_resume_bootstrap_preserve (FpiDeviceGoodix51A0 *self)
-{
-  if (!self->warm_valid || !self->bg_frame || !self->have_fdt ||
-      self->bg_dirty)
-    return FALSE;
-
-  if (!self->resume_bg_frame)
-    self->resume_bg_frame = g_new (guint16, GOODIX_IMG_PIXELS);
-
-  memcpy (self->resume_bg_frame, self->bg_frame,
-          sizeof (guint16) * GOODIX_IMG_PIXELS);
-  memcpy (self->resume_fdt_base, self->fdt_base,
-          sizeof self->resume_fdt_base);
-  self->resume_fdt_abs = self->fdt_abs;
-  self->resume_bg_valid = TRUE;
-
-  fp_info ("GXFP51A0 preserved RAM-only clean background for post-S3 "
-           "held-finger bootstrap");
-  return TRUE;
-}
-
-static void
 gx_warm_abandon (FpiDeviceGoodix51A0 *self)
 {
   /* Host-only invalidation.  Use this after suspend or another lifecycle
@@ -3891,7 +3762,6 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
-  self->sensor_sleeping = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -3903,7 +3773,6 @@ gx_warm_discard (FpiDeviceGoodix51A0 *self)
   if (self->tls_up && self->spi_fd >= 0 && self->irq_fd >= 0)
     gx_tls_teardown (self);
   gx_warm_abandon (self);
-  gx_resume_bootstrap_clear (self);
 }
 
 static gboolean
@@ -4117,22 +3986,12 @@ gx_dev_open (FpDevice *dev)
   gboolean expired = gx_warm_idle_expired (self);
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
 
-  /* An idle libfprint device may not receive the driver suspend vfunc. Detect
-   * both real lifecycle loss and an over-age awake context before reopening
-   * hardware handles. Short/medium awake reuse still takes WARM_REBASE; beyond
-   * the rel50 5-minute trust bound we prefer a deterministic cold rebuild. */
+  /* An idle libfprint device may not receive the driver suspend vfunc.  Detect
+   * that case before reopening hardware handles, while stale TLS can still be
+   * discarded host-side without sending anything to the sensor. */
   if (slept || expired || self->force_cold_reset)
     {
-      /* If this is a real sleep boundary while the device was closed, keep a
-       * RAM-only copy of the last proven clean background before invalidating
-       * TLS/FDT. Active-suspend paths preserve the same copy in suspend(). */
-      if (slept && !self->resume_bg_valid)
-        gx_resume_bootstrap_preserve (self);
-
-      if (expired && !slept && !self->force_cold_reset)
-        fp_info ("GXFP51A0 awake warm context expired; invalidating stale imaging state");
-      else
-        fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
+      fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
       /* A dead S3 session is not evidence that the SPI controller needs slower
@@ -4175,12 +4034,7 @@ gx_dev_open (FpDevice *dev)
 
   if (gx_warm_available (self))
     {
-      if (self->sensor_sleeping && !gx_wakeup_mcu (self))
-        {
-          fp_warn ("GXFP51A0 failed to wake stashed Windows-sleep context; "
-                   "falling back to cold preparation");
-        }
-      else if (gx_warm_validate (self))
+      if (gx_warm_validate (self))
         {
           self->production_ready = TRUE;
           fp_info ("GXFP51A0 reusing native libfprint warm context");
@@ -4228,28 +4082,13 @@ gx_dev_close (FpDevice *dev)
       self->production_ready && self->warm_valid && self->tls_up &&
       self->tls && self->have_fdt && self->bg_frame)
     {
-      /* The working Windows stack never leaves ChicagoHS in the active image/
-       * FDT state when biometric use stops: OnActivate(false) sends exact
-       * MCU SLEEP 0x60 with payload 01 00 and waits for ACK.  This matters
-       * before S3 because libfprint only calls the driver suspend vfunc while
-       * an interactive action is active.  In the common idle case close() is
-       * therefore our last guaranteed sensor-I/O boundary before system sleep.
-       *
-       * Preserve the host TLS/background/FDT context only if the sensor itself
-       * confirmed the low-power transition.  Any ambiguous transition is
-       * discarded and the next open will rebuild cold. */
-      if (gx_sensor_sleep (self))
-        {
-          self->production_ready = FALSE;
-          gx_pmk_clear (self);
-          gx_transport_close (self);
-          fp_info ("GXFP51A0 stashed native warm context with sensor in "
-                   "Windows sleep mode; next open will WakeupMCU then validate");
-          fpi_device_close_complete (dev, NULL);
-          return;
-        }
-
-      fp_warn ("GXFP51A0 close sleep transition failed; discarding warm context");
+      self->production_ready = FALSE;
+      gx_pmk_clear (self);
+      gx_transport_close (self);
+      fp_info ("GXFP51A0 stashed native warm context across fp_device close; "
+               "next open must validate FDT + GET_IMAGE/TLS");
+      fpi_device_close_complete (dev, NULL);
+      return;
     }
 
   if (self->force_cold_reset)
@@ -4265,43 +4104,25 @@ gx_dev_suspend (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
 
-  /* ST411 loses sensor-side TLS/FDT state across S3, but this driver can
-   * recover the *same* libfprint action after resume: lightweight WAIT_ON/OFF
-   * polling detects the BOOTTIME-vs-MONOTONIC jump and sends the SSM through
-   * GX_ST_SESSION, whose force_cold_reset path rebuilds MCU/TLS/FDT before any
-   * further biometric I/O. Returning success here is therefore intentional:
-   * libfprint keeps Verify/Identify alive instead of cancelling pam_fprintd.
-   *
-   * Blocking session/image transactions are protected by libfprint critical
-   * sections, so suspend cannot be injected halfway through an ACK/TLS record. */
-  gx_resume_bootstrap_preserve (self);
-
-  /* Active-operation suspend is rarer than the idle-close path above, but
-   * Windows still enters MCU sleep before D0 exit. libfprint guarantees this
-   * vfunc is not injected inside one of our critical capture sections. A
-   * failed sleep ACK is non-fatal because resume is already forced through a
-   * full cold rebuild. */
-  if (self->spi_fd >= 0 && self->irq_fd >= 0 && self->tls_up)
-    {
-      if (!gx_sensor_sleep (self))
-        fp_warn ("GXFP51A0 suspend sleep transition failed; cold resume "
-                 "recovery remains armed");
-    }
-
+  /* The ST411 does not preserve TLS/FDT state across S3, so an interactive
+   * action cannot safely continue after resume.  libfprint explicitly asks
+   * such drivers to return NOT_SUPPORTED: it cancels the current action before
+   * forwarding the suspend result to fprintd, which accepts this condition. */
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
-  fp_info ("GXFP51A0 suspend: preserving active authentication; native cold "
-           "recovery armed for resume");
-  fpi_device_suspend_complete (dev, NULL);
+  fp_info ("GXFP51A0 suspend: cancelling active action; cold reset required after resume");
+  fpi_device_suspend_complete (
+    dev, fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED));
 }
 
 static void
 gx_dev_resume (FpDevice *dev)
 {
-  /* gx_dev_suspend() deliberately keeps the interactive action alive. The
-   * next lightweight WAIT_ON/OFF poll observes the S3 clock jump and routes
-   * that same action through GX_ST_SESSION before touching stale sensor state. */
+  /* If libfprint cancelled the action, the following Claim/Open sees
+   * force_cold_reset. If a desktop kept an already-open action alive, the
+   * BOOTTIME-vs-MONOTONIC poll guard detects the same S3 boundary and jumps
+   * through GX_ST_SESSION for an in-operation cold rebuild. */
   fpi_device_resume_complete (dev, NULL);
 }
 
@@ -4472,11 +4293,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
-  self->resume_bg_frame = NULL;
-  self->resume_fdt_abs = 0;
-  self->resume_bg_valid = FALSE;
   self->force_cold_reset = FALSE;
-  self->sensor_sleeping = FALSE;
 }
 
 

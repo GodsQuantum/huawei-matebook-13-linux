@@ -35,7 +35,7 @@
 
 /*
  * Command table. The first body byte is (cmd0 << 4) | (cmd1 << 1), with
- * cmd0 being: 0x2 image, 0x3 finger detect, 0x5 navigation, 0x6 sleep, 0x8 register,
+ * cmd0 being: 0x2 image, 0x3 finger detect, 0x5 navigation, 0x8 register,
  * 0x9 chip, 0xA MCU, 0xD TLS connection, 0xF firmware update / memory.
  */
 #define GOODIX_CMD_IMAGE       0x20
@@ -43,7 +43,6 @@
 #define GOODIX_CMD_FDT_UP      0x34
 #define GOODIX_CMD_FDT_MODE    0x36
 #define GOODIX_CMD_NAV         0x50
-#define GOODIX_CMD_SLEEP       0x60
 #define GOODIX_CMD_REG         0x82
 #define GOODIX_CMD_ENABLE_CHIP 0x96
 #define GOODIX_CMD_MCU_STATE   0xAE

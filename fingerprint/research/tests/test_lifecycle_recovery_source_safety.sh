@@ -20,6 +20,7 @@ def fn(name):
 
 sleep=fn("gx_sleep_delta_us")
 cross=fn("gx_warm_crossed_sleep")
+idle=fn("gx_warm_idle_expired")
 abandon=fn("gx_warm_abandon")
 warm=fn("gx_warm_validate")
 open_=fn("gx_dev_open")
@@ -41,15 +42,14 @@ assert "!self->warm_sleep_clock_valid" in cross
 assert "now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US" in cross
 assert "sleep boundary detected" in cross
 
-# rel56 restores rel50's bounded awake warm trust window. A responsive
-# FDT/TLS session can still yield degraded imaging after many hours idle, so a
-# 5-minute context is reused/rebased while older state must rebuild cold.
-assert "#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)" in s
-idle=fn("gx_warm_idle_expired")
+# A warm session is an optimization, never a permanent trust boundary. A
+# context left unused for five minutes is rebuilt before any sensor traffic.
+assert "GX_WARM_IDLE_TTL_US" in s
+assert "5 * 60 * G_USEC_PER_SEC" in s
 assert "warm_last_activity_us" in idle
-assert "now - self->warm_last_activity_us > GX_WARM_IDLE_TTL_US" in idle
 assert "warm context idle for %d s; forcing cold rebuild" in idle
 assert "gx_warm_idle_expired (self)" in open_
+assert open_.index("gx_warm_idle_expired (self)") < open_.index("gx_transport_open")
 assert "slept || expired || self->force_cold_reset" in open_
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
@@ -84,16 +84,11 @@ assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_o
 assert "gx_gpio_reset (self)" in open_
 assert "self->capture_gap_scale = 0" in open_
 
-# rel55 guarantees that the current Verify/Identify action can continue after
-# resume: suspend only arms deterministic cold recovery, while the next poll
-# crosses GX_ST_SESSION before stale hardware state is touched. Per libfprint,
-# successful suspend completion therefore preserves the action instead of
-# cancelling pam_fprintd.
-assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend
-assert "fpi_device_suspend_complete (dev, NULL)" in suspend
-assert "gx_resume_bootstrap_preserve (self)" in suspend
+# For an active action, upstream libfprint requires an error when the action
+# cannot safely continue across suspend; NOT_SUPPORTED triggers cancellation.
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" in suspend
+assert "fpi_device_suspend_complete" in suspend
 assert "self->force_cold_reset = TRUE" in suspend
-assert "preserving active authentication" in suspend
 assert "fpi_device_resume_complete (dev, NULL)" in resume
 assert "g_cancellable_cancel" not in resume
 

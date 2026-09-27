@@ -503,6 +503,51 @@ native same-action S3 recovery, libfprint critical sections around blocking
 TLS/GET_IMAGE transactions, and KDE helper v9. Matcher, threshold 7, templates,
 enrollment data, same-press policy and GPIO mapping are unchanged.
 
+### rel58 candidate: rel50 biometric core + precise C++ resume rearm
+
+rel58 deliberately removes the unproven biometric/lifecycle experiments added
+after the last strongly validated driver core. The GXFP51A0 driver sources are
+restored to rel50 (`c8ec8cb`), which already contains the rel48 accepted
+GET_IMAGE/TLS timeout safety, the fixed threshold 7 SIGFM matcher, the full
+three-image same-press budget and a five-minute bounded warm context.
+
+A fresh build comparison confirms that the executable `.text` section of
+`goodix51a0.c.o` is byte-for-byte identical to a fresh rel50 build
+(SHA256 `ed9ffa18eed318b8001f23b7d0143efdb478116b0aabc2fc804818c808dd4d87`).
+The whole libfprint shared object is not claimed byte-identical because build
+paths and other repository inputs differ.
+
+The post-rel50 experiments are intentionally absent from the driver:
+no RAM-only pre-S3 image bootstrap, no sensor SLEEP-on-close state, no
+libfprint critical-section wrapper added by rel55, and no same-action
+suspend-preservation path. Active S3 again follows the rel50/libfprint contract:
+the driver marks the sensor context cold and returns
+`FP_DEVICE_ERROR_NOT_SUPPORTED`, allowing libfprint to stop that fingerprint
+operation cleanly. Idle S3 remains detected on the next Claim using the
+CLOCK_BOOTTIME-vs-CLOCK_MONOTONIC boundary and is rebuilt cold before biometric
+I/O.
+
+The observed rel57 S3 failure had a separate desktop cause: after resume there
+were zero fprintd entries, so no fingerprint operation was started at all.
+KScreenLocker 6.7.5-1.3 therefore owns resume rearming in C++ rather than QML.
+On `PrepareForSleep(true)` it keeps KDE MR !340 semantics and never converts
+suspend into a PAM cancellation. On `PrepareForSleep(false)`,
+`PamAuthenticators::resumeAuthenticating()` starts the full group when Idle;
+if password is already active, it leaves password untouched and re-kicks only
+noninteractive authenticators. Each individual PAM worker already ignores a
+duplicate authenticate request while active.
+
+KDE helper v10 keeps only the already validated window-ready normal-lock
+startup. It contains no QML resume callback, heartbeat, retry/pending state or
+periodic keepalive.
+
+A 2026-09-28 upstream refresh found no newer GXFP51A0 suspend/resume implementation
+to import. The most recent relevant public updates remain the 2026-09-21
+GXFP51A0 reference-repository update and Sigfrodr's 2026-09-25 integration of
+the GQ-SIGFM evaluator plug-in. That evaluation continues to support the shipped
+SIGFM family matcher rather than NBIS on the 80x64 sensor; rel58 therefore does
+not change matcher, threshold 7, templates or enrollment data.
+
 ### Arch / CachyOS
 
 From the repository root:

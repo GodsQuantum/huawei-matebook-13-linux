@@ -1,51 +1,50 @@
---- a/greeter/greeterapp.cpp
-+++ b/greeter/greeterapp.cpp
-@@ -10,8 +10,6 @@
- #include "shell_integration.h"
- #include "wallpaper_integration.h"
-
--#include "../logind.h"
--
- #include <config-kscreenlocker.h>
- #include <iostream>
- #include <unistd.h>
-@@ -133,7 +131,6 @@
-     , m_graceTime(0)
-     , m_noLock(false)
-     , m_shellIntegration(new ShellIntegration(this))
--    , m_logindIntegration(new LogindIntegration(this))
- {
-     auto interactive = std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SERVICE), KUser().loginName());
-     std::vector<std::unique_ptr<PamAuthenticator>> noninteractive;
-@@ -142,9 +139,11 @@
-     noninteractive.push_back(
-         std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
-     m_authenticators = new PamAuthenticators(std::move(interactive), std::move(noninteractive), this);
+diff -U0 -r a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
+--- a/greeter/greeterapp.cpp	2026-09-08 12:53:02.000000000 +0200
++++ b/greeter/greeterapp.cpp	2026-09-28 01:24:51.612533842 +0200
+@@ -145,2 +145,12 @@
 -    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this] {
 -        m_authenticators->cancel();
--    });
-+    // Deliberately do NOT cancel authentication on suspend. Aborting an in-progress PAM
-+    // conversation makes pam_authenticate() return a failure, which is both misreported as a
-+    // failed login on resume and, with pam_faillock in the auth stack, recorded as a real failed
-+    // attempt that counts toward account lockout. Leaving the conversation parked across
-+    // suspend/resume means the prompt resumes on wake and a correct password completes normally.
-     initialize();
-
-     if (KWindowSystem::isPlatformX11()) {
---- a/greeter/greeterapp.h
-+++ b/greeter/greeterapp.h
-@@ -25,7 +25,6 @@
- }
-
- class Authenticator;
--class LogindIntegration;
-
- struct org_kde_ksld;
-
-@@ -94,6 +93,5 @@
-
-     KPackage::Package m_wallpaperPackage;
-     ShellIntegration *m_shellIntegration;
--    LogindIntegration *m_logindIntegration;
- };
- } // namespace
++    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this](bool sleeping) {
++        if (sleeping) {
++            // KDE MR !340 semantics: suspend is not an authentication failure.
++            // Keep the password PAM conversation parked instead of cancelling it.
++            return;
++        }
++
++        // A greeter may be created just before S3, before QML starts auth. Or
++        // libfprint may stop only the fingerprint worker while password stays
++        // active. Handle both cases without restarting/cancelling password.
++        qCInfo(KSCREENLOCKER_GREET) << "Resume: rearming missing authenticators";
++        m_authenticators->resumeAuthenticating();
+diff -U0 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
+--- a/greeter/pamauthenticators.cpp	2026-09-08 12:53:02.000000000 +0200
++++ b/greeter/pamauthenticators.cpp	2026-09-28 01:24:51.612321555 +0200
+@@ -155,0 +156,18 @@
++void PamAuthenticators::resumeAuthenticating()
++{
++    if (d->graceLocked) {
++        return;
++    }
++
++    if (d->state == AuthenticatorsState::Idle) {
++        qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: resume from idle; starting all authenticators";
++        startAuthenticating();
++        return;
++    }
++
++    qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: resume while active; re-kicking noninteractive authenticators";
++    for (auto &&noninteractive : d->noninteractive) {
++        noninteractive->tryUnlock();
++    }
++}
++
+diff -U0 -r a/greeter/pamauthenticators.h b/greeter/pamauthenticators.h
+--- a/greeter/pamauthenticators.h	2026-09-08 12:53:02.000000000 +0200
++++ b/greeter/pamauthenticators.h	2026-09-28 01:24:51.612156475 +0200
+@@ -52,0 +53,6 @@
++    // Resume boundary: if the group never started, start password + all
++    // noninteractive authenticators. If password is already running, only
++    // re-kick noninteractive workers; PamWorker::authenticate() is itself
++    // idempotent while a worker is still inside pam_authenticate().
++    void resumeAuthenticating();
++

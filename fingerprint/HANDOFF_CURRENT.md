@@ -2204,3 +2204,187 @@ Success gate:
 If post-S3 still collapses to 3-4 despite confirmed pre-S3 SLEEP:
 - the SLEEP hypothesis is rejected or incomplete;
 - next investigation should target host LPSS/pxa2xx runtime-PM/system-S3 state, not matcher/threshold/templates.
+
+---
+
+## Update 2026-09-28 01:42 CEST — rel58 final candidate installed; rel50 core restored + precise C++ resume rearm
+
+### Why rel58 is a reset rather than another layered driver experiment
+
+The rel57 human sequence was:
+- login fingerprint failed;
+- normal lock eventually succeeded after 2–3 physical poses;
+- deep-S3 unlock failed.
+
+Forensics:
+- rel57 login/lock did run under package -57 before a later diagnostic downgrade.
+- no rel57 Windows-SLEEP marker appeared anywhere in that test boot, so the
+  0x60/01 00 experiment was never exercised and did not explain the result.
+- the S3 unlock had ZERO fprintd journal entries after resume. Fingerprint PAM
+  never started; this was a desktop authentication lifecycle failure, not a
+  measured biometric mismatch.
+- QML v9 contained onResumingFromSuspend(), but the real race still produced no
+  fprintd request.
+
+Decision:
+- stop stacking rel53-rel57 lifecycle experiments;
+- restore the last strongly human-validated driver core, rel50 c8ec8cb;
+- fix the proven resume-auth race in KScreenLocker C++, where the lifecycle
+  signal originates.
+
+### Driver core
+
+The complete directory fingerprint/driver/goodix51a0 is restored to rel50
+commit c8ec8cb.
+
+This retains:
+- rel48 accepted-GET_IMAGE/TLS-timeout safety;
+- fixed SIGFM threshold 7;
+- full 3-image same-press budget;
+- 3 physical-pose Identify budget;
+- 5-minute bounded warm-context TTL;
+- native BOOTTIME-vs-MONOTONIC S3 detection;
+- active-S3 libfprint NOT_SUPPORTED cancellation contract;
+- cold reset/rebuild after lifecycle invalidation;
+- no persistent learned timings;
+- no external resume hook / keepalive.
+
+This intentionally removes the post-rel50 driver experiments:
+- no resume_bg_frame / RAM-only stale-background bootstrap;
+- no gx_sensor_sleep / Windows 0x60 SLEEP-on-close state;
+- no libfprint critical-section wrapper added in rel55;
+- no same-action suspend-preservation path.
+
+Reproducibility check:
+- fresh rel58 GXFP51A0 goodix51a0.c.o .text SHA256:
+  ed9ffa18eed318b8001f23b7d0143efdb478116b0aabc2fc804818c808dd4d87
+- fresh rel50 c8ec8cb goodix51a0.c.o .text SHA256:
+  ed9ffa18eed318b8001f23b7d0143efdb478116b0aabc2fc804818c808dd4d87
+- DRIVER_TEXT_IDENTICAL=YES.
+- Whole libfprint .so is NOT claimed byte-identical because build paths/current
+  non-driver repository inputs differ.
+
+### KScreenLocker 6.7.5-1.3
+
+QML resume rearming is removed.
+
+The patched C++ logind boundary now does:
+- PrepareForSleep(true): do not cancel PAM (KDE bug 481808 / MR !340 intent);
+- PrepareForSleep(false): call PamAuthenticators::resumeAuthenticating().
+
+resumeAuthenticating():
+- returns while graceLocked;
+- if group state is Idle: invokes normal startAuthenticating(), starting password
+  plus all configured noninteractive authenticators;
+- if group is already Authenticating: leaves interactive password untouched and
+  only calls tryUnlock() on noninteractive authenticators;
+- PamWorker::authenticate() already ignores duplicate calls while it is still in
+  pam_authenticate(), so a healthy fingerprint worker is not restarted.
+
+This directly addresses both observed resume races:
+1. greeter exists before S3 but authentication never started;
+2. password remains active while libfprint stopped only fingerprint.
+
+No pre-QML forced authentication patch is retained.
+
+KScreenLocker patch SHA256:
+674ecb8010335fdf78f832ac419b396d87d78e0cb48d7f2ad84eec478a8e2fae
+
+KScreenLocker package:
+- kscreenlocker 6.7.5-1.3
+- package SHA256:
+  8ad6e95ae1415ffc98c1d5b648d953da8244ba53ebd0502d601c7556197060e9
+- package was built from the SHA256-verified KDE 6.7.5 tarball; local makepkg
+  lacked the current KDE signing key, so the build invocation skipped local PGP
+  verification only after the pinned source checksum gate.
+
+### KDE QML v10
+
+Marker:
+GXFP51A0 cpp-lifecycle-auth fingerprint integration v10
+
+QML owns only normal window-ready startup:
+- no onResumingFromSuspend();
+- no resume pending/timer;
+- no heartbeat;
+- no periodic auth loop.
+
+qmllint PASS and helper --check PASS on the live file.
+
+### rel58 package / live state
+
+libfprint package:
+- libfprint-goodix51a0 1.94.100.goodix51a0-58
+- package SHA256:
+  5340896c38bbc1292128e9b6bdc657fdddf6432dabb38719bb2a6fd2adb2582a
+
+Live:
+- libfprint-goodix51a0 1.94.100.goodix51a0-58
+- kscreenlocker 6.7.5-1.3
+- fprintd 1.94.5-2.1
+- plasma-login-manager 6.7.5-3.8
+- fprintd PID 59333 since 01:39:06 CEST
+- final prewarm Claim completed 01:39:13
+- fprintd logind sleep-delay inhibitor present
+- enrollments intact:
+  right-index, left-index, right-middle
+- libfprint package integrity: 40/40, 0 modified
+- KScreenLocker package integrity: 346/346, 0 modified
+- 0 failed systemd units
+- 0 orphan packages after build cleanup
+
+Live libfprint marker audit confirms:
+- rel50 active-S3 boundary code present;
+- rel50 5-minute warm TTL present;
+- Windows SLEEP experiment absent;
+- RESUME_BOOTSTRAP experiment absent;
+- rel55 same-action suspend-preservation marker absent.
+
+### Tests/builds
+
+PASS:
+- full fingerprint/research suite;
+- real GQ-SIGFM fp_eval ABI smoke;
+- lifecycle recovery;
+- accepted GET_IMAGE/TLS timeout recovery;
+- transport recovery;
+- same-press capture;
+- normal/idle S3 source gates;
+- KScreenLocker precise C++ resume source gate;
+- QML v10 migration/removal/check;
+- Plasma Login concurrent password/fingerprint source gates;
+- boot binding integration test;
+- full libfprint Meson/Ninja build;
+- full KScreenLocker 6.7.5 build;
+- release biometric dump hook absent.
+
+Build trees/packages/temp copies were cleaned after recording hashes, including
+the old temp/rel56-rebuild directory.
+
+### Upstream refresh 2026-09-28
+
+Checked exact GitHub repos/issues again:
+- szlukabence/goodix-fingerprint-spi-linux latest commit remains
+  7b8284898696e26a2fd5cb9a05b8605012439a7d, 2026-09-21, README/funding/status
+  update only; no newer GXFP51A0 S3 fix.
+- Sigfrodr/libfprint-goodixtls latest commit remains
+  dda67c8affef6c2ba3fc45145539db2768eb96b2, 2026-09-25, adding the contributed
+  GQ-SIGFM fp_eval plugin.
+- Sigfrodr issue #5 has no later actionable GXFP51A0 driver fix; latest evidence
+  still measures real GQ-SIGFM around EER 4.7%, with NBIS near chance on 80x64.
+- goodix-fp-dump issue #69 has no newer suspend/resume fix.
+- do not lower threshold 7 from this evidence.
+
+### Remaining HUMAN acceptance gates
+
+rel58 is installed and fully software-validated but NOT yet declared human-valid.
+
+User controls all physical transitions:
+1. full reboot;
+2. fingerprint at graphical login;
+3. normal lock -> fingerprint;
+4. one deep S3 -> immediate fingerprint unlock;
+5. password remains usable concurrently.
+
+Assistant must never trigger reboot/suspend automatically.
+After each user result, inspect exact logs before any further code change.

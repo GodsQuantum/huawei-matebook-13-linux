@@ -1,24 +1,34 @@
 # KScreenLocker S3 PAM fix (Plasma 6.7.5)
 
-This directory packages exactly one upstream KScreenLocker fix on top of the
-official KDE Plasma 6.7.5 release tarball.
+This local package keeps the intent of KDE bug 481808 / MR !340 and adds one
+narrow resume fix for Pegasus.
 
-- KDE bug: 481808
-- Upstream merge request: plasma/kscreenlocker !340
-- Upstream commit: 992f3fa8f4c4ade5dad7df789e1883a5d5e8ac2c
-- Upstream patch subject: "Don't cancel in-progress authentication on suspend"
+- Plasma/KScreenLocker: 6.7.5
+- local package: 6.7.5-1.3
+- upstream MR !340 reference commit: 992f3fa8f4c4ade5dad7df789e1883a5d5e8ac2c
 
-The bug aborts the already-running PAM conversation when logind announces
-suspend. The aborted conversation returns as a real PAM failure at resume,
-which can show a false failed-login message, trigger PAM fail delay, count
-toward pam_faillock, and prevent the fingerprint authenticator from continuing
-cleanly after S3.
+## Behaviour
 
-The upstream fix removes that suspend-time cancellation. The PAM conversation
-remains parked through sleep and resumes normally.
+On PrepareForSleep(true), KScreenLocker does not cancel PAM. Suspend is not
+treated as an authentication failure.
 
-The local package uses pkgrel 1.2 so it is newer than CachyOS 6.7.5-1.1 while
-remaining naturally superseded by a future 6.7.6+ package.
+On PrepareForSleep(false), KScreenLocker calls
+PamAuthenticators::resumeAuthenticating() directly from the C++ logind boundary.
 
-No Goodix driver code, matcher threshold, fingerprint template, PAM policy, or
-enrollment data is changed by this package.
+resumeAuthenticating() is intentionally precise:
+
+- if the whole group is still Idle, it calls the normal startAuthenticating()
+  path, starting password + configured noninteractive authenticators;
+- if the group is already Authenticating, it leaves the interactive password
+  authenticator alone and only calls tryUnlock() on the noninteractive
+  authenticators (fingerprint/smartcard);
+- each PamWorker::authenticate() already ignores a duplicate request while it
+  is inside pam_authenticate(), so a healthy fingerprint worker is not restarted;
+- grace-lock remains respected.
+
+Normal lock startup stays in the existing window-ready QML path. There is no
+pre-QML forced authentication, QML resume timer, heartbeat, periodic keepalive,
+external system-sleep hook, or runtime-PM tweak.
+
+No Goodix matcher, threshold, template, PAM policy, or enrollment data is
+changed by this package.
