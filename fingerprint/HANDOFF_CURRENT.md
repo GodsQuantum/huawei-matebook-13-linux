@@ -2388,3 +2388,13 @@ User controls all physical transitions:
 
 Assistant must never trigger reboot/suspend automatically.
 After each user result, inspect exact logs before any further code change.
+
+### rel58 repository finalization
+
+- implementation/docs commit:
+  `a84ebb7 fix(fingerprint): restore rel50 core and rearm resume in C++`
+- branch:
+  `fingerprint-rel58-rel50-core-cpp-resume`
+- pushed to origin.
+- rel58 remains pending the user-controlled reboot/login/normal-lock/deep-S3
+  acceptance sequence; do not describe it as human-validated before those gates.
