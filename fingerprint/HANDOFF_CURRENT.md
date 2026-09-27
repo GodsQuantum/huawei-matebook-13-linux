@@ -1952,3 +1952,89 @@ Do NOT auto-lock, auto-suspend, reboot or re-enroll.
 - implementation commit: `23c6833 fix(fingerprint): bound retained warm context`
 - branch: `fingerprint-rel56-bounded-warm-context`
 - pushed to origin.
+
+---
+
+## Update 2026-09-27 02:27 CEST — rel56 human lock FAIL; post-S3 hardware state now primary hypothesis
+
+Human report:
+- `rel56 lock échoué`
+- user tried enrolled index repeatedly and right middle finger.
+
+Exact rel56 runtime:
+- rel56 had been freshly loaded at 02:11:40 and cold prewarm completed 02:11:46.
+- normal lock greeter started ~02:19:58; no new S3 occurred during this test.
+- because retained context age exceeded restored 5-minute TTL, rel56 DID take a
+  full cold preparation path. Therefore stale warm context is not sufficient to
+  explain the persistent low scores.
+- user touched as soon as UI was visible; cold calibration correctly refused to
+  learn a finger as background:
+  - mean 231 -> contaminated 215;
+  - mean 213 -> contaminated 220;
+  - mean 219 -> contaminated 241;
+  - READY only at 02:20:15.358 after the sensor became clear.
+- first captured physical pose: scores 3/3/4, best 4/7.
+- second captured physical pose: score 3/7, then finger-off stopped same-press
+  recapture.
+- driver reached READY for a third pose but authentication ended before another
+  physical detection/capture.
+- thus not every user touch reached the matcher, but the captures that did are
+  genuinely poor.
+
+Critical historical correlation on this same boot:
+- BEFORE first deep S3: successful genuine scores 23, 11, 15, 13.
+- first real deep S3: 14:44:36 -> 15:19:40.
+- AFTER that S3, even rel51/52 (driver bit-identical to previously successful
+  rel51) produced only roughly 3-5.
+- rel55/56 later on the same boot continue producing 2-4 despite fprintd
+  restarts, warm rebase and now full cold preparation.
+This strongly shifts the root cause from KDE/matcher/templates to sensor or SPI
+controller state left degraded across S3.
+
+Passive post-S3 platform audit:
+- pinctrl is exactly the known-good reference state:
+  - pin44 GSPI1_CS0B mode1 0x44000700
+  - pin45 GSPI1_CLK mode1 0x44000700
+  - pin46 GSPI1_MISO mode1 0x44000702
+  - pin47 GSPI1_MOSI mode1 0x44000700
+  - pin41 IRQ GPIO 0x40100100
+  - pin189 reset GPIO 0x44000200 (LOW/runtime)
+- current driver reset already uses the current validated Linux recipe:
+  GPIO264 HIGH 300 ms -> LOW 600 ms.
+  Therefore an obsolete 10/100 ms reset pulse is NOT the missing recovery.
+- PCI 00:1e.3 Intel LPSS SPI and pxa2xx-spi.4 are both currently
+  power/control=auto and runtime_status=suspended when idle.
+- current szlukabence reference tooling still sets both power/control=on while
+  running SPI experiments, but this has not yet been proven causal for the
+  biometric degradation.
+- RDC policy blocked direct /sys power/control writes, so no runtime-PM setting
+  was changed.
+
+Latest upstream/reference evidence:
+- no new issue/comment provides a ready post-S3 GXFP51A0 fix.
+- latest SIGFM evidence still supports matcher/threshold 7; do not lower it.
+- Windows WBDI transcript confirms that before D0Exit the working Goodix stack
+  sends `setmode: sleep`:
+    command packed 0x60, payload 01 00, ACK expected for 0x60.
+- goodix-fp-dump independently exposes the same operation as
+  Message(0x6, 0, b"\x01\x00") / mcu_switch_to_sleep_mode().
+- our gx_dev_suspend() currently sends NO sensor sleep command; it only preserves
+  host bootstrap state and arms native cold recovery.
+- Windows S0-idle resume uses WakeupMCU then FDT rearm/capture; its persistent
+  ImageBase is managed separately.
+- the old unresolved DeviceInit intermediate operation is NOT relevant:
+  device_action(0x0F) only changes Windows-local besdenable and sends no sensor
+  I/O.
+
+Next discriminating human gate BEFORE any rel57 code:
+1. user performs one full normal reboot; assistant must NOT trigger it.
+2. keep installed rel56 unchanged.
+3. after login, perform one normal graphical lock and fingerprint test BEFORE
+   any suspend/deep sleep.
+4. report `rel56 reboot lock OK` or `rel56 reboot lock échoué`.
+5. inspect scores.
+If reboot restores normal scores, post-S3 persistent hardware/controller state
+is confirmed and rel57 should target suspend lifecycle (first candidate: exact
+Windows sleep 0x60/01 00 before S3, with no matcher changes).
+If reboot does not restore scores, reject the post-S3-state hypothesis and
+continue diagnosis before adding SLEEP.
