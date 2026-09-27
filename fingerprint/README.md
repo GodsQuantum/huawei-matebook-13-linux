@@ -475,6 +475,34 @@ place, so the password PAM conversation is not falsely cancelled on suspend.
 Password and fingerprint remain concurrent. Matcher, threshold 7, same-press
 policy, enrollment data and GPIO behaviour are unchanged.
 
+### rel56 candidate: bounded awake warm context
+
+rel56 fixes a regression exposed by the human rel55 normal-lock test after
+roughly 6.5 hours of awake idle. The reader reached READY normally and FDT/TLS
+warm validation succeeded (idle 354, floor 330), but nine usable same-press
+captures across three physical poses scored only 2-4 against threshold 7.
+Templates were unchanged and the same boot had previously produced genuine
+scores 23, 11, 15 and 13.
+
+The root cause is the rel51 optimization that removed rel50's
+`GX_WARM_IDLE_TTL_US`. rel51 assumed that FDT plus a fresh encrypted
+WARM_REBASE image was sufficient to validate an indefinitely retained
+sensor-side imaging context. The rel55 human result disproves that assumption:
+after multi-hour idle, the context can remain responsive while biometric image
+quality has degraded.
+
+rel56 restores rel50's proven 5-minute warm trust bound. A retained awake
+context younger than five minutes still uses the fast WARM_REBASE path. Older
+awake state is abandoned host-side, GPIO-reset, and rebuilt cold before
+authentication. The S3-specific RAM bootstrap remains restricted to actual
+sleep boundaries and is not reused to mask an expired awake background.
+
+Everything introduced in rel53-rel55 for S3 continuity remains intact:
+held-finger bootstrap after real S3, upstream KScreenLocker PAM suspend fix,
+native same-action S3 recovery, libfprint critical sections around blocking
+TLS/GET_IMAGE transactions, and KDE helper v9. Matcher, threshold 7, templates,
+enrollment data, same-press policy and GPIO mapping are unchanged.
+
 ### Arch / CachyOS
 
 From the repository root:

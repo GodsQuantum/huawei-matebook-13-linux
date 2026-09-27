@@ -63,7 +63,7 @@ assert "fpi_device_critical_leave (dev)" in capture_done
 assert "fpi_device_resume_complete (dev, NULL)" in resume
 PY2
 
-grep -Fq 'pkgrel=55' "$pkg"
+grep -Fq 'pkgrel=56' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"

@@ -41,13 +41,16 @@ assert "!self->warm_sleep_clock_valid" in cross
 assert "now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US" in cross
 assert "sleep boundary detected" in cross
 
-# Awake wall-clock idle alone must not destroy a healthy TLS/FDT context.
-# Every retained context is still actively image-validated below; actual sleep,
-# forced reset or validation failure remains a cold boundary.
-assert "GX_WARM_IDLE_TTL_US" not in s
-assert "gx_warm_idle_expired" not in s
-assert "warm context idle for %d s; forcing cold rebuild" not in s
-assert "slept || self->force_cold_reset" in open_
+# rel56 restores rel50's bounded awake warm trust window. A responsive
+# FDT/TLS session can still yield degraded imaging after many hours idle, so a
+# 5-minute context is reused/rebased while older state must rebuild cold.
+assert "#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)" in s
+idle=fn("gx_warm_idle_expired")
+assert "warm_last_activity_us" in idle
+assert "now - self->warm_last_activity_us > GX_WARM_IDLE_TTL_US" in idle
+assert "warm context idle for %d s; forcing cold rebuild" in idle
+assert "gx_warm_idle_expired (self)" in open_
+assert "slept || expired || self->force_cold_reset" in open_
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
 assert "gx_tls_teardown" not in abandon

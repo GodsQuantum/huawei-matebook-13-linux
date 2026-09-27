@@ -1862,3 +1862,87 @@ If deep fails, inspect exact sequence:
 - implementation commit: `035f923 fix(fingerprint): preserve authentication across S3`
 - branch: `fingerprint-rel55-native-s3-continuity`
 - pushed to origin.
+
+---
+
+## Update 2026-09-27 02:12 CEST — rel55 lock failure diagnosed; rel56 installed
+
+Human rel55 normal-lock result: FAIL.
+
+This was NOT a KDE/PAM startup failure and NOT an S3 test:
+- KScreenLocker started fingerprint normally;
+- no suspend/S3 occurred after rel55 was installed at ~19:32 and before the
+  failed lock at 02:03;
+- rel55 fprintd therefore retained the same awake sensor context for roughly
+  6.5 hours.
+
+Exact rel55 failure:
+- WARM_REBASE succeeded in 1744 ms, idle=354, floor=330;
+- WakeupMCU completed and Identify reached READY;
+- physical press 1 same-press scores: 3 / 3 / 2;
+- physical press 2 same-press scores: 3 / 4 / 3;
+- physical press 3 same-press scores: 3 / 3 / 4;
+- unchanged threshold: 7;
+- no accepted-GET_IMAGE replay, TLS digest/GCM failure or transport desync.
+
+Templates were NOT modified. The same boot/templates had previously produced
+genuine successful scores 23, 11, 15 and 13. Re-enrollment is not indicated.
+
+Root cause:
+- rel50 used `GX_WARM_IDLE_TTL_US = 5 minutes` and forced a deterministic cold
+  rebuild after that awake-idle age;
+- rel50 human normal-lock PASS reached score 15/7;
+- rel51 commit 277a272 removed only that TTL as a latency optimization;
+- rel51 assumed FDT + encrypted WARM_REBASE could validate retained state for an
+  unlimited awake duration;
+- the rel55 ~6.5 h idle test disproves that assumption: the sensor-side context
+  can still answer FDT/TLS validation while its imaging state yields only 2-4.
+
+rel56:
+- branch: `fingerprint-rel56-bounded-warm-context`;
+- restores rel50's proven 5-minute `GX_WARM_IDLE_TTL_US`;
+- restores `gx_warm_idle_expired()`;
+- `gx_dev_open()` cold-rebuilds on `slept || expired || force_cold_reset`;
+- an expired awake context is abandoned host-side, GPIO-reset and prepared cold;
+- short/medium awake reuse still uses fast WARM_REBASE;
+- S3 RAM bootstrap remains guarded by `slept && !resume_bg_valid` and is NOT
+  used to hide an expired awake context.
+
+All rel53-rel55 S3 work remains:
+- held-finger RAM-only post-S3 bootstrap;
+- upstream KScreenLocker MR !340 / commit 992f3fa8;
+- native same-action Verify/Identify continuity across S3;
+- libfprint critical sections around blocking TLS/session/GET_IMAGE work;
+- KDE helper v9 with rel51 window-ready normal startup + one resume-only kick.
+
+Unchanged:
+- SIGFM matcher;
+- threshold 7;
+- 3 same-press captures;
+- templates/enrollments;
+- PMK/TLS crypto;
+- GPIO mapping.
+
+Validation:
+- targeted lifecycle/native-resume/boot-binding tests PASS;
+- complete fingerprint/research suite PASS;
+- reproducible build PASS;
+- source SHA256:
+  `64461719c93b4315e8561d09d3901ef554bde9e78a858d335fcc72db1b02fb89`;
+- rel56 package SHA256:
+  `d74a08c3e5efe7f8936072fa540ded2b634c6fe26af5b4997ab8a0bc771da245`;
+- build active sensor I/O/GPIO/MMIO/firmware actions NONE.
+
+Installed:
+- libfprint-goodix51a0 1.94.100.goodix51a0-56;
+- fprintd 1.94.5-2.1, PID 183078 since 02:11:40 CEST;
+- prewarm Claim completed successfully at 02:11:46;
+- kscreenlocker remains 6.7.5-1.2;
+- plasma-login-manager remains 6.7.5-3.8;
+- enrollments intact: right-index, left-index, right-middle.
+
+NEXT HUMAN GATE:
+1. normal lock now, under the freshly rebuilt rel56 context;
+2. user reports `rel56 lock OK` or `rel56 lock échoué`;
+3. inspect logs before attempting deep S3.
+Do NOT auto-lock, auto-suspend, reboot or re-enroll.

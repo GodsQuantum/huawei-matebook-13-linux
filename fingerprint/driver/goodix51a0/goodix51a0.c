@@ -3752,10 +3752,14 @@ gx_transport_open (FpDevice *dev, GError **error)
 }
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
-/* A retained warm context is only an optimization. Sleep/lifecycle loss still
- * invalidates it before hardware I/O, and every awake reopen actively validates
- * FDT plus a fresh encrypted background image before authentication proceeds.
- * Therefore wall-clock idle alone need not force a blind cold rebuild. */
+#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
+/* A retained warm context is only an optimization. Real S3 is a hard lifecycle
+ * boundary, and an awake context also has a bounded lifetime. rel51 proved that
+ * WARM_REBASE is excellent for short/medium awake reuse, but the rel55 human
+ * test after ~6.5 h idle showed a stale sensor-side imaging state can still
+ * answer FDT/TLS validation while producing genuine scores only in the 2-4
+ * range. Restore rel50's proven 5-minute trust bound: after that, rebuild cold
+ * instead of trusting a responsive but potentially degraded imaging session. */
 
 static gboolean
 gx_sleep_delta_us (gint64 *out)
@@ -3788,6 +3792,25 @@ gx_warm_crossed_sleep (FpiDeviceGoodix51A0 *self)
     {
       fp_info ("GXFP51A0 sleep boundary detected: boottime-monotonic advanced by %d ms",
                (int) ((now - self->warm_sleep_delta_us) / 1000));
+      return TRUE;
+    }
+
+  return FALSE;
+}
+
+static gboolean
+gx_warm_idle_expired (FpiDeviceGoodix51A0 *self)
+{
+  gint64 now;
+
+  if (!self->warm_valid || self->warm_last_activity_us <= 0)
+    return FALSE;
+
+  now = g_get_monotonic_time ();
+  if (now - self->warm_last_activity_us > GX_WARM_IDLE_TTL_US)
+    {
+      fp_info ("GXFP51A0 warm context idle for %d s; forcing cold rebuild",
+               (int) ((now - self->warm_last_activity_us) / G_USEC_PER_SEC));
       return TRUE;
     }
 
@@ -4068,14 +4091,14 @@ gx_dev_open (FpDevice *dev)
   GError *err = NULL;
   gboolean cold_boundary_done = FALSE;
   gboolean slept = gx_warm_crossed_sleep (self);
+  gboolean expired = gx_warm_idle_expired (self);
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
 
   /* An idle libfprint device may not receive the driver suspend vfunc. Detect
-   * real lifecycle loss before reopening hardware handles. Ordinary awake
-   * wall-clock idle is not a trust boundary: retained state is actively
-   * validated below with FDT plus a fresh encrypted background GET_IMAGE, and
-   * any failed validation falls back to deterministic cold preparation. */
-  if (slept || self->force_cold_reset)
+   * both real lifecycle loss and an over-age awake context before reopening
+   * hardware handles. Short/medium awake reuse still takes WARM_REBASE; beyond
+   * the rel50 5-minute trust bound we prefer a deterministic cold rebuild. */
+  if (slept || expired || self->force_cold_reset)
     {
       /* If this is a real sleep boundary while the device was closed, keep a
        * RAM-only copy of the last proven clean background before invalidating
@@ -4083,7 +4106,10 @@ gx_dev_open (FpDevice *dev)
       if (slept && !self->resume_bg_valid)
         gx_resume_bootstrap_preserve (self);
 
-      fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
+      if (expired && !slept && !self->force_cold_reset)
+        fp_info ("GXFP51A0 awake warm context expired; invalidating stale imaging state");
+      else
+        fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
       /* A dead S3 session is not evidence that the SPI controller needs slower
@@ -4102,7 +4128,7 @@ gx_dev_open (FpDevice *dev)
       return;
     }
 
-  if (slept || self->force_cold_reset)
+  if (slept || expired || self->force_cold_reset)
     {
       gx_gpio_reset (self);
       self->force_cold_reset = FALSE;
