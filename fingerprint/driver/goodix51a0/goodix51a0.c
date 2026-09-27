@@ -120,6 +120,7 @@ struct _FpiDeviceGoodix51A0
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
+  gboolean      sensor_sleeping; /* exact Windows 0x60 low-power state across idle close */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -183,6 +184,7 @@ gx_wakeup_mcu (FpiDeviceGoodix51A0 *self)
     }
 
   g_usleep (5000);
+  self->sensor_sleeping = FALSE;
   fp_warn ("GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete");
   return TRUE;
 }
@@ -655,6 +657,26 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
 
   return FALSE;
 }
+
+static gboolean
+gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_target_packet packet;
+
+  if (!gxfp_build_sleep (&packet))
+    return FALSE;
+
+  if (!gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL))
+    {
+      fp_warn ("GXFP51A0 Windows sleep transition 0x60 was not acknowledged");
+      return FALSE;
+    }
+
+  self->sensor_sleeping = TRUE;
+  fp_info ("GXFP51A0 Windows sleep transition 0x60/01 00 acknowledged");
+  return TRUE;
+}
+
 
 static bool
 gx_factory_staging_read_cb (void *user, uint32_t selector,
@@ -3869,6 +3891,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
+  self->sensor_sleeping = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -4152,7 +4175,12 @@ gx_dev_open (FpDevice *dev)
 
   if (gx_warm_available (self))
     {
-      if (gx_warm_validate (self))
+      if (self->sensor_sleeping && !gx_wakeup_mcu (self))
+        {
+          fp_warn ("GXFP51A0 failed to wake stashed Windows-sleep context; "
+                   "falling back to cold preparation");
+        }
+      else if (gx_warm_validate (self))
         {
           self->production_ready = TRUE;
           fp_info ("GXFP51A0 reusing native libfprint warm context");
@@ -4200,13 +4228,28 @@ gx_dev_close (FpDevice *dev)
       self->production_ready && self->warm_valid && self->tls_up &&
       self->tls && self->have_fdt && self->bg_frame)
     {
-      self->production_ready = FALSE;
-      gx_pmk_clear (self);
-      gx_transport_close (self);
-      fp_info ("GXFP51A0 stashed native warm context across fp_device close; "
-               "next open must validate FDT + GET_IMAGE/TLS");
-      fpi_device_close_complete (dev, NULL);
-      return;
+      /* The working Windows stack never leaves ChicagoHS in the active image/
+       * FDT state when biometric use stops: OnActivate(false) sends exact
+       * MCU SLEEP 0x60 with payload 01 00 and waits for ACK.  This matters
+       * before S3 because libfprint only calls the driver suspend vfunc while
+       * an interactive action is active.  In the common idle case close() is
+       * therefore our last guaranteed sensor-I/O boundary before system sleep.
+       *
+       * Preserve the host TLS/background/FDT context only if the sensor itself
+       * confirmed the low-power transition.  Any ambiguous transition is
+       * discarded and the next open will rebuild cold. */
+      if (gx_sensor_sleep (self))
+        {
+          self->production_ready = FALSE;
+          gx_pmk_clear (self);
+          gx_transport_close (self);
+          fp_info ("GXFP51A0 stashed native warm context with sensor in "
+                   "Windows sleep mode; next open will WakeupMCU then validate");
+          fpi_device_close_complete (dev, NULL);
+          return;
+        }
+
+      fp_warn ("GXFP51A0 close sleep transition failed; discarding warm context");
     }
 
   if (self->force_cold_reset)
@@ -4232,6 +4275,19 @@ gx_dev_suspend (FpDevice *dev)
    * Blocking session/image transactions are protected by libfprint critical
    * sections, so suspend cannot be injected halfway through an ACK/TLS record. */
   gx_resume_bootstrap_preserve (self);
+
+  /* Active-operation suspend is rarer than the idle-close path above, but
+   * Windows still enters MCU sleep before D0 exit. libfprint guarantees this
+   * vfunc is not injected inside one of our critical capture sections. A
+   * failed sleep ACK is non-fatal because resume is already forced through a
+   * full cold rebuild. */
+  if (self->spi_fd >= 0 && self->irq_fd >= 0 && self->tls_up)
+    {
+      if (!gx_sensor_sleep (self))
+        fp_warn ("GXFP51A0 suspend sleep transition failed; cold resume "
+                 "recovery remains armed");
+    }
+
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
@@ -4420,6 +4476,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->resume_fdt_abs = 0;
   self->resume_bg_valid = FALSE;
   self->force_cold_reset = FALSE;
+  self->sensor_sleeping = FALSE;
 }
 
 

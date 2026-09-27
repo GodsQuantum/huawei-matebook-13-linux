@@ -117,6 +117,12 @@ static bool build_payload_command(uint8_t command,
     return build_fixed(body, payload_len + 4u, packet);
 }
 
+bool gxfp_build_sleep(struct gxfp_target_packet *packet)
+{
+    static const uint8_t payload[] = {0x01u, 0x00u};
+    return build_payload_command(0x60u, payload, sizeof payload, packet);
+}
+
 bool gxfp_build_reg_read(uint16_t address, uint16_t len,
                          struct gxfp_target_packet *packet)
 {

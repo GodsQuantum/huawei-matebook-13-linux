@@ -17,6 +17,7 @@ grep -Fq 'if (gx_warm_validate (self))' <<<"$open_block"
 grep -Fq 'warm context failed full readiness validation; falling back to cold preparation' <<<"$open_block"
 
 close_block="$(sed -n '/gx_dev_close (FpDevice \*dev)/,/^}/p' "$src")"
-grep -Fq 'next open must validate FDT + GET_IMAGE/TLS' <<<"$close_block"
+grep -Fq 'next open will WakeupMCU then validate' <<<"$close_block"
+grep -Fq 'gx_sensor_sleep (self)' <<<"$close_block"
 
 echo 'test_fresh_warm_handoff_source_safety: OK (blind handoff disabled)'
