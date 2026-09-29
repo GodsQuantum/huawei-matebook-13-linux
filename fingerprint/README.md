@@ -599,6 +599,31 @@ threshold 7, three-image same-press budget, three-pose physical budget,
 KScreenLocker 6.7.5-1.3 C++ resume rearm, QML v10 and the rel50 S3 lifecycle
 contract.
 
+### rel61 integration candidate: robust fingerprint-only PAM resume restart
+
+rel61 keeps the Goodix driver exactly at rel60 and changes only KScreenLocker.
+Runtime forensics on the 2026-09-29 15:48 boot showed three deep-S3 resumes where
+KScreenLocker logged its old C++ rearm, but fprintd received zero requests after
+15:53. The previous resume implementation only called
+`PamAuthenticator::tryUnlock()` on noninteractive workers.
+
+Upstream Plasma 6.7.5 explains why that can be a no-op: `PamWorker::authenticate()`
+returns immediately while `m_inAuthenticate` is true and permanently returns
+after a `PAM_AUTHINFO_UNAVAIL` latch sets `m_unavailable=true`.
+
+KScreenLocker 6.7.5-1.4 therefore gives noninteractive authenticators a bounded
+`restartAuthentication()` path. On resume it never cancels interactive
+password PAM. For fingerprint/smartcard only, it:
+- cancels a stale in-flight noninteractive PAM conversation if necessary;
+- waits until the old `pam_authenticate()` has actually unwound;
+- respects any PAM fail-delay;
+- clears the sticky noninteractive unavailable latch at this new hardware
+  availability boundary;
+- starts one fresh PAM authentication.
+
+No polling heartbeat, periodic timer, external sleep hook or Goodix
+matcher/template/enrollment change is introduced.
+
 ### Arch / CachyOS
 
 From the repository root:

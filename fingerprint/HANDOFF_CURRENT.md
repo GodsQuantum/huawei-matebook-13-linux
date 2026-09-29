@@ -2722,3 +2722,132 @@ Next gate:
 3. touches normally when graphical lock UI appears;
 4. report `rel60 S3 OK` or `rel60 S3 échoué`;
 5. inspect exact logs before any modification.
+
+---
+
+## Update 2026-09-30 — reboot/S3 forensics + rel61 KScreenLocker installed
+
+User asked whether Pegasus had rebooted or slept and reported fingerprint seemed
+not to work.
+
+### Boot facts
+
+journalctl --list-boots confirms:
+- previous boot: 2026-09-29 08:43:37 -> 15:48:12;
+- current boot: started 2026-09-29 15:48:28.
+The previous boot ended via a normal orderly system shutdown sequence, so this
+was a real reboot, not merely suspend/resume.
+
+Current live versions before rel61:
+- libfprint-goodix51a0 1.94.100.goodix51a0-60;
+- kscreenlocker 6.7.5-1.3;
+- fprintd 1.94.5-2.1;
+- plasma-login-manager 6.7.5-3.8.
+
+### Login after reboot
+
+First graphical fingerprint attempt:
+- fingerprint authenticator started at 15:48:42.643;
+- driver reached READY at 15:48:44.458;
+- no physical DETECTED_HOLD was logged before PAM timeout at 15:48:59.
+
+Second graphical fingerprint attempt at 15:52:
+- READY 15:52:16.392;
+- one real pose detected at 15:52:16.592;
+- image 1 score 4/7;
+- same-press recapture stopped because finger was already lifted;
+- RELEASED 15:52:21.089;
+- rel60 correctly executed WakeupMCU and logged
+  `MCU rearmed after failed usable press before retry 2/3`;
+- READY 2/3 at 15:52:21.095;
+- PAM timed out before another physical pose was detected.
+
+Thus rel60's between-pose MCU rearm did execute correctly. The reboot-login
+failure does not show a broken rearm implementation; it shows PAM timing/user
+touch timing still needs separate login-manager UX work.
+
+### Deep-S3 facts on the current boot
+
+At least three real deep S3 cycles occurred:
+1. 16:33:09 -> 16:34:32;
+2. 17:41:31 -> 18:28:30;
+3. 19:11:46 -> 20:28:42.
+
+For each resume, KScreenLocker 1.3 logged:
+`Resume: rearming missing authenticators`.
+
+However:
+- fprintd has ZERO journal entries after 15:53 for the entire current boot;
+- therefore none of those S3 unlock attempts reached libfprint/GXFP51A0 at all.
+
+This isolates the current S3 failure above the Goodix driver.
+
+### Root cause in upstream Plasma 6.7.5
+
+The previous KScreenLocker resume method called
+`noninteractive->tryUnlock()`.
+
+Upstream `PamWorker::authenticate()` explicitly returns immediately when:
+- `m_inAuthenticate == true`, or
+- `m_unavailable == true`.
+
+Furthermore a PAM_AUTHINFO_UNAVAIL result sets `m_unavailable=true`
+persistently for that PamWorker.
+
+Therefore a stale pre-S3 fingerprint PAM worker can make a post-resume
+`tryUnlock()` a silent no-op. This exactly matches:
+- KScreenLocker rearm log present;
+- zero new fprintd DBus/service activity.
+
+### rel61 integration fix
+
+Branch:
+`fingerprint-rel61-pam-fingerprint-resume`
+
+Goodix/libfprint driver is unchanged from rel60.
+
+KScreenLocker package:
+- version 6.7.5-1.4;
+- package SHA256:
+  `a4e353edbf049560e2fc2eb354dd4f4a16da8306d005b4b1da7ff084a8f8f082`.
+
+On PrepareForSleep(false):
+- interactive password PAM is never cancelled;
+- if the authenticator group is idle, normal full startup runs;
+- otherwise only noninteractive authenticators call
+  `restartAuthentication()`;
+- an in-flight stale fingerprint PAM conversation is cancelled and allowed to
+  unwind;
+- a pending restart waits for `inAuthenticate=false`;
+- PAM fail-delay is respected via QTimer single-shot;
+- the sticky noninteractive unavailable latch is cleared immediately before the
+  fresh authenticate call;
+- one fresh fingerprint PAM authentication is started.
+
+Build/runtime validation:
+- dedicated KScreenLocker resume source gate PASS;
+- complete fingerprint/research test suite PASS;
+- boot binding PASS;
+- full KScreenLocker 6.7.5 build PASS;
+- installed binary contains:
+  - `Resume: rearming fingerprint PAM`;
+  - `Resume: restarting noninteractive authenticators while preserving password`;
+  - `Restarting PAM authenticator after resume`;
+- live package integrity PASS;
+- QML v10 helper/check remains valid;
+- build dependency extra-cmake-modules plus cmake/cppdap/rhash removed after
+  build; 0 orphan packages remain.
+
+Installed live:
+- kscreenlocker 6.7.5-1.4;
+- libfprint-goodix51a0 remains 1.94.100.goodix51a0-60.
+
+No reboot/suspend/lock was triggered by the assistant.
+
+Next human gate:
+- no reboot required;
+- user manually performs ONE normal deep S3;
+- on wake, touch fingerprint normally;
+- report rel61 S3 OK or rel61 S3 échoué;
+- inspect for new rel61 PAM restart markers AND new fprintd/GXFP51A0 entries
+  after resume before changing anything else.

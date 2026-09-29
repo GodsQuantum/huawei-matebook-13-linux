@@ -1,10 +1,10 @@
 # Based on Arch Linux kscreenlocker 6.7.5 packaging.
-# Local delta: KDE MR !340 semantics + precise C++ resume rearm.
+# Local delta: KDE MR !340 semantics + robust fingerprint-only resume restart.
 
 pkgname=kscreenlocker
 pkgver=6.7.5
 _dirver=$(echo $pkgver | cut -d. -f1-3)
-pkgrel=1.3
+pkgrel=1.4
 pkgdesc='Library and components for secure lock screen architecture'
 arch=(x86_64)
 url='https://kde.org/plasma-desktop/'
@@ -47,7 +47,7 @@ source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz{
         kde-smartcard.pam)
 sha256sums=('6c41ce2cb79d2b85d4fbe5a3a61c09e40c70e5a869ae6f0352c7e1cb3b44606b'
             'SKIP'
-            '674ecb8010335fdf78f832ac419b396d87d78e0cb48d7f2ad84eec478a8e2fae'
+            'db65c064f3018368cd76e3947abac85dab636b267ef32463450deb5edb20aaa6'
             'adba7bb7c27eb3a572e5e9d3cea0dbeebe59d3634472d1863d14fe892cb13b2b'
             '32734b4e1ec8b7f7e32b6cb2d68285c5c4f15f53736bba085096e76095181241'
             '5d9c31cbf66e8e455b9559c929f184efd598f714743d5a1e6ce20adb44dc4b2d')
@@ -60,16 +60,25 @@ prepare() {
   cd "$pkgname-$pkgver"
   patch -Np1 -i "$srcdir/0001-upstream-992f3fa8-keep-pam-across-suspend.patch"
 
-  # Suspend must never cancel PAM. Resume must restart only what is missing:
-  # full group if Idle, otherwise only noninteractive workers.
+  # Suspend must never cancel password PAM. Resume robustly restarts only
+  # noninteractive workers.
   ! grep -Fq 'm_authenticators->cancel();' greeter/greeterapp.cpp
   grep -Fq 'if (sleeping)' greeter/greeterapp.cpp
-  grep -Fq 'Resume: rearming missing authenticators' greeter/greeterapp.cpp
+  grep -Fq 'Resume: rearming fingerprint PAM' greeter/greeterapp.cpp
   grep -Fq 'm_authenticators->resumeAuthenticating();' greeter/greeterapp.cpp
+
   grep -Fq 'void PamAuthenticators::resumeAuthenticating()' greeter/pamauthenticators.cpp
   grep -Fq 'if (d->state == AuthenticatorsState::Idle)' greeter/pamauthenticators.cpp
-  grep -Fq 'noninteractive->tryUnlock();' greeter/pamauthenticators.cpp
-  grep -Fq 'void resumeAuthenticating();' greeter/pamauthenticators.h
+  grep -Fq 'noninteractive->restartAuthentication();' greeter/pamauthenticators.cpp
+  ! sed -n '/void PamAuthenticators::resumeAuthenticating()/,/^}/p' greeter/pamauthenticators.cpp | grep -Fq 'd->interactive->cancel'
+
+  grep -Fq 'void PamAuthenticator::restartAuthentication()' greeter/pamauthenticator.cpp
+  grep -Fq 'void PamAuthenticator::runPendingRestart()' greeter/pamauthenticator.cpp
+  grep -Fq 'worker->resetUnavailable();' greeter/pamauthenticator.cpp
+  grep -Fq 'worker->authenticate();' greeter/pamauthenticator.cpp
+  grep -Fq 'm_restartDelayActive' greeter/pamauthenticator.cpp
+  grep -Fq 'QTimer::singleShot' greeter/pamauthenticator.cpp
+  grep -Fq 'void restartAuthentication();' greeter/pamauthenticator.h
 }
 
 build() {

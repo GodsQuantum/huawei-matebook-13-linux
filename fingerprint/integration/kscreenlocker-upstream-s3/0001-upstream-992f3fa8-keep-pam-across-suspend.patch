@@ -1,25 +1,170 @@
-diff -U0 -r a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
+diff -U3 -r a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
 --- a/greeter/greeterapp.cpp	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/greeterapp.cpp	2026-09-28 01:24:51.612533842 +0200
-@@ -145,2 +145,12 @@
++++ b/greeter/greeterapp.cpp	2026-09-30 01:10:57.863348947 +0200
+@@ -142,8 +142,14 @@
+     noninteractive.push_back(
+         std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
+     m_authenticators = new PamAuthenticators(std::move(interactive), std::move(noninteractive), this);
 -    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this] {
 -        m_authenticators->cancel();
 +    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this](bool sleeping) {
 +        if (sleeping) {
-+            // KDE MR !340 semantics: suspend is not an authentication failure.
-+            // Keep the password PAM conversation parked instead of cancelling it.
++            // Suspend is not an authentication failure. Preserve password PAM.
 +            return;
 +        }
 +
-+        // A greeter may be created just before S3, before QML starts auth. Or
-+        // libfprint may stop only the fingerprint worker while password stays
-+        // active. Handle both cases without restarting/cancelling password.
-+        qCInfo(KSCREENLOCKER_GREET) << "Resume: rearming missing authenticators";
++        qCInfo(KSCREENLOCKER_GREET) << "Resume: rearming fingerprint PAM";
 +        m_authenticators->resumeAuthenticating();
-diff -U0 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
+     });
+     initialize();
+
+diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
+--- a/greeter/pamauthenticator.cpp	2026-09-08 12:53:02.000000000 +0200
++++ b/greeter/pamauthenticator.cpp	2026-09-30 01:10:57.862742754 +0200
+@@ -12,6 +12,7 @@
+ #include <QEventLoop>
+ #include <QMetaMethod>
+ #include <QThread>
++#include <QTimer>
+ #include <security/pam_appl.h>
+
+ #include "kscreenlocker_greet_logging.h"
+@@ -43,6 +44,7 @@
+     Q_DISABLE_COPY_MOVE(PamWorker)
+     void start(const QString &service, const QString &user);
+     void authenticate();
++    void resetUnavailable();
+     void startFailedDelay(uint useconds);
+
+ Q_SIGNALS:
+@@ -211,6 +213,16 @@
+     Q_EMIT inAuthenticateChanged(m_inAuthenticate);
+ }
+
++void PamWorker::resetUnavailable()
++{
++    if (!m_unavailable) {
++        return;
++    }
++
++    m_unavailable = false;
++    Q_EMIT unavailabilityChanged(m_unavailable);
++}
++
+ void PamWorker::startFailedDelay(uint useconds)
+ {
+     m_nextAttemptAllowedTime = std::chrono::steady_clock::now() + std::chrono::microseconds(useconds);
+@@ -295,6 +307,9 @@
+     connect(d, &PamWorker::inAuthenticateChanged, this, [this](bool isInAuthenticate) {
+         m_inAuthentication = isInAuthenticate;
+         Q_EMIT availableChanged();
++        if (!isInAuthenticate) {
++            runPendingRestart();
++        }
+     });
+     connect(d, &PamWorker::unavailabilityChanged, this, [this](bool isUnavailable) {
+         m_unavailable = isUnavailable;
+@@ -308,7 +323,20 @@
+     // Failed is not a persistent state. When a view provides authentication that will either result in failure or success,
+     // failure simply means that the prompt is getting delayed.
+     connect(d, &PamWorker::failed, this, &PamAuthenticator::failed);
+-    connect(d, &PamWorker::loginFailedDelayStarted, this, &PamAuthenticator::loginFailedDelayStarted);
++    connect(d, &PamWorker::loginFailedDelayStarted, this, [this](const uint uSecDelay) {
++        Q_EMIT loginFailedDelayStarted(uSecDelay);
++
++        if (!m_restartPending) {
++            return;
++        }
++
++        m_restartDelayActive = true;
++        const auto delay = std::chrono::milliseconds((uSecDelay + 999u) / 1000u);
++        QTimer::singleShot(delay, this, [this] {
++            m_restartDelayActive = false;
++            runPendingRestart();
++        });
++    });
+
+     m_thread.start();
+     init(service, user);
+@@ -362,6 +390,43 @@
+     QMetaObject::invokeMethod(d, &PamWorker::authenticate);
+ }
+
++void PamAuthenticator::runPendingRestart()
++{
++    if (!m_restartPending || m_inAuthentication || m_restartDelayActive) {
++        return;
++    }
++
++    m_restartPending = false;
++    m_unlocked = false;
++
++    PamWorker *worker = d;
++    QMetaObject::invokeMethod(worker, [worker] {
++        // PAM_AUTHINFO_UNAVAIL is sticky in PamWorker by design. A resume is a
++        // new hardware-availability boundary, so clear only that latch before
++        // starting a fresh noninteractive authentication attempt.
++        worker->resetUnavailable();
++        worker->authenticate();
++    });
++}
++
++void PamAuthenticator::restartAuthentication()
++{
++    m_unlocked = false;
++    m_restartPending = true;
++
++    qCInfo(KSCREENLOCKER_GREET) << "Restarting PAM authenticator after resume" << qUtf8Printable(m_service)
++                                << "active=" << m_inAuthentication << "unavailable=" << m_unavailable;
++
++    if (m_inAuthentication) {
++        // Cancel only this authenticator. For fingerprint this exits a stale
++        // pam_fprintd conversation; the interactive password PAM is untouched.
++        cancel();
++        return;
++    }
++
++    runPendingRestart();
++}
++
+ void PamAuthenticator::respond(const QByteArray &response)
+ {
+     QMetaObject::invokeMethod(
+diff -U3 -r a/greeter/pamauthenticator.h b/greeter/pamauthenticator.h
+--- a/greeter/pamauthenticator.h	2026-09-08 12:53:02.000000000 +0200
++++ b/greeter/pamauthenticator.h	2026-09-30 01:10:57.862450062 +0200
+@@ -69,6 +69,7 @@
+
+ public Q_SLOTS:
+     void tryUnlock();
++    void restartAuthentication();
+     void respond(const QByteArray &response);
+     void cancel();
+
+@@ -77,6 +78,7 @@
+
+ private:
+     void setBusy(bool busy);
++    void runPendingRestart();
+
+     const std::vector<std::pair<QMetaMethod, const QString &>> m_signalsToMembers;
+     // NOTE Don't forget to reset in cancel as necessary
+@@ -89,6 +91,8 @@
+     bool m_unlocked = false;
+     bool m_inAuthentication = false;
+     bool m_unavailable = false;
++    bool m_restartPending = false;
++    bool m_restartDelayActive = false;
+     NoninteractiveAuthenticatorTypes m_authenticatorType;
+     QThread m_thread;
+     PamWorker *d;
+diff -U3 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
 --- a/greeter/pamauthenticators.cpp	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticators.cpp	2026-09-28 01:24:51.612321555 +0200
-@@ -155,0 +156,18 @@
++++ b/greeter/pamauthenticators.cpp	2026-09-30 01:10:57.863066747 +0200
+@@ -153,6 +153,24 @@
+     setState(AuthenticatorsState::Authenticating);
+ }
+
 +void PamAuthenticators::resumeAuthenticating()
 +{
 +    if (d->graceLocked) {
@@ -27,24 +172,29 @@ diff -U0 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
 +    }
 +
 +    if (d->state == AuthenticatorsState::Idle) {
-+        qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: resume from idle; starting all authenticators";
++        qCInfo(KSCREENLOCKER_GREET) << "Resume: authenticator group idle; starting all authenticators";
 +        startAuthenticating();
 +        return;
 +    }
 +
-+    qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: resume while active; re-kicking noninteractive authenticators";
++    qCInfo(KSCREENLOCKER_GREET) << "Resume: restarting noninteractive authenticators while preserving password";
 +    for (auto &&noninteractive : d->noninteractive) {
-+        noninteractive->tryUnlock();
++        noninteractive->restartAuthentication();
 +    }
 +}
 +
-diff -U0 -r a/greeter/pamauthenticators.h b/greeter/pamauthenticators.h
+ void PamAuthenticators::stopAuthenticating()
+ {
+     qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: stopping authenticators";
+diff -U3 -r a/greeter/pamauthenticators.h b/greeter/pamauthenticators.h
 --- a/greeter/pamauthenticators.h	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticators.h	2026-09-28 01:24:51.612156475 +0200
-@@ -52,0 +53,6 @@
-+    // Resume boundary: if the group never started, start password + all
-+    // noninteractive authenticators. If password is already running, only
-+    // re-kick noninteractive workers; PamWorker::authenticate() is itself
-+    // idempotent while a worker is still inside pam_authenticate().
++++ b/greeter/pamauthenticators.h	2026-09-30 01:10:57.862909833 +0200
+@@ -50,6 +50,8 @@
+     Q_INVOKABLE void startAuthenticating();
+     Q_INVOKABLE void stopAuthenticating();
+
 +    void resumeAuthenticating();
 +
+     // these properties delegate to the interactive authenticator
+     bool isBusy() const;
+     Q_SIGNAL void busyChanged();
