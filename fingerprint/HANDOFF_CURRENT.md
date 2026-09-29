@@ -2514,3 +2514,47 @@ Next human gate:
 - immediately inspect whether later images stop needing GET_IMAGE replay and
   whether scores climb above threshold.
 - only after normal-lock success should reboot-login and then deep-S3 be tested.
+
+
+---
+
+## Runtime validation 2026-09-29 — rel59 normal lock PASS
+
+Human result: `rel59 lock OK`, perceived on the second touch/pose.
+
+Exact runtime:
+- kscreenlocker greeter appeared at ~10:36:37.837;
+- fingerprint reached `physical press 1/3 READY` at 10:36:43.974;
+- visible-greeter -> READY latency was therefore about 6.1 s;
+- the user's earlier perceived first touch occurred before the driver was armed,
+  explaining why the driver itself records the successful touch as physical
+  press 1/3.
+
+Successful recorded press:
+- DETECTED_HOLD: touch=0x3f, zones=6, mean=239, drop=114;
+- image 1 needed the safe no-evidence GET_IMAGE retry;
+- rel59 immediately applied capture pacing 250% -> 300% (90 ms);
+- image 1 score=5/7;
+- RetryCaptureIMG barrier=90000 us;
+- image 2 score=6/7 with NO additional GET_IMAGE replay;
+- RetryCaptureIMG barrier=90000 us;
+- image 3 score=7/7 with NO additional GET_IMAGE replay;
+- same-press best=7 -> human unlock succeeded.
+
+This reproduces the useful shape of the historical rel56 success (4 -> 6 -> 7)
+and confirms rel59 fixed the same-press pacing defect without changing threshold,
+matcher, templates or enrollments.
+
+Remaining issue:
+- normal-lock visible UI -> fingerprint READY is still ~6 s when a cold
+  preparation is required.
+- Do not optimize this yet: preserve the now-working rel59 biometric candidate
+  until reboot/login and deep-S3 gates are validated. Once those are green,
+  optimize startup arming separately so UI-visible more closely means
+  fingerprint-ready.
+
+Next human gate:
+1. user performs a full reboot manually;
+2. at graphical login, use an enrolled finger normally;
+3. report `rel59 login OK` or `rel59 login échoué`;
+4. inspect logs before any S3 or code change.
