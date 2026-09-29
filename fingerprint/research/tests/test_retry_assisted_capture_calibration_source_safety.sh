@@ -3,9 +3,9 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 d="$root/driver/goodix51a0/goodix51a0.c"
 
-grep -Fq 'gboolean press_retry_seen = FALSE;' "$d"
-grep -Fq 'press_retry_seen = press_retry_seen || self->capture_retry_seen;' "$d"
-grep -Fq 'self->capture_retry_seen = press_retry_seen;' "$d"
+! grep -Fq 'gboolean press_retry_seen = FALSE;' "$d"
+grep -Fq 'if (self->capture_retry_seen)' "$d"
+grep -Fq 'same-press retry-assisted' "$d"
 grep -Fq 'protocol_floor =' "$d"
 grep -Fq 'self->timing_scale - GX_CAPTURE_SCALE_STEP' "$d"
 grep -Fq 'MAX (previous + GX_CAPTURE_SCALE_STEP, protocol_floor)' "$d"

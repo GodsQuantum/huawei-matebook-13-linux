@@ -55,9 +55,13 @@ assert "previous + GX_CAPTURE_SCALE_STEP" in success
 assert "previous - GX_CAPTURE_SCALE_STEP" in success
 assert "GX_CAPTURE_CLEAN_DECAY_STREAK" in success
 
-assert "press_retry_seen" in auth
-assert "press_retry_seen = press_retry_seen || self->capture_retry_seen" in auth
-assert "self->capture_retry_seen = press_retry_seen" in auth
+assert "press_retry_seen" not in auth
+assert "if (self->capture_retry_seen)" in auth
+assert "gx_capture_pacing_success (self)" in auth
+assert auth.index("gx_capture_pacing_success (self)") < auth.index("images++")
+retry=fn("gx_capture_retry_same_press_frame")
+assert "RetryCaptureIMG pacing barrier=%u us" in retry
+assert retry.index("g_usleep (gx_capture_gap_us (self))") < retry.index("gxfp_build_get_image (&packet)")
 
 assert "self->capture_gap_scale = GX_CAPTURE_SCALE_MIN" in cold
 assert "GX_CAPTURE_TIMING_FILE" not in s

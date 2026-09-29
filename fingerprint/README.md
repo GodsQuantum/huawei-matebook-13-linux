@@ -548,6 +548,36 @@ the GQ-SIGFM evaluator plug-in. That evaluation continues to support the shipped
 SIGFM family matcher rather than NBIS on the 80x64 sensor; rel58 therefore does
 not change matcher, threshold 7, templates or enrollment data.
 
+### rel59 candidate: paced same-press RetryCaptureIMG
+
+rel58 human validation failed at all three gates. The clean-boot login failure was
+biometric, not KDE: FDT/touch detection worked and all three physical poses
+produced authenticated frames, but same-press scores stayed around 3-4 against
+the unchanged threshold 7.
+
+Comparison against the preserved successful rel56 boot isolated one transport
+difference. In the successful press, the first image needed the safe
+no-evidence GET_IMAGE replay, then images 2 and 3 were accepted on their first
+GET_IMAGE and the score improved 4 -> 6 -> 7. In the failing rel58 press, every
+same-press image needed that replay and the score stayed 4 -> 4 -> 3.
+
+The existing session-local capture pacing could not correct this inside the
+current physical press: retry evidence was consumed only after final cleanup,
+and the RetryCaptureIMG helper issued GET_IMAGE immediately after its FDT-manual
+transaction without applying the calibrated capture gap.
+
+rel59 changes only this timing path:
+- after a successfully decoded image that needed the safe no-evidence GET_IMAGE
+  replay, call the existing retry-assisted pacing calibration immediately;
+- before each later RetryCaptureIMG GET_IMAGE, wait the bounded
+  `gx_capture_gap_us()` settling interval;
+- the gap remains process-local and bounded to 30..90 ms;
+- no persistent timing state is introduced.
+
+Matcher, SIGFM threshold 7, templates, enrollment data, FDT thresholds, GPIO,
+KScreenLocker 6.7.5-1.3 C++ resume rearm, QML v10 and the rel50 S3 lifecycle
+contract remain unchanged.
+
 ### Arch / CachyOS
 
 From the repository root:

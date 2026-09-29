@@ -2398,3 +2398,119 @@ After each user result, inspect exact logs before any further code change.
 - pushed to origin.
 - rel58 remains pending the user-controlled reboot/login/normal-lock/deep-S3
   acceptance sequence; do not describe it as human-validated before those gates.
+
+---
+
+## Update 2026-09-29 10:05 CEST — rel58 human failure diagnosed; rel59 same-press pacing installed
+
+Human rel58 result:
+- login failed;
+- normal lock failed;
+- S3 unlock failed.
+
+### rel58 forensic result
+
+Clean boot began 2026-09-29 08:43:36.
+
+Graphical login:
+- fingerprint PAM started normally;
+- WARM_REBASE succeeded: idle 357, floor 333;
+- touch/FDT was healthy;
+- physical pose 1: scores 4,4,3;
+- physical pose 2: scores 3,3,3;
+- physical pose 3 first image score 3;
+- threshold remained 7;
+- password won normally.
+Therefore the login failure was a real low-score biometric capture failure, not
+a missing KDE/fprintd request.
+
+Key comparison with the known rel56 reboot success:
+- rel56 successful pose: first image needed safe no-evidence GET_IMAGE retry,
+  then image2 and image3 were accepted first-try; scores 4 -> 6 -> 7.
+- rel58 failed pose: image1, image2 and image3 each needed the no-evidence
+  GET_IMAGE retry; scores 4 -> 4 -> 3.
+- FDT/drop values were otherwise comparable.
+
+Normal lock around 09:51:
+- KScreenLocker started;
+- retained context was beyond the 5-minute trust bound and a cold rebuild ran;
+- TLS handshake failed once;
+- capture preparation then hit accepted-GET_IMAGE/TLS timeouts;
+- the driver did not reach READY before the later S3 request.
+This remains a separate cold-preparation latency/reliability issue to revisit
+after matching is stabilized.
+
+S3:
+- KScreenLocker 1.3 C++ resume fix DID fire:
+  `Resume: rearming missing authenticators`.
+- fprintd began native cold preparation after resume.
+Therefore rel58's previous zero-fprintd resume bug is fixed.
+- Immediate finger placement can still collide with the required clean
+  post-S3 background calibration; do not reintroduce stale-background bootstrap
+  without new evidence.
+
+### rel59 root cause / change
+
+The existing capture pacing calibration was too late for same-press recapture:
+- retry evidence was applied only after final cleanup;
+- `gx_capture_retry_same_press_frame()` performed FDT-manual then sent GET_IMAGE
+  immediately, with no `gx_capture_gap_us()` barrier.
+
+rel59:
+1. if a successfully authenticated same-press image needed the safe no-evidence
+   GET_IMAGE replay, the existing `gx_capture_pacing_success()` calibration is
+   applied immediately before another image is requested;
+2. RetryCaptureIMG now waits `gx_capture_gap_us()` after FDT-manual and before
+   GET_IMAGE;
+3. expected reference-machine behavior after protocol timing reaches 300%:
+   capture pacing is bounded to 250-300%, so RetryCaptureIMG barrier is 75-90 ms;
+4. all timing remains RAM-only / process-local.
+
+Unchanged:
+- GQ-SIGFM matcher;
+- threshold 7;
+- three enrolled prints;
+- same 3-image / 3-pose biometric budgets;
+- templates;
+- GPIO;
+- KScreenLocker C++ resume rearm;
+- QML v10;
+- rel50 S3 lifecycle contract;
+- no external resume hook;
+- no keepalive;
+- no persistent timing-learning file.
+
+Validation:
+- targeted same-press pacing gates PASS;
+- safe GET_IMAGE retry gates PASS;
+- accepted GET_IMAGE/TLS timeout recovery gate PASS;
+- native S3 source gate PASS;
+- full fingerprint/research suite PASS;
+- GQ-SIGFM ABI smoke PASS;
+- boot binding test PASS;
+- full libfprint Meson/Ninja build PASS;
+- release biometric dump hook ABSENT;
+- active sensor/GPIO/MMIO/firmware actions during build NONE.
+
+Package:
+- `libfprint-goodix51a0 1.94.100.goodix51a0-59`
+- SHA256:
+  `9920ce4626cff557a6ba6d4d85094e4c42fd4c2d968134be915e3112801b5755`
+
+Installed live at ~10:04 CEST:
+- fprintd restarted to load rel59, PID 16038;
+- non-biometric boot-prewarm Claim completed;
+- enrollments intact: right-index, left-index, right-middle;
+- package integrity 40 files / 0 modified;
+- live binary contains:
+  `RetryCaptureIMG pacing barrier=%u us`
+  and
+  `same-press retry-assisted pacing applied before next image`.
+
+Next human gate:
+- first test ONE normal lock/unlock now, before any reboot/S3.
+- do not wait for a hidden READY; when lock UI is visible, place an enrolled
+  finger normally and hold it through same-press recaptures.
+- immediately inspect whether later images stop needing GET_IMAGE replay and
+  whether scores climb above threshold.
+- only after normal-lock success should reboot-login and then deep-S3 be tested.

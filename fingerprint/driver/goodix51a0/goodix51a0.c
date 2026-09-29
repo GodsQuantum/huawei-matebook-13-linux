@@ -2563,6 +2563,21 @@ gx_capture_retry_same_press_frame (FpiDeviceGoodix51A0 *self,
   }
 
   *finger_still_down = TRUE;
+
+  /* The Windows-style RetryCaptureIMG path is a fresh sensor image request,
+   * not a transport replay.  FDT-manual has just completed a separate MCU
+   * transaction; give the sensor the same session-calibrated inter-command
+   * settling window used by the normal capture recipe before issuing 0x20.
+   *
+   * On the reference MateBook, successful rel56 traces had later same-press
+   * images accepted on their first GET_IMAGE, while failing rel58 traces sent
+   * the retry immediately after FDT and every image needed the no-evidence
+   * transport replay.  This gap is process-local, bounded to 30..90 ms and
+   * never changes biometric scoring. */
+  fp_warn ("GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=%u us",
+           gx_capture_gap_us (self));
+  g_usleep (gx_capture_gap_us (self));
+
   if (!gxfp_build_get_image (&packet))
     return FALSE;
 
@@ -3245,7 +3260,6 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
   int best_score = -1;
   guint images = 0;
   gboolean cleanup_needed = FALSE;
-  gboolean press_retry_seen = FALSE;
   const gchar *mode = gallery ? "identify" : "verify";
 
   for (guint attempt = 1; attempt <= GX_SAME_PRESS_CAPTURE_ATTEMPTS; attempt++)
@@ -3273,9 +3287,21 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
             break;
         }
 
-      /* Each capture helper owns capture_retry_seen for its own image. Keep a
-       * press-level OR before the next same-press image resets that flag. */
-      press_retry_seen = press_retry_seen || self->capture_retry_seen;
+      /* If this authenticated image needed the safe no-evidence GET_IMAGE
+       * replay, calibrate capture pacing NOW.  Waiting until final cleanup made
+       * images 2/3 reuse the same too-tight timing even though image 1 had
+       * already proved it inadequate.  The next RetryCaptureIMG therefore gets
+       * the calibrated gap on this same physical pose. */
+      if (self->capture_retry_seen)
+        {
+          int before = MAX (self->capture_gap_scale, GX_CAPTURE_SCALE_MIN);
+
+          gx_capture_pacing_success (self);
+          fp_warn ("GXFP51A0 AUTH_TRACE mode=%s same-press retry-assisted "
+                   "pacing applied before next image: %d%% -> %d%% (%u us)",
+                   mode, before, self->capture_gap_scale,
+                   gx_capture_gap_us (self));
+        }
 
       images++;
       probe = gx_features_from_pixels (self, px);
@@ -3327,7 +3353,9 @@ gx_capture_auth_same_press (FpiDeviceGoodix51A0 *self,
         }
       else
         {
-          self->capture_retry_seen = press_retry_seen;
+          /* Any image-level retry evidence was already consumed immediately
+           * above so it could help the SAME press.  Cleanup may itself observe
+           * fresh retry evidence; account for that independently here. */
           gx_capture_pacing_success (self);
         }
     }
