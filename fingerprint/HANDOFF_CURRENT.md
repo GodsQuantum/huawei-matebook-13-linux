@@ -2669,3 +2669,16 @@ Next human gate:
    `MCU rearmed after failed usable press before retry 2/3`
    and whether the next pose succeeds instead of exhausting all three poses and
    starting another PAM Identify cycle.
+
+### rel60 repository finalization
+
+- implementation/docs commit:
+  `e876def fix(fingerprint): rearm MCU between failed poses`
+- branch:
+  `fingerprint-rel60-rearm-between-poses`
+- pushed to origin.
+- installed live package:
+  `libfprint-goodix51a0 1.94.100.goodix51a0-60`
+- rel60 package SHA256:
+  `42341f265d0a1f42c85ca467f68041c34d00349b4dc24a2bad693402257e5b49`
+- next gate is user-controlled normal lock, then user-controlled S3.
