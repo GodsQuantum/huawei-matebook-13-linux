@@ -2682,3 +2682,43 @@ Next human gate:
 - rel60 package SHA256:
   `42341f265d0a1f42c85ca467f68041c34d00349b4dc24a2bad693402257e5b49`
 - next gate is user-controlled normal lock, then user-controlled S3.
+
+---
+
+## Runtime validation 2026-09-29 13:00 CEST — rel60 normal lock PASS
+
+Human result:
+- `rel60 lock OK`, perceived as requiring two touches.
+
+Exact runtime shows only ONE actual biometric press was captured:
+- kscreenlocker_greet first timestamp: 13:00:21.709559;
+- rel60 fingerprint READY: 13:00:28.549643;
+- greeter-process -> fingerprint READY: ~6.84 s;
+- DETECTED_HOLD: 13:00:28.745851;
+- first GET_IMAGE required the safe no-evidence transport replay;
+- rel59 pacing logic immediately calibrated 250% -> 300% (90 ms);
+- same-press image 1 scored 9/7;
+- same-press completed after 1 image, best=9;
+- LIFT_NOW: 13:00:30.617878.
+
+Interpretation:
+- the user's perceived first touch happened before fingerprint READY and was
+  therefore not a failed biometric pose;
+- the first pose actually seen by the driver matched immediately at 9/7;
+- rel60's new between-pose MCU-rearm path was NOT exercised on this lock,
+  because there was no failed usable pose;
+- normal-lock biometric quality is therefore excellent;
+- the remaining UX defect is startup latency: visible greeter precedes READY by
+  roughly 6.8 s on this cold-preparation lock.
+
+Do NOT optimize startup before the rel60 S3 gate. The next user-controlled deep
+S3 test is needed to validate whether the new between-pose WakeupMCU improves
+the post-resume case that previously needed three weak poses plus a second PAM
+Identify cycle.
+
+Next gate:
+1. user triggers deep S3 manually;
+2. wakes Pegasus;
+3. touches normally when graphical lock UI appears;
+4. report `rel60 S3 OK` or `rel60 S3 échoué`;
+5. inspect exact logs before any modification.
