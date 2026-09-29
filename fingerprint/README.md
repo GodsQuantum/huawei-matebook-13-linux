@@ -578,6 +578,27 @@ Matcher, SIGFM threshold 7, templates, enrollment data, FDT thresholds, GPIO,
 KScreenLocker 6.7.5-1.3 C++ resume rearm, QML v10 and the rel50 S3 lifecycle
 contract remain unchanged.
 
+### rel60 candidate: MCU rearm between failed physical poses
+
+rel59 is now human-validated for both normal lock and deep-S3 unlock. The S3
+path was functional, but the first post-resume Identify cycle exhausted three
+usable physical poses at scores 3-4 before pam_fprintd immediately started a
+new Identify cycle. That second cycle issued the normal WakeupMCU at its start
+and then matched 8/7 on its first image.
+
+rel60 reproduces only that observed state refresh inside the same bounded
+Identify/Verify operation. After a usable physical press is below threshold and
+the finger has been released, the driver sends the already validated WakeupMCU
+raw write before arming the next physical pose. It never does this before
+finger release, after a successful match, for enrollment, or for a transport
+failure.
+
+Everything else remains rel59: immediate retry-assisted same-press pacing,
+90 ms RetryCaptureIMG barrier at the calibrated 300% session scale, SIGFM
+threshold 7, three-image same-press budget, three-pose physical budget,
+KScreenLocker 6.7.5-1.3 C++ resume rearm, QML v10 and the rel50 S3 lifecycle
+contract.
+
 ### Arch / CachyOS
 
 From the repository root:

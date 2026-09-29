@@ -2558,3 +2558,114 @@ Next human gate:
 2. at graphical login, use an enrolled finger normally;
 3. report `rel59 login OK` or `rel59 login échoué`;
 4. inspect logs before any S3 or code change.
+
+---
+
+## Update 2026-09-29 12:52 CEST — rel59 S3 PASS; rel60 installed
+
+### rel59 human deep-S3 result
+
+User report:
+- `rel59 S3 OK` after several perceived poses.
+
+Exact S3:
+- PrepareForSleep(true): 12:35:20.264;
+- kernel deep suspend entry: 12:35:21.390;
+- resume complete: 12:35:25.859.
+
+KScreenLocker/fprintd rearm worked. The driver then performed a real post-S3
+cold preparation. Because the user touched immediately, calibration correctly
+waited for the sensor to become clear:
+- 12:35:29.812: `calibration waiting for sensor clear: mean=222 floor=340`;
+- READY: 12:35:33.667.
+Thus resume -> fingerprint READY was about 7.8 s.
+
+First post-S3 Identify cycle:
+- pose 1: 3 / 3 / 4, best 4;
+- pose 2: 3 / 3 / 4, best 4;
+- pose 3: 3 / 3 / 3, best 3.
+All same-press RetryCaptureIMG requests used the rel59 90 ms calibrated barrier.
+
+After those three bounded poses, pam_fprintd started a new Identify cycle.
+That new cycle issued normal WakeupMCU at 12:35:48.130 and its very first
+captured image scored 8/7 at 12:35:50.176. Human unlock succeeded.
+
+This proves:
+- rel59 deep-S3 unlock is functionally working;
+- rel59 pacing remains active after S3;
+- background contamination was not accepted: the cold preparation explicitly
+  waited for a clean sensor before calibration;
+- the striking runtime difference before the successful 8/7 press is a fresh
+  WakeupMCU at the start of the new Identify cycle.
+
+### rel60 change
+
+Branch:
+`fingerprint-rel60-rearm-between-poses`
+
+Only one behavioral delta over rel59:
+- after a usable Verify/Identify pose is below threshold and another physical
+  pose remains, set a one-shot `rearm_mcu_before_retry` flag;
+- once finger release is proven in `gx_poll_off()`, issue the already validated
+  WakeupMCU raw write before returning to WAIT_ON;
+- clear the flag immediately;
+- Wakeup failure terminates with protocol error rather than continuing in an
+  uncertain MCU state.
+
+The rearm is NOT used:
+- after a successful match;
+- before finger release;
+- during enrollment;
+- for transport-desync retries;
+- after the fixed physical-pose budget is exhausted.
+
+Unchanged:
+- GQ-SIGFM matcher;
+- threshold 7;
+- enrollment/templates;
+- 3 same-press images;
+- 3 physical poses;
+- rel59 same-press pacing;
+- FDT/background logic;
+- rel50 S3 lifecycle contract;
+- KScreenLocker 6.7.5-1.3 precise C++ resume rearm;
+- QML v10;
+- no external resume hook/keepalive/persistent timing file.
+
+Validation:
+- dedicated retry-pose MCU-rearm safety gate PASS;
+- same-press / retry-assisted pacing gates PASS;
+- native resume / KScreenLocker gates PASS;
+- boot binding PASS;
+- complete research suite PASS;
+- real GQ-SIGFM ABI smoke PASS;
+- full reproducible libfprint build PASS;
+- build sensor I/O/GPIO/MMIO/firmware actions NONE.
+
+Package:
+- `libfprint-goodix51a0 1.94.100.goodix51a0-60`
+- SHA256:
+  `42341f265d0a1f42c85ca467f68041c34d00349b4dc24a2bad693402257e5b49`
+
+Install:
+- an initial install attempt was blocked by a genuine pacman database lock from
+  an unrelated CachyOS system upgrade; the lock disappeared normally when that
+  transaction completed. It was NOT deleted manually.
+- rel60 then installed successfully with --noscriptlet.
+- fprintd restarted; PID 57301 since 12:51:52.
+- final non-biometric prewarm completed.
+- package integrity: 40 files, 0 modified.
+- enrollments intact: right-index, left-index, right-middle.
+- KScreenLocker remains 6.7.5-1.3 / QML v10.
+
+Note: the unrelated CachyOS upgrade completed with a system message that a
+reboot is recommended for upgraded core packages. Do NOT reboot Pegasus on the
+assistant's initiative; the user explicitly avoids unnecessary reboots.
+
+Next human gate:
+1. one normal lock/unlock under rel60;
+2. if normal lock remains good, one user-triggered deep S3;
+3. inspect whether a failed first usable pose now logs
+   `MCU rearmed after failed usable press before retry 2/3`
+   and whether the next pose succeeds instead of exhausting all three poses and
+   starting another PAM Identify cycle.

@@ -2790,6 +2790,7 @@ typedef struct
   gboolean   verifying;       /* verify or identify: capture exactly one usable press */
   gboolean   identifying;     /* one-to-many gallery match */
   gboolean   match_reported;  /* terminal match/no-match already sent early */
+  gboolean   rearm_mcu_before_retry; /* failed usable press: wake MCU after lift */
   FpPrint   *identify_match;  /* matched gallery print, owned while the task lives */
 } GxTask;
 
@@ -3131,6 +3132,30 @@ gx_poll_off (gpointer user_data)
       else if (t->verifying && !t->match_reported &&
                t->tries < GX_VERIFY_MAX_ATTEMPTS)
         {
+          if (t->rearm_mcu_before_retry)
+            {
+              /* The successful post-S3 reference trace showed a new Identify
+               * cycle's WakeupMCU immediately before a first-image 8/7 match,
+               * after the previous cycle had exhausted three usable presses at
+               * 3-4/7. Reproduce only that narrow state refresh inside the same
+               * PAM operation: never before the finger is released, never after
+               * a successful match, and never for enrollment/transport errors. */
+              if (!gx_wakeup_mcu (self))
+                {
+                  self->poll_id = 0;
+                  fpi_ssm_mark_failed (
+                    ssm, fpi_device_error_new_msg (
+                           FP_DEVICE_ERROR_PROTO,
+                           "GXFP51A0 MCU rearm failed before retry press"));
+                  return G_SOURCE_REMOVE;
+                }
+
+              t->rearm_mcu_before_retry = FALSE;
+              fp_warn ("GXFP51A0 AUTH_TRACE MCU rearmed after failed usable "
+                       "press before retry %d/%d",
+                       t->tries + 1, GX_VERIFY_MAX_ATTEMPTS);
+            }
+
           fp_info ("verify: finger released; waiting for retry press %d/%d",
                    t->tries + 1, GX_VERIFY_MAX_ATTEMPTS);
           fpi_ssm_jump_to_state (ssm, GX_ST_WAIT_ON);
@@ -3492,8 +3517,9 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
                 }
               else
                 {
+                  t->rearm_mcu_before_retry = TRUE;
                   fp_info ("identify: no-match press %d/%d (score=%d best=%d); "
-                           "request another complete press",
+                           "request another complete press with MCU rearm",
                            t->tries, GX_VERIFY_MAX_ATTEMPTS,
                            best, t->best);
                 }
@@ -3529,7 +3555,8 @@ gx_capture_done (GObject *src, GAsyncResult *res, gpointer user_data)
                 }
               else
                 {
-                  fp_info ("verify: no-match attempt %d/%d; request another complete press",
+                  t->rearm_mcu_before_retry = TRUE;
+                  fp_info ("verify: no-match attempt %d/%d; request another complete press with MCU rearm",
                            t->tries, GX_VERIFY_MAX_ATTEMPTS);
                 }
             }
