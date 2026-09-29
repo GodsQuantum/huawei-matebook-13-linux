@@ -2851,3 +2851,66 @@ Next human gate:
 - report rel61 S3 OK or rel61 S3 échoué;
 - inspect for new rel61 PAM restart markers AND new fprintd/GXFP51A0 entries
   after resume before changing anything else.
+
+
+---
+
+## Runtime validation 2026-09-30 01:26 CEST — rel61 deep S3 PASS
+
+Human result:
+- `rel61 S3 OK`, perceived as requiring several touches.
+
+Exact runtime:
+- PrepareForSleep(true): 01:26:30.783805;
+- kernel deep suspend entry: 01:26:35.973181;
+- kernel suspend exit: 01:26:39.743883;
+- KScreenLocker rel61 resume hook: 01:26:39.755348;
+- rel61 logged:
+  - `Resume: rearming fingerprint PAM`;
+  - `Resume: restarting noninteractive authenticators while preserving password`;
+  - `Restarting PAM authenticator after resume kde-fingerprint active=false unavailable=true`.
+- This is the exact stale-unavailable state rel61 was designed to recover.
+- fprintd then resumed real GXFP51A0 traffic at 01:26:43.641468, proving the
+  previous "rearm log but zero fprintd" failure is fixed.
+
+Post-resume preparation:
+- first TLS attempt failed at 01:26:49.654646;
+- bounded native retry/reset recovered the session;
+- the user touched while background calibration was still running:
+  - 01:26:53.718 background contaminated by touch, discarded;
+  - 01:26:57.597 background contaminated by touch, discarded;
+- the driver correctly refused to learn either finger-contaminated background.
+- READY: 01:27:01.260462.
+
+First ACTUAL biometric press seen after READY:
+- DETECTED_HOLD: 01:27:01.744127;
+- image 1 required the known safe no-evidence GET_IMAGE transport retry;
+- rel59/60 pacing immediately applied 250% -> 300%;
+- image 1 score = 20/7;
+- same-press completed after ONE image with best=20;
+- human unlock succeeded.
+
+Interpretation:
+- rel61 deep-S3 functional recovery is validated;
+- the perceived repeated touches were primarily touches made before READY during
+  cold post-S3 TLS/background/FDT preparation, not multiple failed biometric
+  poses;
+- biometric quality after readiness is excellent (20/7 on first real image);
+- rel60 MCU between-pose rearm was not needed for this successful S3 because no
+  actual below-threshold biometric pose occurred after READY.
+
+Remaining UX/performance work, not correctness:
+- resume -> READY was ~21.5 s in this test;
+- part of that was a first TLS handshake failure followed by successful bounded
+  recovery;
+- part was extended by two intentional background rejections because the user
+  touched before calibration completed;
+- do not weaken the clean-background invariant merely to hide this delay;
+- any next optimization should target post-S3 session preparation/TLS latency
+  while preserving rel61 PAM restart and rel59/60 matching behavior.
+
+Current validated stack:
+- kscreenlocker 6.7.5-1.4 (rel61 integration);
+- libfprint-goodix51a0 1.94.100.goodix51a0-60;
+- fprintd 1.94.5-2.1;
+- plasma-login-manager 6.7.5-3.8.
