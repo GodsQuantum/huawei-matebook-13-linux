@@ -2928,3 +2928,20 @@ Handoff détaillé:
 fingerprint/handoff/HANDOFF_2026-09-30_REL66_WINDOWS_DEACTIVATE_SLEEP.md
 
 Prochain gate: un deep S3 humain, puis logs avant tout code.
+
+## 18. Update 2026-09-30 — rel66 S3 humain VALIDÉ
+
+- utilisateur: `rel66 S3 OK`.
+- suspend entry 22:55:18.472268; suspend exit 22:55:44.758879.
+- KScreen PAM rearm 22:55:44.766391.
+- first fprintd traffic 22:55:46.924657.
+- READY 22:55:49.192664 => resume->READY **~4.434 s**.
+- DETECTED_HOLD 22:55:51.480747.
+- first biometric image 22:55:52.568085 => **score 7/7**, candidate 0.
+- human unlock: **OK**.
+- rel66 devient la baseline stable humaine de référence.
+- rel61 restait fonctionnel mais resume->READY ~21.5 s; rel66 est nettement plus rapide.
+- post-S3 path rel66 = true cold boundary: sleep epoch -> warm invalidate -> GPIO reset -> cold prepare -> fresh background/FDT.
+- après match, SLEEP 0x60 a été refusé car IRQ encore high ~155 ms après LIFT_NOW; le driver a correctement refusé le warm stash et retombera en cold Open. Ce point est secondaire et ne doit pas être patché dans la baseline validée sans nouvelle preuve.
+- ne pas réintroduire fast-resume in-place rel62-64, DriverState once-per-daemon, force LPSS=on, threshold <=6, re-enrollment, heartbeat/keepalive/hooks.
+- handoff détaillé mis à jour: `fingerprint/handoff/HANDOFF_2026-09-30_REL66_WINDOWS_DEACTIVATE_SLEEP.md`.

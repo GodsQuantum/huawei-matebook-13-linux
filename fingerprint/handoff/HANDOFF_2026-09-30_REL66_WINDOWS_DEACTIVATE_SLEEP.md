@@ -162,3 +162,63 @@ Au retour lire les logs avant tout code:
 
 Priorité: retrouver une vraie image >=7, idéalement 9-20+.
 N'optimiser la latence qu'après fiabilité.
+
+## Gate humain rel66 VALIDÉ — 2026-09-30 22:55
+
+Résultat utilisateur: **rel66 S3 OK**.
+
+Cycle exact:
+- PM suspend entry: 22:55:18.472268
+- PM suspend exit: 22:55:44.758879
+- KScreen fingerprint PAM rearm: 22:55:44.766391
+- first post-resume fprintd traffic: 22:55:46.924657
+- READY: 22:55:49.192664
+- DETECTED_HOLD: 22:55:51.480747
+- winning image: 22:55:52.568085
+- score: **7/7**, candidate 0, first physical press / first biometric image
+- human unlock: OK.
+
+Latencies:
+- resume -> first fprintd traffic: ~2.166 s
+- resume -> READY: **~4.434 s**
+- resume -> DETECTED_HOLD: ~6.722 s
+- resume -> accepted score: **~7.809 s**
+
+Comparaison rel61 validé:
+- rel61 resume -> READY ~21.5 s, score 20/7.
+- rel66 resume -> READY ~4.43 s, score 7/7.
+- rel66 restaure donc la fiabilité S3 tout en réduisant très fortement la latence.
+
+Le chemin post-S3 est un vrai cold boundary:
+- gx_warm_crossed_sleep détecte le S3;
+- warm state invalidé host-side;
+- GPIO reset;
+- cold prepare complet;
+- fresh background/FDT;
+- auth normale.
+
+### SLEEP post-unlock
+
+Après le match, Close a tenté SLEEP 0x60 à 22:55:53.546 mais GPIO IRQ était
+encore high (~155 ms après LIFT_NOW), donc le paquet n'a pas été envoyé:
+- pre-write-irq-high cmd=0x60
+- SLEEP not acknowledged
+- warm stash refusé volontairement.
+
+C'est un fallback sûr déjà prévu: le contexte warm est jeté et le prochain Open
+sera cold. Ne pas patcher ce détail dans la release S3-validée sans nouvelle preuve;
+il ne remet pas en cause l'unlock ni la sécurité et évite de risquer une régression.
+
+## Baseline stable
+
+**rel66 devient la baseline stable humaine de référence.**
+
+Ne pas réintroduire:
+- fast-resume in-place rel62-64;
+- DriverState once-per-daemon rel62;
+- force LPSS power/control=on;
+- baisse du threshold <=6;
+- re-enrollment réflexe;
+- heartbeat/keepalive/system-sleep hooks.
+
+Toute optimisation future doit partir de rel66 et conserver ce gate S3.
