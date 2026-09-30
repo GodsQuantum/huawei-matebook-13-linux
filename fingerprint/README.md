@@ -624,6 +624,55 @@ password PAM. For fingerprint/smartcard only, it:
 No polling heartbeat, periodic timer, external sleep hook or Goodix
 matcher/template/enrollment change is introduced.
 
+### rel62 candidate: bounded fast-resume preparation
+
+rel62 keeps the human-validated rel59/60 biometric path and rel61
+fingerprint-only PAM restart, then optimizes only lifecycle preparation.
+
+Driver changes:
+- the Windows DriverState Install command is treated as first-initialization
+  work and is attempted once per fprintd daemon lifetime rather than on every
+  S3/cold rebuild;
+- a real S3/force-cold boundary uses the already validated full GPIO264
+  reset + Stage2E/A8 firmware boundary before the first TLS attempt;
+- normal five-minute awake TTL expiry keeps its simpler cold reset;
+- active-operation S3 recovery uses the same reset+A8 boundary;
+- production TLS setup is bounded to three inner attempts instead of five.
+  The existing outer two-attempt capture-context recovery remains intact, so a
+  failed context still gets a full reset+A8 recovery rather than an unbounded
+  handshake loop.
+
+KScreenLocker 6.7.5-1.5 keeps the rel61 robust noninteractive PAM restart.
+A previous PAM_AUTHINFO_UNAVAIL result is treated as hardware unavailability,
+not a wrong fingerprint: at the new resume boundary its sticky unavailable
+state and inherited next-attempt delay are cleared. Real authentication
+failures still keep the normal PAM fail-delay. Interactive password PAM is
+never cancelled by this path.
+
+Plasma Login Manager 6.7.5-3.9 keeps password and fingerprint as concurrent
+independent authenticators and extends the single fingerprint PAM operation
+window from 15 to 30 seconds. The GXFP51A0 driver still owns the bounded
+three-physical-pose budget.
+
+Measured on Pegasus before physical rel62 validation:
+- final cold fprintd restart -> bounded prewarm: 5.049 s;
+- subsequent warm Claim/prewarm: 1.804 s;
+- the previous pathological intermediate state could spend over 40 seconds in
+  repeated TLS attempts before failing;
+- fprintd remains resident with --no-timeout, preserving in-process warm state.
+
+Unchanged:
+- GQ-SIGFM matcher and template format;
+- match threshold 7;
+- enrollments/templates;
+- rel59 immediate same-press pacing;
+- rel60 MCU rearm after a failed usable pose;
+- clean-background contamination rejection;
+- five-minute awake warm-context quality bound;
+- QML v10 window-ready normal startup;
+- no periodic keepalive, external system-sleep resume hook or persistent timing
+  learning.
+
 ### Arch / CachyOS
 
 From the repository root:

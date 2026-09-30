@@ -2914,3 +2914,188 @@ Current validated stack:
 - libfprint-goodix51a0 1.94.100.goodix51a0-60;
 - fprintd 1.94.5-2.1;
 - plasma-login-manager 6.7.5-3.8.
+
+
+---
+
+## Update 2026-09-30 02:56 CEST — rel62 fast-resume candidate finalized and installed
+
+Goal after rel61 S3 PASS:
+- keep the now-correct biometric/PAM behavior;
+- reduce resume/login preparation latency aggressively but without heartbeat,
+  external system-sleep hook, stale-background reuse, matcher changes or
+  persistent timing state.
+
+### Latest upstream/community refresh
+
+Checked current public Goodix/libfprint work again on 2026-09-30:
+- szlukabence/goodix-fingerprint-spi-linux remains the most relevant public
+  GXFP51A0/MateBook SPI research repo and was last updated 2026-09-21; no newer
+  GXFP51A0 S3 fix was available to import.
+- Sigfrodr/libfprint-goodixtls remains updated 2026-09-25; latest relevant work
+  is still GQ-SIGFM evaluation/integration, not a newer GXFP51A0 resume fix.
+- modern Duro02/goodix-5503-linux explicitly keeps fprintd resident with
+  --no-timeout to preserve warm state and reports warm-session readiness around
+  100 ms on its different 5503 hardware. It also has a system-sleep fprintd
+  restart hook; Pegasus intentionally does NOT copy that hook because rel61's
+  KScreenLocker lifecycle integration has now been human-validated and the user
+  wants no external resume hooks/keepalives.
+- recent community reports reinforce avoiding aggressive high-frequency retry
+  loops around resume; rel62 remains strictly bounded.
+
+### rel62 driver changes
+
+Branch: fingerprint-rel62-fast-resume
+
+Package version:
+- libfprint-goodix51a0 1.94.100.goodix51a0-62
+
+Changes over rel60:
+1. `driverstate_attempted` is process-local and initialized false.
+   Windows DriverState Install is first-init work and is attempted once per
+   fprintd lifetime. Later same-daemon cold/S3 rebuilds skip it.
+2. rel56 five-minute awake warm-context quality bound remains unchanged.
+3. hard lifecycle boundary = real sleep or force_cold_reset:
+   - discard stale host warm state;
+   - open transport;
+   - call the already validated `gx_recover_capture_context()` full
+     GPIO264 reset + Stage2E/A8 firmware boundary BEFORE first TLS.
+4. ordinary awake TTL expiry uses the normal GPIO reset and does not pay the
+   extra Stage2E/A8 fast-resume boundary.
+5. active-operation S3 recovery uses the same reset+A8 primitive before
+   gx_cold_prepare().
+6. inner production TLS retry count is bounded to 3 instead of 5:
+   `GX_TLS_SESSION_ATTEMPTS 3`.
+   The existing outer `GX_PREPARE_ATTEMPTS 2` remains. Therefore a failed
+   context still performs full reset+A8 recovery; rel62 merely stops spending
+   excessive time repeatedly handshaking on the same bad context.
+
+Unchanged:
+- threshold 7;
+- GQ-SIGFM/template-v4;
+- enrollments;
+- rel59 same-press pacing and 90 ms calibrated retry barrier;
+- rel60 WakeupMCU after failed usable physical pose;
+- clean background requirement;
+- no resume_bg/stale pre-S3 background reuse;
+- no sensor SLEEP 0x60 experiment;
+- no persistent timing file;
+- no firmware writes;
+- no GPIO112/GPP_D16.
+
+### KScreenLocker 6.7.5-1.5
+
+rel61 proved the robust fingerprint-only PAM restart works. rel62 keeps it and
+removes one unnecessary latency source:
+
+- interactive password PAM is still never cancelled by resume handling;
+- only noninteractive authenticators are recycled;
+- stale in-flight fingerprint PAM still unwinds before restart;
+- sticky PAM_AUTHINFO_UNAVAIL is still cleared at resume;
+- NEW: `PamWorker::resetUnavailable()` also resets
+  `m_nextAttemptAllowedTime = steady_clock::now()`;
+- restart records whether it originated from `m_unavailable`;
+- a fail-delay emitted by that stale hardware-unavailable transaction is
+  ignored for the resume restart;
+- real authentication failures still use the normal QTimer PAM fail-delay.
+
+This targets the rel61 successful S3 micro-timing where:
+- resume hook fired at 01:26:39.755;
+- first visible fprintd traffic was not until 01:26:43.641;
+- the old worker was explicitly `unavailable=true`.
+The ~4 s penalty is not treated as a wrong-fingerprint throttle anymore.
+
+KScreenLocker final package:
+- 6.7.5-1.5
+- SHA256:
+  71c13d27b595fe9982d66b20ba84d207784f10070c25117d1f2b6690cf2271fc
+
+### Plasma Login Manager 6.7.5-3.9
+
+Fingerprint PAM:
+- max-tries=1
+- timeout=30 (was 15)
+
+The driver itself owns the bounded 3-physical-pose budget. Password remains an
+independent concurrent authenticator and can win immediately.
+
+Package SHA256:
+71afaa14faa27815f99cb45e3c9d0d80319c794f0a099aef1c093de237d0589a
+
+### Final libfprint rel62 package
+
+SHA256:
+9d0557776881a958ff8c83f1cedf70c3c5a1d41995c8e49fa09884bdfcd58715
+
+### Validation
+
+PASS before installation:
+- complete fingerprint/research suite;
+- new fast-resume source safety;
+- lifecycle/native resume safety;
+- bounded TLS retry source safety;
+- KScreenLocker fingerprint-only robust resume safety;
+- PLM concurrent password/fingerprint safety;
+- boot binding;
+- GQ-SIGFM real ABI smoke;
+- complete libfprint v1.94.100 Meson/Ninja build;
+- complete KScreenLocker 6.7.5-1.5 build;
+- release biometric dump hook absent;
+- build ACTIVE_SENSOR_IO/GPIO/MMIO/FIRMWARE_ACTIONS = NONE.
+
+Live final versions:
+- libfprint-goodix51a0 1.94.100.goodix51a0-62
+- kscreenlocker 6.7.5-1.5
+- plasma-login-manager 6.7.5-3.9
+- fprintd 1.94.5-2.1
+
+Live integrity:
+- libfprint package: 40 files, 0 modified
+- kscreenlocker: 346 files, 0 modified
+- plasma-login-manager: 210 files, 0 modified
+- QML v10 helper --check PASS
+- qmllint PASS
+- fprintd active with --no-timeout
+- fprintd sleep delay inhibitor present
+- enrollments intact: right-index, left-index, right-middle
+- 0 failed systemd units
+- 0 orphan packages after cleanup
+
+### Measured preparation times
+
+Final rel62 build after restarting fprintd only:
+- cold bounded prewarm: 5049 ms, success on first helper invocation;
+- no TLS handshake failure in that measured final cold run.
+
+Same daemon, later warm Claim:
+- 1804 ms.
+
+Comparison:
+- rel33 historical cold simulation: ~4703 ms;
+- intermediate rel62 state before final bounding showed pathological runs above
+  40 s due repeated TLS failures/recovery;
+- final rel62 returns cold prep to ~5 s while preserving the stronger current
+  transport safety and removes the stale-unavailable PAM delay on resume.
+
+Build trees, source tarballs, package archives and temp test logs were removed
+after hashes were recorded. Temporary build dependencies were removed; 0 orphan
+packages remain.
+
+### Remaining human acceptance gate
+
+Do NOT reboot Pegasus for this.
+User manually performs ONE normal deep S3 and touches naturally at the wake
+lockscreen.
+
+Inspect:
+- time of PM suspend exit;
+- KScreen `Resume: rearming fingerprint PAM`;
+- whether stale-unavailable fail-delay is skipped when applicable;
+- first fprintd/GXFP traffic timestamp;
+- FAST_RESUME reset+A8 markers;
+- TLS attempt count;
+- READY timestamp;
+- first real biometric score.
+
+Report only after the user test whether rel62 is physically validated. Do not
+auto-suspend/lock/reboot.
