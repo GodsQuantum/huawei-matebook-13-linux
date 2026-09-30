@@ -44,7 +44,8 @@ assert "gx_active_sleep_recovery (dev, ssm)" in poll_off
 assert "if (self->force_cold_reset)" in session
 assert "gx_warm_abandon (self)" in session
 assert "gx_recover_capture_context (self)" in session
-assert "FAST_RESUME active operation: reset+A8 before first TLS" in session
+assert "S3_TRACE active operation: reset+A8 before first TLS" in session
+assert "self->driverstate_attempted = FALSE" in session
 assert "gx_cold_prepare (self)" in session
 assert "return gx_wakeup_mcu (self)" in session
 assert "self->capture_gap_scale = 0" in session
@@ -55,7 +56,7 @@ assert "fpi_device_suspend_complete" in suspend
 assert "BOOTTIME-vs-MONOTONIC poll guard" in resume
 PY2
 
-grep -Fq 'pkgrel=63' "$pkg"
+grep -Fq 'pkgrel=64' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"

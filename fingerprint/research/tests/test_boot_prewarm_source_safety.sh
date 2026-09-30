@@ -19,6 +19,6 @@ grep -Fq 'WantedBy=graphical.target' "$u"
 grep -Fq 'TimeoutStartSec=55s' "$u"
 
 grep -Fq 'gxfp51a0-boot-prewarm' "$p"
-grep -Fq 'graphical.target.wants/gxfp51a0-boot-prewarm.service' "$p"
+! grep -Fq 'graphical.target.wants/gxfp51a0-boot-prewarm.service' "$p"
 
 echo 'test_boot_prewarm_source_safety: OK'

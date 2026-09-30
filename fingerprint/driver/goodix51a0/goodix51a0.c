@@ -2430,9 +2430,17 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
       self->capture_retry_seen = FALSE;
       self->capture_pacing_suppressed = TRUE;
 
-      fp_info ("GXFP51A0 FAST_RESUME active operation: reset+A8 before first TLS");
+      fp_warn ("GXFP51A0 S3_TRACE active operation: reset+A8 before first TLS");
       if (!gx_recover_capture_context (self))
         return FALSE;
+
+      /* rel61 human S3 succeeded with a fresh DriverState Install during the
+       * post-suspend cold rebuild (first real image 20/7). rel62/63 skipped it
+       * after first daemon init and repeatedly produced only 3-4/7 post-S3.
+       * Re-arm this one step only for a true sleep boundary; awake TTL rebuilds
+       * keep the once-per-daemon optimization. */
+      self->driverstate_attempted = FALSE;
+      fp_warn ("GXFP51A0 S3_TRACE forcing DriverState Install on active resume rebuild");
       self->force_cold_reset = FALSE;
 
       if (!gx_cold_prepare (self))
@@ -4097,7 +4105,7 @@ gx_dev_open (FpDevice *dev)
       /* Deep S3 destroys the MCU/TLS session. Use the already-validated full
        * reset + Stage2E/A8 boundary before the first post-resume TLS attempt,
        * rather than discovering this only after a failed handshake. */
-      fp_info ("GXFP51A0 FAST_RESUME establishing reset+A8 boundary before first post-lifecycle TLS");
+      fp_warn ("GXFP51A0 S3_TRACE open: reset+A8 before first post-lifecycle TLS");
       if (!gx_recover_capture_context (self))
         {
           gx_transport_close (self);
@@ -4106,6 +4114,12 @@ gx_dev_open (FpDevice *dev)
                                            "post-lifecycle reset/A8 recovery failed"));
           return;
         }
+
+      /* Preserve the fast reset+A8 boundary, but restore rel61's empirically
+       * successful post-S3 DriverState conditioning. This is deliberately
+       * limited to hard lifecycle boundaries, never ordinary awake TTL expiry. */
+      self->driverstate_attempted = FALSE;
+      fp_warn ("GXFP51A0 S3_TRACE forcing DriverState Install on post-S3 open");
       self->force_cold_reset = FALSE;
       cold_boundary_done = TRUE;
     }

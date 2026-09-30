@@ -46,9 +46,11 @@ assert "gx_warm_validate (self)" in open_
 # Real S3 gets the proactive reset+A8 boundary; TTL expiry remains normal cold reset.
 assert "lifecycle_boundary = slept || expired || self->force_cold_reset" in open_
 assert "hard_lifecycle_boundary = slept || self->force_cold_reset" in open_
-assert "FAST_RESUME establishing reset+A8 boundary before first post-lifecycle TLS" in open_
+assert "S3_TRACE open: reset+A8 before first post-lifecycle TLS" in open_
 assert open_.index("gx_recover_capture_context (self)") < open_.index("gx_cold_prepare (self)")
-assert "FAST_RESUME active operation: reset+A8 before first TLS" in session
+assert "self->driverstate_attempted = FALSE" in open_
+assert "S3_TRACE active operation: reset+A8 before first TLS" in session
+assert "self->driverstate_attempted = FALSE" in session
 assert session.index("gx_recover_capture_context (self)") < session.index("gx_cold_prepare (self)")
 
 tls=fn("gx_tls_session")
@@ -57,5 +59,5 @@ assert "diagnostic ? 1 : GX_TLS_SESSION_ATTEMPTS" in tls
 assert "max_attempts" in tls
 PY
 
-grep -Fq 'pkgrel=63' "$pkg"
+grep -Fq 'pkgrel=64' "$pkg"
 echo 'test_fast_resume_source_safety: OK'

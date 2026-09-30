@@ -87,7 +87,8 @@ assert "gx_warm_discard (self)" not in failed.split("else if",1)[0]
 assert "gx_warm_crossed_sleep (self)" in open_
 assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_open")
 assert "gx_recover_capture_context (self)" in open_
-assert "FAST_RESUME establishing reset+A8 boundary" in open_
+assert "S3_TRACE open: reset+A8 before first post-lifecycle TLS" in open_
+assert "self->driverstate_attempted = FALSE" in open_
 assert open_.index("gx_recover_capture_context (self)") < open_.index("gx_cold_prepare (self)")
 assert "self->capture_gap_scale = 0" in open_
 

@@ -692,3 +692,18 @@ Cette section supersède l’état pending de la section 13.
 - package rel63 construit, mais pas encore installé car RDC bloque `pacman -U`.
 - handoff détaillé: `fingerprint/handoff/HANDOFF_2026-09-30_REL63_S3_EPOCH.md`.
 - prochain gate: installation rel63, reboot manuel déjà souhaité par l’utilisateur, cold login, puis deep S3 humain rel63.
+
+## 15. Update 2026-09-30 — rel63 FAIL, rel64 candidate
+
+- rel63 deep S3 humain: **FAIL**.
+- PAM/KScreen restart correct.
+- transport/TLS nettement amélioré: aucune erreur digest, READY ~8.484 s après resume.
+- calibration rejette correctement les touches précoces.
+- vraies images post-READY restent 3–4/7 sur plusieurs poses.
+- comparaison au rel61 S3 réussi (20/7) montre une différence empirique importante: rel61 rejouait DriverState Install sur le cold rebuild post-S3, rel62/63 le sautaient après le premier init daemon.
+- branche: `fingerprint-rel64-s3-recondition`.
+- rel64 rejoue DriverState Install uniquement après un vrai S3, conserve reset+A8 pré-TLS et ajoute des marqueurs `S3_TRACE` visibles.
+- boot-prewarm packaging corrigé: unité présente mais plus de symlink auto-start dans `graphical.target.wants`.
+- tests complets + boot binding + full Meson/Ninja: PASS.
+- package rel64 construit, pas encore installé.
+- handoff détaillé: `fingerprint/handoff/HANDOFF_2026-09-30_REL64_S3_RECONDITION.md`.
