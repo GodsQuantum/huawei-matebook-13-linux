@@ -2983,3 +2983,15 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - SHA256: `dc4e28f032d4dd2c5844ed49522bee56327bd473979bf8abc34e5fba3feac32e`
 - full tests + boot binding + Meson/Ninja + artifact gates: PASS.
 - detailed handoff: `fingerprint/handoff/HANDOFF_2026-09-30_REL68_AUTOPREWARM_SLEEP.md`.
+
+## 21. Live validation rel68 installation
+
+- rel68 installed live on Pegasus.
+- package integrity: 39 files, 0 modified.
+- boot-prewarm is now enabled and inactive after its one-shot run.
+- 23:29:33.807050: Windows deactivate SLEEP 0x60/01 00 ACK.
+- 23:29:33.814527: one-shot Claim completed.
+- 23:29:33.817497: one-shot service exited successfully.
+- enrollments unchanged.
+- this validates autonomous post-upgrade priming into the same pre-S3 sleep state that preceded the rel66 human S3 success.
+- no reboot/lock/suspend was triggered by the assistant.

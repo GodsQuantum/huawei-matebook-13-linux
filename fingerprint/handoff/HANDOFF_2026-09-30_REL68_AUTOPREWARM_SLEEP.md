@@ -82,3 +82,21 @@ Package .INSTALL verified to contain:
 After rel68 installation, package itself must leave a SLEEP ACK in journal.
 Then a deep S3 can be tested directly, without first doing a fingerprint lock/unlock.
 Expected outcome: preserve rel66 human baseline behavior, >=7 first usable match.
+
+## Live install validation
+
+rel68 installed live on Pegasus:
+- package 1.94.100.goodix51a0-68
+- fprintd restart completed
+- 23:29:33.807050: REL67_TRACE Windows deactivate SLEEP 0x60/01 00 acknowledged
+- 23:29:33.814527: boot-prewarm Claim completed
+- 23:29:33.817497: gxfp51a0-boot-prewarm.service deactivated successfully
+- systemctl is-enabled: enabled
+- systemctl is-active: inactive
+- package integrity: 39 files, 0 modified
+- enrollments unchanged: right-index, left-index, right-middle
+
+This proves the exact rel68 invariant after an upgrade:
+package upgrade -> fprintd restart -> one-shot Claim -> Close -> SLEEP ACK -> idle.
+
+No reboot, lock or suspend was triggered by the assistant.
