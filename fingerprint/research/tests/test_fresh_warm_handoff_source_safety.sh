@@ -11,12 +11,12 @@ src="$root/driver/goodix51a0/goodix51a0.c"
 
 open_block="$(sed -n '/gx_dev_open (FpDevice \*dev)/,/^}/p' "$src")"
 grep -Fq 'if (gx_warm_available (self))' <<<"$open_block"
-grep -Fq 'self->sensor_sleeping && !gx_wakeup_mcu (self)' <<<"$open_block"
 grep -Fq 'gx_warm_validate (self)' <<<"$open_block"
 grep -Fq 'warm context failed full readiness validation; falling back to cold preparation' <<<"$open_block"
+! grep -Fq 'sensor_sleeping && !gx_wakeup_mcu (self)' <<<"$open_block"
 
 close_block="$(sed -n '/gx_dev_close (FpDevice \*dev)/,/^}/p' "$src")"
-grep -Fq 'gx_sensor_sleep (self)' <<<"$close_block"
-grep -Fq 'stashed warm context with MCU in Windows deactivate sleep' <<<"$close_block"
+! grep -Fq 'gx_sensor_sleep (self)' <<<"$close_block"
+grep -Fq 'stashed native warm context across fp_device close' <<<"$close_block"
 
-echo 'test_fresh_warm_handoff_source_safety: OK (sleep/wake handoff still validated)'
+echo 'test_fresh_warm_handoff_source_safety: OK (warm stash + cold S3 boundary)'

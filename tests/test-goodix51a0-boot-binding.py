@@ -88,7 +88,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=68" in pkgbuild
+assert "pkgrel=69" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "graphical.target.wants/gxfp51a0-boot-prewarm.service" not in pkgbuild
@@ -113,11 +113,9 @@ assert "g_cancellable_cancel" in resume_block
 assert resume_block.index("fpi_device_resume_complete (dev, NULL)") < resume_block.index("g_cancellable_cancel")
 assert "fpi_device_critical_enter" not in driver
 assert "resume_bg_frame" not in driver
-assert "GOODIX_CMD_SLEEP" in driver
-assert "gx_sensor_sleep" in driver
-assert "Windows deactivate SLEEP 0x60/01 00 acknowledged" in driver
-assert "GX_SLEEP_QUIESCE_MS          400" in driver
-assert "REL67_TRACE deactivate SLEEP skipped" in driver
+assert "GOODIX_CMD_SLEEP" not in driver
+assert "gx_sensor_sleep" not in driver
+assert "sensor_sleeping" not in driver
 
 plm_pkgbuild = PLM_PKGBUILD.read_text()
 plm_patch1 = PLM_PATCH1.read_text()

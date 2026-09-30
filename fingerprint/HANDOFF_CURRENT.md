@@ -2995,3 +2995,20 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - enrollments unchanged.
 - this validates autonomous post-upgrade priming into the same pre-S3 sleep state that preceded the rel66 human S3 success.
 - no reboot/lock/suspend was triggered by the assistant.
+
+## 22. rel68 rejected / rel69 installed — 2026-10-01
+
+- rel68 is rejected as a production design.
+- Last rel68 normal lock test after boot 23:41:28: automatic prewarm -> MCU SLEEP 0x60; next Claim -> WakeupMCU + WARM_REBASE ~1765 ms; scores 4/7, 3/7, 3/7. This identifies the 0x60 sleep/wakeup warm path as the bad path on this ST411.
+- rel66 deep S3 remains the validated counterexample: fresh cold boundary, resume->READY ~4.434 s, first image 7/7, human unlock OK.
+- rel69 restores rel61-proven normal warm/cold capture lifecycle and retains rel65 clean S3 parked-action suspend/resume handling.
+- rel69 normal close does NOT send MCU SLEEP 0x60; it stashes warm TLS/background/FDT context across fp_device close.
+- rel69 automatic boot/upgrade prewarm remains one-shot, initializing the warm context without sleeping the MCU.
+- normal warm Claim therefore has no WakeupMCU step; it validates/rebases warm context directly.
+- S3 remains a hard cold boundary and never reuses the pre-S3 imaging state.
+- no heartbeat, periodic keepalive, system-sleep hook, persistent timing file, GPIO112/GPP_D16 changes, threshold changes, or re-enrollment.
+- rel69 installed live: libfprint-goodix51a0 1.94.100.goodix51a0-69; fprintd 1.94.5-2.1; kscreenlocker 6.7.5-1.5; plasma-login-manager 6.7.5-3.9.
+- boot-prewarm enabled/inactive after one-shot; no SLEEP 0x60 is expected from rel69 close.
+- full software suite + build + artifact gates PASS.
+- rel69 detailed handoff: `fingerprint/handoff/HANDOFF_2026-10-01_REL69_STABLE_WARM_COLD.md`.
+- next step: human normal lock/unlock on rel69; inspect logs before any further modification; then deep S3 if normal lock is clean.

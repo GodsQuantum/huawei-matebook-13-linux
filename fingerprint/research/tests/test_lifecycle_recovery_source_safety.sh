@@ -54,8 +54,10 @@ assert "gx_warm_idle_expired (self)" in open_
 assert open_.index("gx_warm_idle_expired (self)") < open_.index("gx_transport_open")
 assert "slept || expired || self->force_cold_reset" in open_
 
-# Stale sensor-side TLS must be abandoned host-side, not close-notified. The
-# process-local S3 epoch is lifecycle evidence and must survive warm discard.
+# Stale sensor-side TLS must be abandoned host-side, not close-notified.
+# rel69 deliberately returns to the rel61-proven warm/cold lifecycle: the
+# process-local S3 epoch is retained independently of warm TLS state; S3 detection
+# is evaluated before warm invalidation and then the driver performs the cold boundary.
 assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
 assert "warm_sleep_delta_us = 0" not in abandon

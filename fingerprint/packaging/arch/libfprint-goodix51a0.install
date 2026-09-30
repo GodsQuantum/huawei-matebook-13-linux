@@ -15,10 +15,10 @@ post_install() {
   # These files contain no biometric/secret material and are obsolete.
   rm -f /var/lib/fprint/.goodix51a0-timing         /var/lib/fprint/.goodix51a0-capture-timing
   systemctl daemon-reload || true
-  # rel68: a cold boot/package restart can leave the ST411 idle without ever
-  # traversing libfprint Close(), so it would miss the Windows-style 0x60 sleep
-  # boundary that made rel66 S3 reliable. Keep this as a one-shot only: make
-  # fprintd ready, Claim once, then bus disconnect triggers Close -> SLEEP ACK.
+  # rel69: prime one warm production context once after boot/upgrade.
+  # The close path intentionally keeps the validated TLS/background/FDT warm
+  # context in RAM instead of forcing the experimental MCU 0x60 sleep on every
+  # libfprint close. S3 remains a hard cold boundary in the driver itself.
   systemctl enable gxfp51a0-boot-prewarm.service >/dev/null 2>&1 || true
   systemctl restart fprintd.service || true
   systemctl start gxfp51a0-boot-prewarm.service || true
