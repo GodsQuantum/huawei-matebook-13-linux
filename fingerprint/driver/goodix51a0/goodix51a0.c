@@ -71,6 +71,7 @@ G_STATIC_ASSERT (GOODIX_PSK_LEN == GXFP_FACTORY_PMK_LEN);
 #define GXFP_PMK_ACQUIRE_ATTEMPTS 4
 #define GX_TARGET_ACK_ATTEMPTS 2
 #define GX_TARGET_ACK_IRQ_TIMEOUT_MS 100
+#define GX_SLEEP_QUIESCE_MS          400
 #define GX_PMK_CACHE_DIR  "/var/lib/fprint"
 #define GX_PMK_CACHE_FILE "/var/lib/fprint/.goodix51a0-pmk"
 
@@ -661,6 +662,19 @@ gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
   if (!gxfp_build_sleep (&packet))
     return FALSE;
 
+  /* Windows cancels/settles the pending biometric request before issuing
+   * ReqOnActivate(false) -> MCU SLEEP. libfprint may call close immediately
+   * after a successful match while GPIO48 still owns the tail of the last
+   * FDT/capture transaction. Give that line a short, bounded opportunity to
+   * quiesce; never drain an unknown pending packet and never block indefinitely.
+   * If it stays high, preserve rel66's safe fallback: refuse the warm stash. */
+  if (gx51_wait_irq_gpio48_low (self->irq_fd, GX_SLEEP_QUIESCE_MS) < 0)
+    {
+      fp_warn ("GXFP51A0 REL67_TRACE deactivate SLEEP skipped: IRQ remained high for %d ms",
+               GX_SLEEP_QUIESCE_MS);
+      return FALSE;
+    }
+
   if (!gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL))
     {
       fp_warn ("GXFP51A0 Windows deactivate SLEEP 0x60/01 00 was not acknowledged");
@@ -668,7 +682,7 @@ gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
     }
 
   self->sensor_sleeping = TRUE;
-  fp_warn ("GXFP51A0 REL66_TRACE Windows deactivate SLEEP 0x60/01 00 acknowledged");
+  fp_warn ("GXFP51A0 REL67_TRACE Windows deactivate SLEEP 0x60/01 00 acknowledged");
   return TRUE;
 }
 

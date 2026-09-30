@@ -2945,3 +2945,21 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - après match, SLEEP 0x60 a été refusé car IRQ encore high ~155 ms après LIFT_NOW; le driver a correctement refusé le warm stash et retombera en cold Open. Ce point est secondaire et ne doit pas être patché dans la baseline validée sans nouvelle preuve.
 - ne pas réintroduire fast-resume in-place rel62-64, DriverState once-per-daemon, force LPSS=on, threshold <=6, re-enrollment, heartbeat/keepalive/hooks.
 - handoff détaillé mis à jour: `fingerprint/handoff/HANDOFF_2026-09-30_REL66_WINDOWS_DEACTIVATE_SLEEP.md`.
+
+## 19. Update 2026-09-30 — rel67 sleep-quiesce candidate
+
+- rel66 reste la baseline stable humaine: deep S3 OK, first image 7/7, resume->READY ~4.434 s.
+- défaut secondaire rel66: après unlock, SLEEP 0x60 tenté ~155 ms après LIFT_NOW alors que IRQ encore HIGH; warm stash refusé, fallback cold sûr.
+- trace Windows: pending request annulée/settled avant ReqOnActivate(false), puis FpMcuSwitchToSleepMode 0x60 ACK.
+- branche candidate: `fingerprint-rel67-sleep-quiesce`.
+- rel67 change uniquement `gx_sensor_sleep()`:
+  - attend IRQ LOW jusqu'à 400 ms avant 0x60;
+  - aucun drain aveugle;
+  - IRQ déjà low => coût quasi nul;
+  - timeout => fallback rel66 inchangé, aucun warm stash.
+- aucun changement S3/matcher/threshold/template/GPIO/TLS/PAM/KDE/runtime-PM.
+- suite complète + boot binding + full Meson/Ninja + artifact gates: PASS.
+- package candidat: `libfprint-goodix51a0-1.94.100.goodix51a0-67-x86_64.pkg.tar.zst`.
+- SHA256: `e883cdcf772269b04e69537b1ed8d8efd04bb1393ed49ed2dada8007ddf2e6da`.
+- rel67 n'est PAS baseline tant qu'un lock/unlock normal puis un deep S3 ne sont pas validés.
+- handoff: `fingerprint/handoff/HANDOFF_2026-09-30_REL67_SLEEP_QUIESCE_CANDIDATE.md`.

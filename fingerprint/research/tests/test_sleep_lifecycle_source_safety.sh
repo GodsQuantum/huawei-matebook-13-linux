@@ -6,8 +6,8 @@ defs="$root/driver/goodix51a0/goodix51a0.h"
 target="$root/driver/goodix51a0/gx51_target.c"
 header="$root/driver/goodix51a0/gx51_target.h"
 
-# rel66 mirrors the same-device Windows ReqOnActivate(false) lifecycle:
-# command 0x60, payload 01 00, ACK required before an idle close.
+# rel67 preserves rel66's Windows ReqOnActivate(false) lifecycle and adds only
+# a bounded IRQ-low quiesce before command 0x60, matching Windows' pending-request settle.
 grep -Fq '#define GOODIX_CMD_SLEEP       0x60' "$defs"
 grep -Fq 'gxfp_build_sleep' "$target"
 grep -Fq 'static const uint8_t payload[] = {0x01u, 0x00u};' "$target"
@@ -34,6 +34,10 @@ abandon=fn("gx_warm_abandon")
 wake=fn("gx_wakeup_mcu")
 
 assert "gxfp_build_sleep (&packet)" in sleep
+assert "gx51_wait_irq_gpio48_low (self->irq_fd, GX_SLEEP_QUIESCE_MS)" in sleep
+assert "GX_SLEEP_QUIESCE_MS          400" in s
+assert sleep.index("gx51_wait_irq_gpio48_low") < sleep.index("gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL)")
+assert "REL67_TRACE deactivate SLEEP skipped" in sleep
 assert "gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL)" in sleep
 assert "self->sensor_sleeping = TRUE" in sleep
 assert "gx_sensor_sleep (self)" in close

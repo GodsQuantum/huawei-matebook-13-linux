@@ -57,7 +57,7 @@ assert "g_cancellable_cancel" in resume
 assert resume.index("fpi_device_resume_complete (dev, NULL)") < resume.index("g_cancellable_cancel")
 PY2
 
-grep -Fq 'pkgrel=66' "$pkg"
+grep -Fq 'pkgrel=67' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"
