@@ -2928,3 +2928,18 @@ Handoff détaillé:
 fingerprint/handoff/HANDOFF_2026-09-30_REL66_WINDOWS_DEACTIVATE_SLEEP.md
 
 Prochain gate: un deep S3 humain, puis logs avant tout code.
+
+
+## REL66 BASELINE RESTORED — 2026-10-01 00:24
+
+- rel69 is rejected and is no longer installed.
+- Root cause established: rel69 removed the Windows 0x60 sleep on normal Close and relied on the libfprint suspend/resume callback / BOOTTIME detection to make S3 cold. On the failing S3, the device was already idle/closed, so no S3_CLEAN callback executed; post-resume authentication stayed on the stale active session and produced scores 0–4/7.
+- This is exactly the lifecycle that rel66 handoff warned about: the dominant case is device closed before S3, therefore the sensor must be left in the validated Windows 0x60 sleep state and the next Open must perform the cold boundary.
+- rel66 is the human-validated baseline: S3 22:55:18→22:55:44, READY +4.434 s, first biometric image 7/7, unlock OK.
+- Restored source exactly from commit c149ac5 (rel66 driver), including sensor_sleeping, gx_sensor_sleep(), normal Close SLEEP ACK, and post-sleep WakeupMCU + warm validation; true S3 remains cold via gx_warm_crossed_sleep + GPIO reset + cold prepare.
+- Rebuilt package from that exact source: libfprint-goodix51a0 1.94.100.goodix51a0-66; full research suite PASS; build/artifact gates PASS.
+- Live Pegasus: libfprint-goodix51a0 1.94.100.goodix51a0-66; fprintd 1.94.5-2.1.
+- gxfp51a0-boot-prewarm is now explicitly disabled/inactive; this removes the rel68/69 automatic prewarm state from the live lifecycle.
+- No /dev/spidev1.0 process currently holds the device after restore.
+- No reboot performed; no enrollment changed.
+- Next human gate is the same validated rel66 test: manually deep S3 once, then first fingerprint after resume. Read logs before any further modification.
