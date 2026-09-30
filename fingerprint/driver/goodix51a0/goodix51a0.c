@@ -113,8 +113,8 @@ struct _FpiDeviceGoodix51A0
   gboolean      production_ready; /* TLS + fresh background + FDT prepared during open */
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
   gint64        warm_last_activity_us; /* monotonic time of last validated sensor activity */
-  gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
-  gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
+  gint64        warm_sleep_delta_us; /* process-local CLOCK_BOOTTIME-MONOTONIC S3 epoch */
+  gboolean      warm_sleep_clock_valid; /* lifecycle baseline survives warm-state abandonment */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
   gboolean      driverstate_attempted; /* Windows first-init Install is once per daemon lifetime */
 };
@@ -3825,8 +3825,9 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->tls_rxpos = 0;
   self->tls_up = FALSE;
   self->warm_last_activity_us = 0;
-  self->warm_sleep_delta_us = 0;
-  self->warm_sleep_clock_valid = FALSE;
+  /* Keep the process-local sleep epoch even when TLS/background warm state is
+   * discarded. Otherwise an idle/failed Claim before S3 erases the only native
+   * evidence that the next Open crossed suspend, so reset+A8 happens too late. */
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -4389,7 +4390,8 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_recovery_pending = FALSE;
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
-  self->warm_sleep_clock_valid = FALSE;
+  self->warm_sleep_clock_valid =
+    gx_sleep_delta_us (&self->warm_sleep_delta_us);
   self->force_cold_reset = FALSE;
   self->driverstate_attempted = FALSE;
 }

@@ -675,3 +675,20 @@ Elle doit partir de :
 - matcher/seuil/templates ne sont pas la cible ;
 - le prochain vrai travail est le gate humain rel62 S3 + mesure précise de latence ;
 - si rel62 passe, seulement ensuite optimisation login/boot-prewarm et UX visible→READY.
+
+## 14. Update 2026-09-30 — rel62 FAIL, rel63 candidate
+
+Cette section supersède l’état pending de la section 13.
+
+- rel62 deep S3 humain: **FAIL**.
+- KScreen/PAM restart correct et quasi immédiat.
+- aucun marqueur FAST_RESUME avant le premier TLS.
+- premier TLS digest fail, recovery tardive, READY ~17.366 s après resume.
+- vraies poses post-READY répétées à 3/7.
+- diagnostic: l’epoch S3 était effacée par `gx_warm_abandon()`, donc un warm state déjà invalidé pouvait masquer le lifecycle boundary.
+- branche suivante: `fingerprint-rel63-s3-epoch`.
+- rel63 arme l’epoch BOOTTIME-MONOTONIC dès l’init et la conserve indépendamment du warm TLS.
+- suite complète, boot binding et full Meson/Ninja: PASS.
+- package rel63 construit, mais pas encore installé car RDC bloque `pacman -U`.
+- handoff détaillé: `fingerprint/handoff/HANDOFF_2026-09-30_REL63_S3_EPOCH.md`.
+- prochain gate: installation rel63, reboot manuel déjà souhaité par l’utilisateur, cold login, puis deep S3 humain rel63.

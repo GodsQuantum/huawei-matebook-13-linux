@@ -26,6 +26,7 @@ open_=fn("gx_dev_open")
 close=fn("gx_dev_close")
 suspend=fn("gx_dev_suspend")
 resume=fn("gx_dev_resume")
+init=fn("fpi_device_goodix51a0_init")
 klass=fn("fpi_device_goodix51a0_class_init")
 
 assert "CLOCK_BOOTTIME" in sleep and "CLOCK_MONOTONIC" in sleep
@@ -52,9 +53,13 @@ assert "lifecycle_boundary = slept || expired || self->force_cold_reset" in open
 assert "hard_lifecycle_boundary = slept || self->force_cold_reset" in open_
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
+# The process-local sleep epoch is lifecycle evidence, not warm TLS state: it
+# must survive abandonment so an idle/failed Claim cannot hide a later S3.
 assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
-assert "self->warm_sleep_clock_valid = FALSE" in abandon
+assert "warm_sleep_delta_us = 0" not in abandon
+assert "warm_sleep_clock_valid = FALSE" not in abandon
+assert "gx_sleep_delta_us (&self->warm_sleep_delta_us)" in init
 
 # A retained context refreshes the exact encrypted image path and adopts that
 # proven no-finger frame as the new background/FDT baseline. If the user is

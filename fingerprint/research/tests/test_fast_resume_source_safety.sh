@@ -33,6 +33,8 @@ assert cold.index("self->driverstate_attempted = TRUE") < cold.index("gx_drivers
 assert "FAST_RESUME DriverState Install already attempted" in cold
 assert "self->driverstate_attempted = FALSE" in init
 assert "driverstate_attempted" not in abandon
+assert "gx_sleep_delta_us (&self->warm_sleep_delta_us)" in init
+assert "warm_sleep_clock_valid = FALSE" not in abandon
 
 # rel56 five-minute quality bound remains: rel55 proved that hours-old awake
 # imaging state can pass FDT/TLS validation while genuine scores collapse.
@@ -55,5 +57,5 @@ assert "diagnostic ? 1 : GX_TLS_SESSION_ATTEMPTS" in tls
 assert "max_attempts" in tls
 PY
 
-grep -Fq 'pkgrel=62' "$pkg"
+grep -Fq 'pkgrel=63' "$pkg"
 echo 'test_fast_resume_source_safety: OK'
