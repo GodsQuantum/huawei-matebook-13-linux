@@ -2,23 +2,51 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 driver="$root/driver/goodix51a0/goodix51a0.c"
+defs="$root/driver/goodix51a0/goodix51a0.h"
 target="$root/driver/goodix51a0/gx51_target.c"
 header="$root/driver/goodix51a0/gx51_target.h"
 
-# rel57's experimental Windows SLEEP-on-close path was never exercised during
-# the reported S3 failure and is removed from rel58 to keep the validated rel50
-# sensor lifecycle. No hidden power-mode state may survive this rollback.
-! grep -Fq 'GOODIX_CMD_SLEEP' "$driver"
-! grep -Fq 'gx_sensor_sleep' "$driver"
-! grep -Fq 'sensor_sleeping' "$driver"
-! grep -Fq 'Windows sleep transition' "$driver"
-! grep -Fq 'gxfp_build_sleep' "$target"
-! grep -Fq 'gxfp_build_sleep' "$header"
+# rel66 mirrors the same-device Windows ReqOnActivate(false) lifecycle:
+# command 0x60, payload 01 00, ACK required before an idle close.
+grep -Fq '#define GOODIX_CMD_SLEEP       0x60' "$defs"
+grep -Fq 'gxfp_build_sleep' "$target"
+grep -Fq 'static const uint8_t payload[] = {0x01u, 0x00u};' "$target"
+grep -Fq 'gxfp_build_sleep' "$header"
+grep -Fq 'gx_sensor_sleep' "$driver"
+grep -Fq 'Windows deactivate SLEEP 0x60/01 00 acknowledged' "$driver"
 
-# Normal close still retains only the already validated warm TLS/background/FDT
-# context, and the next open must actively validate it.
-close_block="$(sed -n '/gx_dev_close (FpDevice \*dev)/,/^}/p' "$driver")"
-grep -Fq 'stashed native warm context across fp_device close' <<<"$close_block"
-grep -Fq 'next open must validate FDT + GET_IMAGE/TLS' <<<"$close_block"
+python3 - "$driver" <<'PY'
+from pathlib import Path
+import re,sys
+s=Path(sys.argv[1]).read_text()
+def fn(n):
+ m=re.search(r"\b"+re.escape(n)+r"\s*\([^;{}]*\)\s*\n\{",s); assert m,n
+ b=s.find("{",m.end()-1); d=0
+ for i in range(b,len(s)):
+  d += (s[i]=="{")-(s[i]=="}")
+  if d==0: return s[m.start():i+1]
+ raise AssertionError(n)
+close=fn("gx_dev_close")
+open_=fn("gx_dev_open")
+sleep=fn("gx_sensor_sleep")
+suspend=fn("gx_dev_suspend")
+abandon=fn("gx_warm_abandon")
+wake=fn("gx_wakeup_mcu")
 
-echo 'test_sleep_lifecycle_source_safety: OK (experimental sensor sleep path absent)'
+assert "gxfp_build_sleep (&packet)" in sleep
+assert "gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL)" in sleep
+assert "self->sensor_sleeping = TRUE" in sleep
+assert "gx_sensor_sleep (self)" in close
+assert close.index("gx_sensor_sleep (self)") < close.index("gx_transport_close (self)")
+assert "refusing to stash active MCU context" in close
+assert "self->sensor_sleeping && !gx_wakeup_mcu (self)" in open_
+assert open_.index("gx_wakeup_mcu (self)") < open_.index("gx_warm_validate (self)")
+assert "self->sensor_sleeping = FALSE" in wake
+assert "self->sensor_sleeping = FALSE" in abandon
+
+# Do not turn this into an external S3 hook or an in-suspend protocol experiment.
+assert "gx_sensor_sleep (self)" not in suspend
+assert "system-sleep" not in s
+PY
+
+echo 'test_sleep_lifecycle_source_safety: OK (Windows deactivate sleep + wake)'

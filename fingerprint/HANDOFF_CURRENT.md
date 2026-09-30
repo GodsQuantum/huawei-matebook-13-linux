@@ -2879,3 +2879,52 @@ Recherche récente pertinente:
 - Windows Goodix D0Entry: transition D3/resume retourne dans startup/init.
 
 Prochain gate: installer rel65 puis un deep S3 humain; ne rien optimiser davantage avant de retrouver d'abord une vraie image >=7.
+
+
+## 17. Update 2026-09-30 — rel66 Windows deactivate sleep
+
+rel65 deep S3 a encore échoué: first true image 3/7. Aucun S3_CLEAN driver
+n'avait été exécuté parce que le device était déjà fermé avant le suspend.
+Le cas dominant est donc un ST411 fermé/idle avant S3 puis cold Open post-resume.
+
+L'hypothèse Intel LPSS runtime-PM a été testée en réel:
+0000:00:1e.3 et pxa2xx-spi.4 forcés power/control=on via systemd-run root,
+puis cold restart/prewarm. Les no-irq retry persistent et la qualité ne s'améliore
+pas. Power controls restaurés à auto. Ne pas intégrer cette hypothèse.
+
+Nouvelle preuve Windows dans tlambertz/goodix-fingerprint-reversing:
+ReqOnActivate(false) envoie FpMcuSwitchToSleepMode, commande 0x60 payload 01 00,
+attend son ACK, puis le device n'entre en D3 que plusieurs secondes après.
+Ainsi Windows quiesce normalement le MCU à chaque désactivation biométrique.
+
+rel66 ajoute uniquement:
+- exact SLEEP builder 60 03 00 01 00 46;
+- healthy Close -> SLEEP ACK obligatoire avant warm stash;
+- no-S3 warm Open -> WakeupMCU puis WARM_REBASE;
+- sleep failure -> warm stash refusé;
+- true S3 reste full cold rebuild rel65;
+- aucun SLEEP dans gx_dev_suspend pour ce premier gate;
+- aucun matcher/threshold/template/PAM change.
+
+Package installé:
+libfprint-goodix51a0 1.94.100.goodix51a0-66
+SHA256 final:
+1707d74452eb6e02ffaab1a8eed6550271f9a10b24148258e127d87aa53049bb
+
+Live validation sans S3:
+- 21:50:20.451702 SLEEP 0x60/01 00 ACK
+- 21:50:36.987233 WakeupMCU complete
+- 21:50:38.726442 WARM_REBASE 1739 ms
+- 21:50:38.730896 SLEEP 0x60/01 00 ACK
+
+Cycle prouvé:
+SLEEP ACK -> WakeupMCU -> WARM_REBASE -> SLEEP ACK.
+
+Suite complète + boot binding + full Meson/Ninja + artifact gates: PASS.
+Boot-prewarm reste disabled/inactive. Enrollments intacts. Aucun fd spidev ouvert
+après validation: le capteur est actuellement fermé après un SLEEP ACK.
+
+Handoff détaillé:
+fingerprint/handoff/HANDOFF_2026-09-30_REL66_WINDOWS_DEACTIVATE_SLEEP.md
+
+Prochain gate: un deep S3 humain, puis logs avant tout code.

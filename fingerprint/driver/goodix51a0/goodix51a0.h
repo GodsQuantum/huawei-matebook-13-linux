@@ -43,6 +43,7 @@
 #define GOODIX_CMD_FDT_UP      0x34
 #define GOODIX_CMD_FDT_MODE    0x36
 #define GOODIX_CMD_NAV         0x50
+#define GOODIX_CMD_SLEEP       0x60
 #define GOODIX_CMD_REG         0x82
 #define GOODIX_CMD_ENABLE_CHIP 0x96
 #define GOODIX_CMD_MCU_STATE   0xAE

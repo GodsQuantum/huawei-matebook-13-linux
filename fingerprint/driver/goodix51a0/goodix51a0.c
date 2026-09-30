@@ -116,6 +116,7 @@ struct _FpiDeviceGoodix51A0
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* process-local lifecycle baseline; survives warm-state discard */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
+  gboolean      sensor_sleeping; /* Windows deactivate 0x60 state while device is closed */
   GCancellable *suspend_action_cancellable; /* parked action cancelled only after resume completes */
 };
 
@@ -178,6 +179,7 @@ gx_wakeup_mcu (FpiDeviceGoodix51A0 *self)
     }
 
   g_usleep (5000);
+  self->sensor_sleeping = FALSE;
   fp_warn ("GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete");
   return TRUE;
 }
@@ -649,6 +651,25 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
     }
 
   return FALSE;
+}
+
+static gboolean
+gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_target_packet packet;
+
+  if (!gxfp_build_sleep (&packet))
+    return FALSE;
+
+  if (!gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL))
+    {
+      fp_warn ("GXFP51A0 Windows deactivate SLEEP 0x60/01 00 was not acknowledged");
+      return FALSE;
+    }
+
+  self->sensor_sleeping = TRUE;
+  fp_warn ("GXFP51A0 REL66_TRACE Windows deactivate SLEEP 0x60/01 00 acknowledged");
+  return TRUE;
 }
 
 static bool
@@ -3827,6 +3848,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   /* Sleep epoch is process-local lifecycle evidence, not part of the warm TLS
    * context. Keep it when abandoning sensor state so an idle/failed Claim
    * before suspend cannot hide the subsequent S3 boundary. */
+  self->sensor_sleeping = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -4099,10 +4121,21 @@ gx_dev_open (FpDevice *dev)
 
   if (gx_warm_available (self))
     {
-      if (gx_warm_validate (self))
+      gboolean warm_ready = TRUE;
+
+      /* Windows deactivation places the MCU in command-0x60 sleep before the
+       * device becomes idle/D3. Mirror the inverse transition before touching
+       * the stashed TLS/FDT context on an ordinary no-S3 reopen. */
+      if (self->sensor_sleeping && !gx_wakeup_mcu (self))
+        {
+          fp_warn ("GXFP51A0 failed to wake Windows-sleep warm context; falling back to cold preparation");
+          warm_ready = FALSE;
+        }
+
+      if (warm_ready && gx_warm_validate (self))
         {
           self->production_ready = TRUE;
-          fp_info ("GXFP51A0 reusing native libfprint warm context");
+          fp_info ("GXFP51A0 reusing native libfprint warm context after deactivate wake");
           fpi_device_open_complete (dev, NULL);
           return;
         }
@@ -4147,13 +4180,22 @@ gx_dev_close (FpDevice *dev)
       self->production_ready && self->warm_valid && self->tls_up &&
       self->tls && self->have_fdt && self->bg_frame)
     {
-      self->production_ready = FALSE;
-      gx_pmk_clear (self);
-      gx_transport_close (self);
-      fp_info ("GXFP51A0 stashed native warm context across fp_device close; "
-               "next open must validate FDT + GET_IMAGE/TLS");
-      fpi_device_close_complete (dev, NULL);
-      return;
+      /* Same-device Windows 1.1.141.36 ReqOnActivate(false) waits for the
+       * biometric/TLS activity to finish, then sends MCU SLEEP 0x60 payload
+       * 01 00 and requires its ACK before the later D0->D3 transition. The
+       * common Linux S3 case happens while libfprint has already closed the
+       * reader, so close() is our last guaranteed I/O boundary before sleep. */
+      if (gx_sensor_sleep (self))
+        {
+          self->production_ready = FALSE;
+          gx_pmk_clear (self);
+          gx_transport_close (self);
+          fp_info ("GXFP51A0 stashed warm context with MCU in Windows deactivate sleep; next no-S3 open will WakeupMCU + validate");
+          fpi_device_close_complete (dev, NULL);
+          return;
+        }
+
+      fp_warn ("GXFP51A0 deactivate sleep transition failed; refusing to stash active MCU context");
     }
 
   if (self->force_cold_reset)
@@ -4376,6 +4418,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->warm_sleep_clock_valid =
     gx_sleep_delta_us (&self->warm_sleep_delta_us);
   self->force_cold_reset = FALSE;
+  self->sensor_sleeping = FALSE;
   self->suspend_action_cancellable = NULL;
 }
 

@@ -33,6 +33,7 @@ bool gxfp_build_soft_reset(struct gxfp_target_packet *packet);
 bool gxfp_build_chip_id(struct gxfp_target_packet *packet);
 bool gxfp_build_read_otp(struct gxfp_target_packet *packet);
 bool gxfp_build_idle(struct gxfp_target_packet *packet);
+bool gxfp_build_sleep(struct gxfp_target_packet *packet);
 bool gxfp_build_reg_write(uint16_t address, uint16_t value,
                           struct gxfp_target_packet *packet);
 bool gxfp_build_reg_read(uint16_t address, uint16_t len,
