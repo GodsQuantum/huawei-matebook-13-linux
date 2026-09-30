@@ -2943,3 +2943,17 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - No /dev/spidev1.0 process currently holds the device after restore.
 - No reboot performed; no enrollment changed.
 - Next human gate is the same validated rel66 test: manually deep S3 once, then first fingerprint after resume. Read logs before any further modification.
+
+
+## 2026-10-01 00:32 — rel66 S3 failure root cause corrected
+
+- The second rel66 failure was reproduced with exact package 1.94.100.goodix51a0-66.
+- Critical evidence: the 00:29:00 S3 had NO REL66_TRACE SLEEP before suspend. The first REL66_TRACE Windows deactivate SLEEP 0x60/01 00 acknowledged happened only at 00:29:39, after the post-resume capture had already failed with accepted GET_IMAGE + TLS image timeout and bounded recovery.
+- The previously successful rel66 S3 at 22:55 was not a clean counterexample: the sensor had been explicitly parked in Windows 0x60 sleep during the earlier live prewarm cycle at 21:50:20 and remained in that state until the 22:55 S3. After resume it successfully did WakeupMCU -> READY -> image 7/7.
+- Therefore the failure was caused by the runtime state introduced by our own rel66 restore: boot-prewarm had been disabled, and the package downgrade/restart left fprintd alive without the sensor being parked in the validated Windows sleep state before the next deep S3.
+- libfprint's current API confirms suspend/resume driver vfuncs are only called while an interactive action is running; they are not a universal device-idle lifecycle callback.
+- The package's existing boot-prewarm helper is therefore required for this ST411 lifecycle: Claim -> initialization -> D-Bus disconnect/Release -> driver Close -> Windows 0x60 SLEEP ACK.
+- Runtime correction applied: gxfp51a0-boot-prewarm.service is now ENABLED and was manually started successfully.
+- Verified at 00:32:31: WakeupMCU -> WARM_REBASE 1748 ms -> REL66_TRACE SLEEP 0x60/01 00 acknowledged; service exited cleanly; no process holds /dev/spidev1.0.
+- No code, package version, enrollment, GPIO policy, or kernel setting changed after the failed S3.
+- Next human gate: one deep S3 now that the sensor is explicitly parked in 0x60 sleep. Read logs before any further code change.
