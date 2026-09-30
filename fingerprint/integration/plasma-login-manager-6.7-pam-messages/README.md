@@ -11,7 +11,7 @@ Password PAM remains the normal `plasmalogin` stack and contains no
 `pam_fprintd`. Fingerprint auth uses `plasmalogin-fingerprint`:
 
 ```text
--auth required pam_fprintd.so max-tries=1 timeout=15
+-auth required pam_fprintd.so max-tries=1 timeout=30
 ```
 
 The GXFP51A0 driver owns its bounded physical-pose budget, so PAM launches one

@@ -116,6 +116,7 @@ struct _FpiDeviceGoodix51A0
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
+  gboolean      driverstate_attempted; /* Windows first-init Install is once per daemon lifetime */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -1774,6 +1775,7 @@ gx_read_fw_version (FpiDeviceGoodix51A0 *self, gchar *out, gsize cap)
 #define GX_CAPTURE_SCALE_MAX 300
 #define GX_CAPTURE_SCALE_STEP 50
 #define GX_CAPTURE_CLEAN_DECAY_STREAK 8
+#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
 
 /* Protocol timing is a controller/session characteristic, not biometric
  * evidence. Start every fresh fprintd process at Windows-nominal 100%, then
@@ -1902,7 +1904,14 @@ gx_tls_session (FpiDeviceGoodix51A0 *self)
   int att;
   gboolean diagnostic = g_getenv ("GXFP_DIAGNOSTIC_ONESHOT") != NULL;
   gboolean capture_diagnostic = g_getenv ("GXFP_DIAGNOSTIC_CAPTURE_ONCE") != NULL;
-  int max_attempts = capture_diagnostic ? 2 : (diagnostic ? 1 : 5);
+#define GX_TLS_SESSION_ATTEMPTS 3
+  /* Production already has a second, higher-level capture-context attempt that
+   * performs full reset+A8 recovery. Keeping five TLS retries inside each
+   * context made a bad post-S3 state spend tens of seconds repeating the same
+   * expensive handshake. Three preserves the observed successful second-try
+   * recovery while bounding the inner loop; the outer recovery remains intact. */
+  int max_attempts =
+    capture_diagnostic ? 2 : (diagnostic ? 1 : GX_TLS_SESSION_ATTEMPTS);
 
   if (self->tls_up)
     return TRUE;
@@ -2421,7 +2430,9 @@ gx_session_start (FpiDeviceGoodix51A0 *self)
       self->capture_retry_seen = FALSE;
       self->capture_pacing_suppressed = TRUE;
 
-      gx_gpio_reset (self);
+      fp_info ("GXFP51A0 FAST_RESUME active operation: reset+A8 before first TLS");
+      if (!gx_recover_capture_context (self))
+        return FALSE;
       self->force_cold_reset = FALSE;
 
       if (!gx_cold_prepare (self))
@@ -3738,7 +3749,6 @@ gx_transport_open (FpDevice *dev, GError **error)
 }
 
 #define GX_SLEEP_DELTA_STALE_US (250 * 1000)
-#define GX_WARM_IDLE_TTL_US (5 * 60 * G_USEC_PER_SEC)
 /* A completed Claim/Open may be followed immediately by another client Claim,
  * especially boot-prewarm -> login.  Re-running a background GET_IMAGE in that
  * narrow handoff window is redundant and can collide with a finger already
@@ -3936,11 +3946,27 @@ gx_cold_prepare (FpiDeviceGoodix51A0 *self)
   if (self->capture_gap_scale < GX_CAPTURE_SCALE_MIN)
     self->capture_gap_scale = GX_CAPTURE_SCALE_MIN;
 
-  if (!gx_driverstate_install_windows (self))
+  if (!self->driverstate_attempted)
     {
-      fp_info ("GXFP51A0: DriverState silent; applying reviewed Windows fallback reset");
-      gx_gpio_reset (self);
-      fp_warn ("GXFP51A0: continuing to init_MCU after DriverState fallback as Windows does");
+      gboolean driverstate_ok;
+
+      /* Goodix FP 1.1.141.36 invokes send_driver_install_to_MCU() on first
+       * initialization. It is not the init_MCU response gate, and Windows
+       * continues when SetDriverState(Install) is silent. Do this once per
+       * fprintd lifetime instead of paying repeated ACK windows on every
+       * S3/session rebuild. A daemon restart naturally restores first-init. */
+      self->driverstate_attempted = TRUE;
+      driverstate_ok = gx_driverstate_install_windows (self);
+      if (!driverstate_ok)
+        {
+          fp_info ("GXFP51A0: first-init DriverState silent; applying reviewed Windows fallback reset");
+          gx_gpio_reset (self);
+          fp_warn ("GXFP51A0: continuing to init_MCU after DriverState fallback as Windows does");
+        }
+    }
+  else
+    {
+      fp_info ("GXFP51A0 FAST_RESUME DriverState Install already attempted in this daemon; skipping first-init-only step");
     }
 
   if (gx_read_fw_version (self, fw, sizeof fw))
@@ -4039,22 +4065,22 @@ gx_dev_open (FpDevice *dev)
   gboolean cold_boundary_done = FALSE;
   gboolean slept = gx_warm_crossed_sleep (self);
   gboolean expired = gx_warm_idle_expired (self);
+  gboolean lifecycle_boundary = slept || expired || self->force_cold_reset;
+  gboolean hard_lifecycle_boundary = slept || self->force_cold_reset;
   gboolean had_warm = self->warm_valid || self->tls != NULL || self->tls_up;
 
-  /* An idle libfprint device may not receive the driver suspend vfunc.  Detect
-   * that case before reopening hardware handles, while stale TLS can still be
-   * discarded host-side without sending anything to the sensor. */
-  if (slept || expired || self->force_cold_reset)
+  /* rel55 proved that an awake context can still answer FDT/TLS validation
+   * after hours while its imaging quality has silently collapsed. Keep the
+   * rel56 five-minute quality bound. Only real S3 gets the proactive reset+A8
+   * fast-resume boundary; ordinary TTL expiry uses the normal cold reset. */
+  if (lifecycle_boundary)
     {
-      fp_info ("GXFP51A0 lifecycle/idle boundary detected; invalidating warm state");
+      fp_info ("GXFP51A0 lifecycle boundary detected; invalidating warm state");
       gx_warm_abandon (self);
       self->capture_recovery_pending = FALSE;
-      /* A dead S3 session is not evidence that the SPI controller needs slower
-       * capture pacing. Forget session-local adaptation; the next cold prepare
-       * restarts from the validated nominal 100% timing. */
       self->capture_gap_scale = 0;
       self->capture_clean_streak = 0;
-          self->capture_retry_seen = FALSE;
+      self->capture_retry_seen = FALSE;
       self->capture_pacing_suppressed = TRUE;
       had_warm = FALSE;
     }
@@ -4065,10 +4091,26 @@ gx_dev_open (FpDevice *dev)
       return;
     }
 
-  if (slept || expired || self->force_cold_reset)
+  if (hard_lifecycle_boundary)
+    {
+      /* Deep S3 destroys the MCU/TLS session. Use the already-validated full
+       * reset + Stage2E/A8 boundary before the first post-resume TLS attempt,
+       * rather than discovering this only after a failed handshake. */
+      fp_info ("GXFP51A0 FAST_RESUME establishing reset+A8 boundary before first post-lifecycle TLS");
+      if (!gx_recover_capture_context (self))
+        {
+          gx_transport_close (self);
+          fpi_device_open_complete (
+            dev, fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO,
+                                           "post-lifecycle reset/A8 recovery failed"));
+          return;
+        }
+      self->force_cold_reset = FALSE;
+      cold_boundary_done = TRUE;
+    }
+  else if (expired)
     {
       gx_gpio_reset (self);
-      self->force_cold_reset = FALSE;
       cold_boundary_done = TRUE;
     }
 
@@ -4349,6 +4391,7 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
   self->force_cold_reset = FALSE;
+  self->driverstate_attempted = FALSE;
 }
 
 

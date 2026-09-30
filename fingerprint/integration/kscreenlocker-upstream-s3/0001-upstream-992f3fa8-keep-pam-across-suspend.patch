@@ -1,6 +1,6 @@
 diff -U3 -r a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
 --- a/greeter/greeterapp.cpp	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/greeterapp.cpp	2026-09-30 01:10:57.863348947 +0200
++++ b/greeter/greeterapp.cpp	2026-09-30 02:44:36.059652701 +0200
 @@ -142,8 +142,14 @@
      noninteractive.push_back(
          std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
@@ -20,7 +20,7 @@ diff -U3 -r a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
 
 diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 --- a/greeter/pamauthenticator.cpp	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticator.cpp	2026-09-30 01:10:57.862742754 +0200
++++ b/greeter/pamauthenticator.cpp	2026-09-30 02:44:36.059856694 +0200
 @@ -12,6 +12,7 @@
  #include <QEventLoop>
  #include <QMetaMethod>
@@ -37,7 +37,7 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
      void startFailedDelay(uint useconds);
 
  Q_SIGNALS:
-@@ -211,6 +213,16 @@
+@@ -211,6 +213,20 @@
      Q_EMIT inAuthenticateChanged(m_inAuthenticate);
  }
 
@@ -48,13 +48,17 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 +    }
 +
 +    m_unavailable = false;
++    // PAM_AUTHINFO_UNAVAIL is a hardware-availability result, not a wrong
++    // credential. A resume is a new availability boundary, so do not carry
++    // the old transaction's fail-delay into this fresh fingerprint attempt.
++    m_nextAttemptAllowedTime = std::chrono::steady_clock::now();
 +    Q_EMIT unavailabilityChanged(m_unavailable);
 +}
 +
  void PamWorker::startFailedDelay(uint useconds)
  {
      m_nextAttemptAllowedTime = std::chrono::steady_clock::now() + std::chrono::microseconds(useconds);
-@@ -295,6 +307,9 @@
+@@ -295,6 +311,9 @@
      connect(d, &PamWorker::inAuthenticateChanged, this, [this](bool isInAuthenticate) {
          m_inAuthentication = isInAuthenticate;
          Q_EMIT availableChanged();
@@ -64,7 +68,7 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
      });
      connect(d, &PamWorker::unavailabilityChanged, this, [this](bool isUnavailable) {
          m_unavailable = isUnavailable;
-@@ -308,7 +323,20 @@
+@@ -308,7 +327,26 @@
      // Failed is not a persistent state. When a view provides authentication that will either result in failure or success,
      // failure simply means that the prompt is getting delayed.
      connect(d, &PamWorker::failed, this, &PamAuthenticator::failed);
@@ -73,6 +77,12 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 +        Q_EMIT loginFailedDelayStarted(uSecDelay);
 +
 +        if (!m_restartPending) {
++            return;
++        }
++
++        if (m_restartFromUnavailable) {
++            qCInfo(KSCREENLOCKER_GREET) << "Resume: ignoring stale fail-delay from unavailable noninteractive PAM"
++                                        << uSecDelay;
 +            return;
 +        }
 +
@@ -86,7 +96,7 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 
      m_thread.start();
      init(service, user);
-@@ -362,6 +390,43 @@
+@@ -362,6 +400,45 @@
      QMetaObject::invokeMethod(d, &PamWorker::authenticate);
  }
 
@@ -97,13 +107,14 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 +    }
 +
 +    m_restartPending = false;
++    m_restartFromUnavailable = false;
 +    m_unlocked = false;
 +
 +    PamWorker *worker = d;
 +    QMetaObject::invokeMethod(worker, [worker] {
 +        // PAM_AUTHINFO_UNAVAIL is sticky in PamWorker by design. A resume is a
-+        // new hardware-availability boundary, so clear only that latch before
-+        // starting a fresh noninteractive authentication attempt.
++        // new hardware-availability boundary, so clear that latch and its
++        // inherited fail-delay before starting a fresh noninteractive attempt.
 +        worker->resetUnavailable();
 +        worker->authenticate();
 +    });
@@ -113,6 +124,7 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
 +{
 +    m_unlocked = false;
 +    m_restartPending = true;
++    m_restartFromUnavailable = m_unavailable;
 +
 +    qCInfo(KSCREENLOCKER_GREET) << "Restarting PAM authenticator after resume" << qUtf8Printable(m_service)
 +                                << "active=" << m_inAuthentication << "unavailable=" << m_unavailable;
@@ -132,7 +144,7 @@ diff -U3 -r a/greeter/pamauthenticator.cpp b/greeter/pamauthenticator.cpp
      QMetaObject::invokeMethod(
 diff -U3 -r a/greeter/pamauthenticator.h b/greeter/pamauthenticator.h
 --- a/greeter/pamauthenticator.h	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticator.h	2026-09-30 01:10:57.862450062 +0200
++++ b/greeter/pamauthenticator.h	2026-09-30 02:44:36.059753120 +0200
 @@ -69,6 +69,7 @@
 
  public Q_SLOTS:
@@ -149,18 +161,19 @@ diff -U3 -r a/greeter/pamauthenticator.h b/greeter/pamauthenticator.h
 
      const std::vector<std::pair<QMetaMethod, const QString &>> m_signalsToMembers;
      // NOTE Don't forget to reset in cancel as necessary
-@@ -89,6 +91,8 @@
+@@ -89,6 +91,9 @@
      bool m_unlocked = false;
      bool m_inAuthentication = false;
      bool m_unavailable = false;
 +    bool m_restartPending = false;
 +    bool m_restartDelayActive = false;
++    bool m_restartFromUnavailable = false;
      NoninteractiveAuthenticatorTypes m_authenticatorType;
      QThread m_thread;
      PamWorker *d;
 diff -U3 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
 --- a/greeter/pamauthenticators.cpp	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticators.cpp	2026-09-30 01:10:57.863066747 +0200
++++ b/greeter/pamauthenticators.cpp	2026-09-30 02:44:36.059970379 +0200
 @@ -153,6 +153,24 @@
      setState(AuthenticatorsState::Authenticating);
  }
@@ -188,7 +201,7 @@ diff -U3 -r a/greeter/pamauthenticators.cpp b/greeter/pamauthenticators.cpp
      qCDebug(KSCREENLOCKER_GREET) << "PamAuthenticators: stopping authenticators";
 diff -U3 -r a/greeter/pamauthenticators.h b/greeter/pamauthenticators.h
 --- a/greeter/pamauthenticators.h	2026-09-08 12:53:02.000000000 +0200
-+++ b/greeter/pamauthenticators.h	2026-09-30 01:10:57.862909833 +0200
++++ b/greeter/pamauthenticators.h	2026-09-30 02:44:36.059909370 +0200
 @@ -50,6 +50,8 @@
      Q_INVOKABLE void startAuthenticating();
      Q_INVOKABLE void stopAuthenticating();

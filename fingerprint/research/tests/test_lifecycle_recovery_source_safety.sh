@@ -20,7 +20,6 @@ def fn(name):
 
 sleep=fn("gx_sleep_delta_us")
 cross=fn("gx_warm_crossed_sleep")
-idle=fn("gx_warm_idle_expired")
 abandon=fn("gx_warm_abandon")
 warm=fn("gx_warm_validate")
 open_=fn("gx_dev_open")
@@ -42,15 +41,15 @@ assert "!self->warm_sleep_clock_valid" in cross
 assert "now - self->warm_sleep_delta_us > GX_SLEEP_DELTA_STALE_US" in cross
 assert "sleep boundary detected" in cross
 
-# A warm session is an optimization, never a permanent trust boundary. A
-# context left unused for five minutes is rebuilt before any sensor traffic.
+# The rel56 five-minute quality bound is retained. rel55 showed that an
+# hours-old awake context may pass FDT/TLS validation while imaging scores collapse.
+idle=fn("gx_warm_idle_expired")
 assert "GX_WARM_IDLE_TTL_US" in s
 assert "5 * 60 * G_USEC_PER_SEC" in s
 assert "warm_last_activity_us" in idle
-assert "warm context idle for %d s; forcing cold rebuild" in idle
 assert "gx_warm_idle_expired (self)" in open_
-assert open_.index("gx_warm_idle_expired (self)") < open_.index("gx_transport_open")
-assert "slept || expired || self->force_cold_reset" in open_
+assert "lifecycle_boundary = slept || expired || self->force_cold_reset" in open_
+assert "hard_lifecycle_boundary = slept || self->force_cold_reset" in open_
 
 # Stale sensor-side TLS must be abandoned host-side, not close-notified.
 assert "gx_tls_teardown" not in abandon
@@ -77,11 +76,14 @@ failed=open_.split("warm context failed full readiness validation",1)[1]
 assert "gx_warm_abandon (self)" in failed
 assert "gx_warm_discard (self)" not in failed.split("else if",1)[0]
 
-# Idle-suspend detection runs before opening hardware handles and resets any
-# session-local capture pacing escalation caused by the dead S3 session.
+# Sleep detection runs before opening hardware handles. A true lifecycle
+# boundary uses the validated reset+A8 recovery primitive before the first TLS
+# attempt, instead of waiting for one failed post-S3 handshake.
 assert "gx_warm_crossed_sleep (self)" in open_
 assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_open")
-assert "gx_gpio_reset (self)" in open_
+assert "gx_recover_capture_context (self)" in open_
+assert "FAST_RESUME establishing reset+A8 boundary" in open_
+assert open_.index("gx_recover_capture_context (self)") < open_.index("gx_cold_prepare (self)")
 assert "self->capture_gap_scale = 0" in open_
 
 # For an active action, upstream libfprint requires an error when the action

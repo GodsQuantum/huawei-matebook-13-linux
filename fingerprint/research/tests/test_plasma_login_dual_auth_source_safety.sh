@@ -9,7 +9,7 @@ p8="$i/0008-continuous-fingerprint-availability.patch"
 p9="$i/0009-fix-retry-timer-qml-ownership.patch"
 pkg="$i/PKGBUILD"
 
-grep -Fq 'pkgrel=3.8' "$pkg"
+grep -Fq 'pkgrel=3.9' "$pkg"
 grep -Fq '0005-split-fingerprint-password-auth.patch' "$pkg"
 grep -Fq '0006-fingerprint-password-preemption.patch' "$pkg"
 grep -Fq '0007-parallel-password-fingerprint-auth.patch' "$pkg"
@@ -22,7 +22,7 @@ grep -Fq 'diff --git a/data/pam/arch/plasmalogin-fingerprint' "$p5"
 grep -Fq '+-auth      required     pam_fprintd.so max-tries=3 timeout=12' "$p5"
 
 # The driver owns its bounded 3-pose budget: PAM launches one fingerprint op.
-grep -Fq 'pam_fprintd.so max-tries=1 timeout=15' "$p6"
+grep -Fq 'pam_fprintd.so max-tries=1 timeout=30' "$p6"
 
 # PLM 3.6 follows KDE's multi-authenticator shape: two independent Auth workers,
 # one shared session context, and first successful authenticator wins.

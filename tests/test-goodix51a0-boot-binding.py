@@ -88,7 +88,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=60" in pkgbuild
+assert "pkgrel=62" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "systemd/system-sleep/gxfp51a0-resume-prewarm" not in pkgbuild
@@ -116,7 +116,7 @@ plm_patch4 = PLM_PATCH4.read_text()
 plm_patch5 = PLM_PATCH5.read_text()
 plm_patch9 = PLM_PATCH9.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.8" in plm_pkgbuild
+assert "pkgrel=3.9" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild
