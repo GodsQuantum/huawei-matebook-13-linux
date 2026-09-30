@@ -2851,3 +2851,31 @@ Next human gate:
 - report rel61 S3 OK or rel61 S3 échoué;
 - inspect for new rel61 PAM restart markers AND new fprintd/GXFP51A0 entries
   after resume before changing anything else.
+
+## 16. Update 2026-09-30 — rel65 clean resume
+
+Cette section remplace les stratégies rel62–64 pour la reprise S3.
+
+- rel64 deep S3 humain: **FAIL**, malgré `S3_TRACE`, reset+A8 pré-TLS et DriverState rejoué.
+- après READY, vraies images encore 2–4/7: l'hypothèse de reconditionnement in-place est abandonnée.
+- rel65 repart du commit driver rel61 humain-validé `0e8a50a` qui a donné **20/7** après deep S3.
+- rel65 ne reprend PAS les optimisations driver rel62–64.
+- nouvelle règle: un S3 invalide toute action/session d'image active.
+- suspend: action parkée, `fpi_device_suspend_complete(dev,NULL)`, aucune cancellation pendant l'état suspended.
+- resume: `fpi_device_resume_complete(dev,NULL)` d'abord, puis cancellation de l'action parkée.
+- fprintd peut alors Release/Close et le prochain PAM Claim obtient un vrai Open + cold prepare complet rel61.
+- fallback BOOTTIME/MONOTONIC: termine aussi l'action stale au lieu d'un rebuild GX_ST_SESSION in-place.
+- l'epoch S3 reste RAM-only et survit à warm_abandon.
+- kscreenlocker 6.7.5-1.5 et plasma-login-manager 6.7.5-3.9 sont conservés dans la branche.
+- boot-prewarm reste présent mais n'est plus auto-lié à graphical.target.
+- package: `libfprint-goodix51a0-1.94.100.goodix51a0-65-x86_64.pkg.tar.zst`
+- SHA256: `7a6fef3eac19700f0e84e9885c0a7159647f2b064cce32a9b0c0a7557e67e909`
+- suite complète, boot binding, full Meson/Ninja et artifact gates: PASS.
+- handoff détaillé: `fingerprint/handoff/HANDOFF_2026-09-30_REL65_CLEAN_RESUME.md`.
+
+Recherche récente pertinente:
+- berkekbgz/libfprint-goodix-spi: cold-open ImageBase/FDT refresh + suspend park + resume-complete avant cancel; hardware suspend/resume gates pass.
+- AndyHazz/goodix53x5-libfprint: sleep => needs_reinit + full open-time reinit.
+- Windows Goodix D0Entry: transition D3/resume retourne dans startup/init.
+
+Prochain gate: installer rel65 puis un deep S3 humain; ne rien optimiser davantage avant de retrouver d'abord une vraie image >=7.

@@ -88,9 +88,10 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=60" in pkgbuild
+assert "pkgrel=65" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
+assert "graphical.target.wants/gxfp51a0-boot-prewarm.service" not in pkgbuild
 assert "systemd/system-sleep/gxfp51a0-resume-prewarm" not in pkgbuild
 assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" not in pkgbuild
 assert "gxfp51a0-kde-lockscreen-integrate" in pkgbuild
@@ -98,11 +99,14 @@ assert "90-gxfp51a0-kde-lockscreen.hook" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
 
 assert "gx_active_sleep_recovery" in driver
-assert "active S3 boundary detected during authentication" in driver
+assert "S3_CLEAN fallback" in driver
 assert "gx_cold_prepare (self)" in driver
 suspend_block = driver[driver.index("gx_dev_suspend"):driver.index("gx_dev_resume")]
-assert "FP_DEVICE_ERROR_NOT_SUPPORTED" in suspend_block
-assert "fpi_device_suspend_complete" in suspend_block
+resume_block = driver[driver.index("gx_dev_resume"):driver.index("gx_verify_done")]
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend_block
+assert "fpi_device_suspend_complete (dev, NULL)" in suspend_block
+assert "g_cancellable_cancel" in resume_block
+assert resume_block.index("fpi_device_resume_complete (dev, NULL)") < resume_block.index("g_cancellable_cancel")
 assert "fpi_device_critical_enter" not in driver
 assert "resume_bg_frame" not in driver
 assert "GOODIX_CMD_SLEEP" not in driver
@@ -116,7 +120,7 @@ plm_patch4 = PLM_PATCH4.read_text()
 plm_patch5 = PLM_PATCH5.read_text()
 plm_patch9 = PLM_PATCH9.read_text()
 assert "pkgver=6.7.5" in plm_pkgbuild
-assert "pkgrel=3.8" in plm_pkgbuild
+assert "pkgrel=3.9" in plm_pkgbuild
 assert "0001-show-pam-authentication-messages.patch" in plm_pkgbuild
 assert "0002-stop-notification-timer-for-pam-message.patch" in plm_pkgbuild
 assert "0003-enable-fprintd-for-plasmalogin.patch" in plm_pkgbuild

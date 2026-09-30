@@ -6,7 +6,7 @@ pkg="$p/PKGBUILD"
 patch="$p/0001-upstream-992f3fa8-keep-pam-across-suspend.patch"
 
 grep -Fq 'pkgver=6.7.5' "$pkg"
-grep -Fq 'pkgrel=1.4' "$pkg"
+grep -Fq 'pkgrel=1.5' "$pkg"
 
 # Password PAM must never be cancelled by suspend/resume handling.
 grep -Fq -- '-        m_authenticators->cancel();' "$patch"
@@ -30,9 +30,14 @@ grep -Fq 'runPendingRestart();' "$patch"
 grep -Fq 'void PamWorker::resetUnavailable()' "$patch"
 grep -Fq 'worker->resetUnavailable();' "$patch"
 grep -Fq 'worker->authenticate();' "$patch"
+grep -Fq 'm_nextAttemptAllowedTime = std::chrono::steady_clock::now();' "$patch"
 
-# Respect PAM fail-delay; no polling/heartbeat workaround.
+# Real authentication failures keep PAM fail-delay. Only a resume restart whose
+# previous result was hardware-unavailable may ignore the stale inherited delay.
 grep -Fq 'm_restartDelayActive = true' "$patch"
+grep -Fq 'm_restartFromUnavailable = m_unavailable' "$patch"
+grep -Fq 'if (m_restartFromUnavailable)' "$patch"
+grep -Fq 'ignoring stale fail-delay from unavailable noninteractive PAM' "$patch"
 grep -Fq 'QTimer::singleShot(delay' "$patch"
 ! grep -Fq 'heartbeat' "$patch"
 ! grep -Fq 'power/control' "$patch"

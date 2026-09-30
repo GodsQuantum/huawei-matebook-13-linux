@@ -4,7 +4,7 @@
 pkgname=kscreenlocker
 pkgver=6.7.5
 _dirver=$(echo $pkgver | cut -d. -f1-3)
-pkgrel=1.4
+pkgrel=1.5
 pkgdesc='Library and components for secure lock screen architecture'
 arch=(x86_64)
 url='https://kde.org/plasma-desktop/'
@@ -47,7 +47,7 @@ source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz{
         kde-smartcard.pam)
 sha256sums=('6c41ce2cb79d2b85d4fbe5a3a61c09e40c70e5a869ae6f0352c7e1cb3b44606b'
             'SKIP'
-            'db65c064f3018368cd76e3947abac85dab636b267ef32463450deb5edb20aaa6'
+            'e85ff3e9e2b4a6da8454e787f6b4592534c3e68000d504556ad87f5ad814ce4b'
             'adba7bb7c27eb3a572e5e9d3cea0dbeebe59d3634472d1863d14fe892cb13b2b'
             '32734b4e1ec8b7f7e32b6cb2d68285c5c4f15f53736bba085096e76095181241'
             '5d9c31cbf66e8e455b9559c929f184efd598f714743d5a1e6ce20adb44dc4b2d')
@@ -77,6 +77,9 @@ prepare() {
   grep -Fq 'worker->resetUnavailable();' greeter/pamauthenticator.cpp
   grep -Fq 'worker->authenticate();' greeter/pamauthenticator.cpp
   grep -Fq 'm_restartDelayActive' greeter/pamauthenticator.cpp
+  grep -Fq 'm_restartFromUnavailable' greeter/pamauthenticator.cpp
+  grep -Fq 'ignoring stale fail-delay from unavailable noninteractive PAM' greeter/pamauthenticator.cpp
+  grep -Fq 'm_nextAttemptAllowedTime = std::chrono::steady_clock::now();' greeter/pamauthenticator.cpp
   grep -Fq 'QTimer::singleShot' greeter/pamauthenticator.cpp
   grep -Fq 'void restartAuthentication();' greeter/pamauthenticator.h
 }

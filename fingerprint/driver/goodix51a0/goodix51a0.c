@@ -114,8 +114,9 @@ struct _FpiDeviceGoodix51A0
   gboolean      warm_valid;       /* TLS/background/FDT retained across fp_device close */
   gint64        warm_last_activity_us; /* monotonic time of last validated sensor activity */
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
-  gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
+  gboolean      warm_sleep_clock_valid; /* process-local lifecycle baseline; survives warm-state discard */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
+  GCancellable *suspend_action_cancellable; /* parked action cancelled only after resume completes */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -3009,18 +3010,26 @@ gx_active_sleep_recovery (FpDevice *dev, FpiSsm *ssm)
   if (!gx_warm_crossed_sleep (self))
     return FALSE;
 
-  fp_warn ("GXFP51A0 active S3 boundary detected during authentication; "
-           "scheduling native cold recovery");
+  fp_warn ("GXFP51A0 S3_CLEAN fallback: sleep boundary detected inside active "
+           "authentication; terminating stale action for fresh Claim/Open");
   self->force_cold_reset = TRUE;
   self->capture_recovery_pending = FALSE;
   self->capture_gap_scale = 0;
   self->capture_clean_streak = 0;
   self->capture_retry_seen = FALSE;
   self->capture_pacing_suppressed = TRUE;
+  self->warm_valid = FALSE;
+  self->production_ready = FALSE;
 
+  /* Never rebuild the post-S3 imaging session in place. Hardware-validated
+   * contemporary Goodix drivers treat sleep as a cold boundary. Failing this
+   * stale action lets fprintd Release/Close it; the next PAM Claim then gets a
+   * real device Open and the rel61-proven full cold calibration path. */
   fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
   self->poll_id = 0;
-  fpi_ssm_jump_to_state (ssm, GX_ST_SESSION);
+  fpi_ssm_mark_failed (ssm,
+                       g_error_new (G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                                    "S3 boundary requires fresh device open"));
   return TRUE;
 }
 
@@ -3815,8 +3824,9 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->tls_rxpos = 0;
   self->tls_up = FALSE;
   self->warm_last_activity_us = 0;
-  self->warm_sleep_delta_us = 0;
-  self->warm_sleep_clock_valid = FALSE;
+  /* Sleep epoch is process-local lifecycle evidence, not part of the warm TLS
+   * context. Keep it when abandoning sensor state so an idle/failed Claim
+   * before suspend cannot hide the subsequent S3 boundary. */
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -4158,27 +4168,43 @@ static void
 gx_dev_suspend (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  GCancellable *action_cancellable = fpi_device_get_cancellable (dev);
 
-  /* The ST411 does not preserve TLS/FDT state across S3, so an interactive
-   * action cannot safely continue after resume.  libfprint explicitly asks
-   * such drivers to return NOT_SUPPORTED: it cancels the current action before
-   * forwarding the suspend result to fprintd, which accepts this condition. */
+  /* S3 is a hard imaging boundary. Park the current action while libfprint is
+   * suspended, but do NOT fail/cancel it yet: completing suspend with an error
+   * can make fprintd try to Close while libfprint still rejects Close on a
+   * suspended device. This mirrors the validated clean-resume architecture of
+   * current Goodix SPI drivers. */
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
-  fp_info ("GXFP51A0 suspend: cancelling active action; cold reset required after resume");
-  fpi_device_suspend_complete (
-    dev, fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED));
+  self->have_fdt = FALSE;
+  self->capture_recovery_pending = FALSE;
+
+  g_clear_object (&self->suspend_action_cancellable);
+  if (action_cancellable)
+    self->suspend_action_cancellable = g_object_ref (action_cancellable);
+
+  fp_warn ("GXFP51A0 S3_CLEAN suspend: parked action; fresh Open required after resume");
+  fpi_device_suspend_complete (dev, NULL);
 }
 
 static void
 gx_dev_resume (FpDevice *dev)
 {
-  /* If libfprint cancelled the action, the following Claim/Open sees
-   * force_cold_reset. If a desktop kept an already-open action alive, the
-   * BOOTTIME-vs-MONOTONIC poll guard detects the same S3 boundary and jumps
-   * through GX_ST_SESSION for an in-operation cold rebuild. */
+  FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  g_autoptr(GCancellable) action_cancellable =
+    g_steal_pointer (&self->suspend_action_cancellable);
+
+  /* Clear libfprint's suspended state FIRST. Then cancel the parked biometric
+   * action so fprintd can Release/Close normally. The next PAM Claim gets a
+   * fresh gx_dev_open(), full rel61 cold init/TLS/background/FDT calibration,
+   * and never inherits post-S3 imaging state. Password PAM is untouched. */
   fpi_device_resume_complete (dev, NULL);
+  fp_warn ("GXFP51A0 S3_CLEAN resume complete; cancelling parked action for fresh Claim/Open");
+
+  if (action_cancellable)
+    g_cancellable_cancel (action_cancellable);
 }
 
 
@@ -4347,8 +4373,10 @@ fpi_device_goodix51a0_init (FpiDeviceGoodix51A0 *self)
   self->capture_recovery_pending = FALSE;
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
-  self->warm_sleep_clock_valid = FALSE;
+  self->warm_sleep_clock_valid =
+    gx_sleep_delta_us (&self->warm_sleep_delta_us);
   self->force_cold_reset = FALSE;
+  self->suspend_action_cancellable = NULL;
 }
 
 
@@ -4378,6 +4406,7 @@ fpi_device_goodix51a0_finalize (GObject *object)
         }
     }
 
+  g_clear_object (&self->suspend_action_cancellable);
   if (self->force_cold_reset)
     gx_warm_abandon (self);
   else

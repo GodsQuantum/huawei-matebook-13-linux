@@ -35,9 +35,10 @@ assert "#define GX_SLEEP_DELTA_STALE_US (250 * 1000)" in s
 assert "warm_sleep_clock_valid" in crossed
 assert "!self->warm_valid" not in crossed
 assert "gx_warm_crossed_sleep (self)" in active
-assert "active S3 boundary detected during authentication" in active
+assert "S3_CLEAN fallback" in active
 assert "self->force_cold_reset = TRUE" in active
-assert "fpi_ssm_jump_to_state (ssm, GX_ST_SESSION)" in active
+assert "fpi_ssm_mark_failed" in active
+assert "fpi_ssm_jump_to_state (ssm, GX_ST_SESSION)" not in active
 assert "gx_active_sleep_recovery (dev, ssm)" in poll_on
 assert "gx_active_sleep_recovery (dev, ssm)" in poll_off
 
@@ -46,15 +47,17 @@ assert "gx_warm_abandon (self)" in session
 assert "gx_gpio_reset (self)" in session
 assert "gx_cold_prepare (self)" in session
 assert "return gx_wakeup_mcu (self)" in session
-assert "self->capture_gap_scale = 0" in session
-assert "self->capture_pacing_suppressed = TRUE" in session
 
 assert "self->force_cold_reset = TRUE" in suspend
-assert "fpi_device_suspend_complete" in suspend
-assert "BOOTTIME-vs-MONOTONIC poll guard" in resume
+assert "suspend_action_cancellable" in suspend
+assert "fpi_device_suspend_complete (dev, NULL)" in suspend
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend
+assert "fpi_device_resume_complete (dev, NULL)" in resume
+assert "g_cancellable_cancel" in resume
+assert resume.index("fpi_device_resume_complete (dev, NULL)") < resume.index("g_cancellable_cancel")
 PY2
 
-grep -Fq 'pkgrel=60' "$pkg"
+grep -Fq 'pkgrel=65' "$pkg"
 ! grep -Fq 'integration/resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$pkg"
 ! grep -Fq 'systemd/system-sleep/gxfp51a0-resume-prewarm' "$arch"
