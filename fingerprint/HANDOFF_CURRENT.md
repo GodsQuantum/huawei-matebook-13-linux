@@ -2957,3 +2957,20 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - Verified at 00:32:31: WakeupMCU -> WARM_REBASE 1748 ms -> REL66_TRACE SLEEP 0x60/01 00 acknowledged; service exited cleanly; no process holds /dev/spidev1.0.
 - No code, package version, enrollment, GPIO policy, or kernel setting changed after the failed S3.
 - Next human gate: one deep S3 now that the sensor is explicitly parked in 0x60 sleep. Read logs before any further code change.
+
+
+## 2026-10-01 01:03 — rel70 daemon sleep boundary
+
+- The second rel66 S3 failure disproves the hypothesis that boot-prewarm alone is a sufficient S3 lifecycle boundary.
+- The exact rel66 driver remained installed; the 00:53:59 S3 occurred with the same package and the fprintd process survived across suspend/resume.
+- Fresh research found a current CachyOS 2026 workaround for KDE fingerprint wake races: stop fprintd before sleep.target and start it after resume. systemd.special(7) documents this exact combined sleep.target oneshot pattern.
+- Reconstruction keeps exact rel66 driver c149ac5 and adds only `gxfp51a0-fprintd-suspend.service` around fprintd.
+- Before sleep: systemd stops fprintd, forcing rel66 gx_dev_close() and its Windows 0x60/01 00 ACK boundary.
+- After resume: the sleep hook starts a fresh fprintd process, eliminating stale daemon/action/session state across S3.
+- Boot-prewarm remains enabled for boot readiness, but is no longer treated as the S3 recovery mechanism.
+- rel70 package installed successfully: 1.94.100.goodix51a0-70.
+- Package SHA256: af756911bb1f4f209df65f818b99c8cf9b9a73adf5918ecf03f872d81d86ed6a.
+- Installed libfprint SHA256 remains ca4f987310656c4e96733132fccfbe0ea0410b9ec8e1d2295b3a42df00fe7410, so the driver binary itself is unchanged from rel66.
+- Source lifecycle test, systemd-analyze verify, reproducible build and artifact gates all PASS.
+- No reboot, no re-enrollment, no matcher/threshold change.
+- Human gate: one manual deep S3 on installed rel70; inspect logs before any further code modification.

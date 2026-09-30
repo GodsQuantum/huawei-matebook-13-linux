@@ -44,9 +44,17 @@ assert open_.index("gx_wakeup_mcu (self)") < open_.index("gx_warm_validate (self
 assert "self->sensor_sleeping = FALSE" in wake
 assert "self->sensor_sleeping = FALSE" in abandon
 
-# Do not turn this into an external S3 hook or an in-suspend protocol experiment.
-assert "gx_sensor_sleep (self)" not in suspend
+# Do not add a legacy system-sleep script: systemd's sleep.target ordering is the supported boundary.
 assert "system-sleep" not in s
 PY
 
-echo 'test_sleep_lifecycle_source_safety: OK (Windows deactivate sleep + wake)'
+# The daemon boundary is deliberate: stop fprintd before sleep, start it after resume.
+sleep_unit="$root/integration/systemd/gxfp51a0-fprintd-suspend.service"
+test -f "$sleep_unit"
+grep -Fq 'Before=sleep.target' "$sleep_unit"
+grep -Fq 'StopWhenUnneeded=yes' "$sleep_unit"
+grep -Fq 'RemainAfterExit=yes' "$sleep_unit"
+grep -Fq 'ExecStart=/usr/bin/systemctl stop fprintd.service' "$sleep_unit"
+grep -Fq 'ExecStop=/usr/bin/systemctl start fprintd.service' "$sleep_unit"
+
+echo 'test_sleep_lifecycle_source_safety: OK (Windows deactivate sleep + daemon boundary)'
