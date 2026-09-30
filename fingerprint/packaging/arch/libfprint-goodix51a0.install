@@ -1,4 +1,5 @@
 pre_remove() {
+  systemctl disable --now gxfp51a0-boot-prewarm.service 2>/dev/null || true
   if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
     /usr/libexec/gxfp51a0-kde-lockscreen-integrate --remove || true
   fi
@@ -14,7 +15,13 @@ post_install() {
   # These files contain no biometric/secret material and are obsolete.
   rm -f /var/lib/fprint/.goodix51a0-timing         /var/lib/fprint/.goodix51a0-capture-timing
   systemctl daemon-reload || true
-  systemctl restart --no-block fprintd.service || true
+  # rel68: a cold boot/package restart can leave the ST411 idle without ever
+  # traversing libfprint Close(), so it would miss the Windows-style 0x60 sleep
+  # boundary that made rel66 S3 reliable. Keep this as a one-shot only: make
+  # fprintd ready, Claim once, then bus disconnect triggers Close -> SLEEP ACK.
+  systemctl enable gxfp51a0-boot-prewarm.service >/dev/null 2>&1 || true
+  systemctl restart fprintd.service || true
+  systemctl start gxfp51a0-boot-prewarm.service || true
   if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
     /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply || true
   fi

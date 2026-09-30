@@ -4,6 +4,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 h="$root/integration/boot-prewarm/gxfp51a0-boot-prewarm"
 u="$root/integration/boot-prewarm/gxfp51a0-boot-prewarm.service"
 p="$root/packaging/arch/PKGBUILD"
+i="$root/packaging/arch/libfprint-goodix51a0.install"
 
 grep -Fq 'GXFP51A0' "$h"
 grep -Fq 'GetDefaultDevice' "$h"
@@ -20,5 +21,9 @@ grep -Fq 'TimeoutStartSec=55s' "$u"
 
 grep -Fq 'gxfp51a0-boot-prewarm' "$p"
 ! grep -Fq 'graphical.target.wants/gxfp51a0-boot-prewarm.service' "$p"
+grep -Fq 'systemctl enable gxfp51a0-boot-prewarm.service' "$i"
+grep -Fq 'systemctl restart fprintd.service' "$i"
+grep -Fq 'systemctl start gxfp51a0-boot-prewarm.service' "$i"
+grep -Fq 'systemctl disable --now gxfp51a0-boot-prewarm.service' "$i"
 
 echo 'test_boot_prewarm_source_safety: OK'

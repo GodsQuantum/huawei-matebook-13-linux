@@ -2963,3 +2963,23 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - SHA256: `e883cdcf772269b04e69537b1ed8d8efd04bb1393ed49ed2dada8007ddf2e6da`.
 - rel67 n'est PAS baseline tant qu'un lock/unlock normal puis un deep S3 ne sont pas validés.
 - handoff: `fingerprint/handoff/HANDOFF_2026-09-30_REL67_SLEEP_QUIESCE_CANDIDATE.md`.
+
+## 20. Update 2026-09-30 — rel68 automatic prewarm/sleep
+
+- rel67 S3 human test failed with scores 3–4/7, but **no SLEEP 0x60 ACK existed before the suspend**.
+- fprintd had deactivated at 23:15:14; suspend entered 23:18:16 without the sensor ever traversing rel67 Close().
+- validated rel66 S3 had a prewarm-generated SLEEP ACK before suspend and unlocked first image 7/7.
+- live proof: manual boot-prewarm under rel67 produced SLEEP ACK at 23:24:58.299.
+- rel68 changes packaging lifecycle only; driver is unchanged from rel67.
+- post-install/post-upgrade now explicitly:
+  - enables gxfp51a0-boot-prewarm.service;
+  - synchronously restarts fprintd;
+  - starts the one-shot prewarm.
+- at boot graphical.target also runs the one-shot before display-manager.
+- one-shot exits after Claim/Release/Close; no periodic activity, no system-sleep hook, no heartbeat.
+- package-owned hidden wants symlink remains absent; systemd enablement is explicit/truthful.
+- pre-remove disables the one-shot cleanly.
+- package: `libfprint-goodix51a0-1.94.100.goodix51a0-68-x86_64.pkg.tar.zst`
+- SHA256: `dc4e28f032d4dd2c5844ed49522bee56327bd473979bf8abc34e5fba3feac32e`
+- full tests + boot binding + Meson/Ninja + artifact gates: PASS.
+- detailed handoff: `fingerprint/handoff/HANDOFF_2026-09-30_REL68_AUTOPREWARM_SLEEP.md`.

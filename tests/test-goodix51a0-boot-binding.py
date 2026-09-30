@@ -88,7 +88,7 @@ assert "gxfp51a0-spidev-bind" not in dropin
 
 pkgbuild = PKGBUILD.read_text()
 pkginstall = PKGINSTALL.read_text()
-assert "pkgrel=67" in pkgbuild
+assert "pkgrel=68" in pkgbuild
 assert "install=libfprint-goodix51a0.install" in pkgbuild
 assert "graphical.target.wants/fprintd.service" in pkgbuild
 assert "graphical.target.wants/gxfp51a0-boot-prewarm.service" not in pkgbuild
@@ -97,6 +97,10 @@ assert "timers.target.wants/gxfp51a0-warm-keepalive.timer" not in pkgbuild
 assert "gxfp51a0-kde-lockscreen-integrate" in pkgbuild
 assert "90-gxfp51a0-kde-lockscreen.hook" in pkgbuild
 assert "gxfp51a0-spidev-bind" not in pkgbuild
+assert "systemctl enable gxfp51a0-boot-prewarm.service" in pkginstall
+assert "systemctl restart fprintd.service" in pkginstall
+assert "systemctl start gxfp51a0-boot-prewarm.service" in pkginstall
+assert "systemctl disable --now gxfp51a0-boot-prewarm.service" in pkginstall
 
 assert "gx_active_sleep_recovery" in driver
 assert "S3_CLEAN fallback" in driver
@@ -152,7 +156,8 @@ assert "property Timer fingerprintRetryTimer: Timer {" in plm_patch9
 assert "-    Timer {" in plm_patch9
 assert "udevadm control --reload" in pkginstall
 assert "udevadm trigger --subsystem-match=spi" in pkginstall
-assert "systemctl restart --no-block fprintd.service" in pkginstall
+assert "systemctl restart fprintd.service" in pkginstall
+assert "systemctl restart --no-block fprintd.service" not in pkginstall
 assert "gxfp51a0-kde-lockscreen-integrate --apply" in pkginstall
 assert "systemctl stop gxfp51a0-warm-keepalive.timer" in pkginstall
 assert "systemctl start --no-block gxfp51a0-warm-keepalive.service" not in pkginstall
