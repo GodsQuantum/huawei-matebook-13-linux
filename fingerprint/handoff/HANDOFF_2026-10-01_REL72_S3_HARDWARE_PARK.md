@@ -589,6 +589,54 @@ Interpretation of the next A/B result:
   the issue; next isolation step is restoring stock fprintd 1.94.5-2.1 and/or
   classifying persistent sensor/runtime state before any new driver work
 
+## 15E. A/B RESULT + FULL KNOWN-GOOD USERSPACE RESTORE
+
+Human result:
+- `A/B rel71 lock échoué`
+
+Exact A/B runtime during that failed test:
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- exact historical rel71 libfprint SHA256:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- BUT the running daemon was still the already-running fprintd-72 process,
+  PID 149390 started at 13:01:27
+- pacman package replacement alone had not restarted the daemon
+
+Observed failure:
+- target ACK misses again escalated session timing 100% -> 300%
+- first genuine pose: 5/7 -> 4/7 -> 3/7
+- later genuine captures remained <=4/7 or hit the quality gate
+- therefore the rel72 libfprint delta alone is NOT sufficient to explain the
+  current low-quality state
+
+Important correction:
+- after downgrading the fprintd package to CachyOS stock 1.94.5-2.1, the old
+  fprintd-72 process remained alive
+- fprintd was then explicitly restarted at 14:20:38 CEST
+- new PID: 169734
+- /proc/169734/exe SHA256 exactly matches on-disk stock /usr/lib/fprintd:
+  db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63
+
+Current live known-good userspace stack:
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- libfprint SHA256:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- fprintd 1.94.5-2.1 from signed CachyOS cache package
+- fprintd live SHA256:
+  db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63
+- all three enrollments intact
+- D-Bus device idle: finger-needed=false, finger-present=false
+- gxfp51a0-fprintd-suspend.service disabled
+- sleep.target has no fingerprint Wants dependency
+- no S3/reboot/re-enrollment performed
+
+Next gate:
+- exactly ONE normal lock/unlock fingerprint test on this now-genuinely restored
+  rel71 + stock-fprintd stack
+- do NOT perform S3 yet
+- if this still fails, preserve logs and investigate persistent sensor state /
+  cold-preparation behavior rather than changing matcher, threshold or templates
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be

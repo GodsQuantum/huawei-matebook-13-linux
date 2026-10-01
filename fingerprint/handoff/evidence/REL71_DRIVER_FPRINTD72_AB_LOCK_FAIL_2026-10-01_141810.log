@@ -1,0 +1,90 @@
+# rel71 exact driver + fprintd-72 normal-lock A/B failure
+# Pegasus — 2026-10-01
+
+libfprint-goodix51a0 1.94.100.goodix51a0-71
+fprintd 1.94.5-72
+d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997  /usr/lib/libfprint-2.so.2.0.0
+
+oct. 01 14:18:10.727247 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 14:18:10.727277 Pegasus fprintd[149390]: GXFP51A0 protocol timing auto-calibration: 100% -> 150% after target-ack miss; session-local only
+oct. 01 14:18:10.916293 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 14:18:10.916305 Pegasus fprintd[149390]: GXFP51A0 protocol timing auto-calibration: 150% -> 200% after target-ack miss; session-local only
+oct. 01 14:18:11.081045 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 14:18:11.081055 Pegasus fprintd[149390]: GXFP51A0 protocol timing auto-calibration: 200% -> 250% after target-ack miss; session-local only
+oct. 01 14:18:11.252877 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 14:18:11.252894 Pegasus fprintd[149390]: GXFP51A0 protocol timing auto-calibration: 250% -> 300% after target-ack miss; session-local only
+oct. 01 14:18:11.451792 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 14:18:11.605111 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 14:18:11.761632 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 14:18:11.919082 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 14:18:12.073730 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 14:18:12.233892 Pegasus fprintd[149390]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 14:18:12.572373 Pegasus fprintd[149390]: GXFP51A0 calibration waiting for sensor clear: mean=203 floor=340
+oct. 01 14:18:14.480118 Pegasus fprintd[149390]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 01 14:18:14.973356 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 01 14:18:14.974964 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 READY
+oct. 01 14:18:21.569992 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 DETECTED_HOLD touch=0x3f zones=6 mean=235 drop=117
+oct. 01 14:18:22.324023 Pegasus fprintd[149390]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 01 14:18:22.600934 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 250% -> 300% (90000 us)
+oct. 01 14:18:22.642238 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=5 threshold=7 candidate=2
+oct. 01 14:18:22.725476 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=214 drop=139 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 01 14:18:22.725488 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=90000 us
+oct. 01 14:18:23.080678 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 2/3 score=4 threshold=7 candidate=2
+oct. 01 14:18:23.163944 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=214 drop=139 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 01 14:18:23.163954 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=90000 us
+oct. 01 14:18:23.509497 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 3/3 score=3 threshold=7 candidate=0
+oct. 01 14:18:24.256632 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=3 best=5 threshold=7
+oct. 01 14:18:24.325230 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 LIFT_NOW
+oct. 01 14:18:24.521014 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 RELEASED
+oct. 01 14:18:24.526293 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 01 14:18:24.526302 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE MCU rearmed after failed usable press before retry 2/3
+oct. 01 14:18:24.526327 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 READY
+oct. 01 14:18:25.511415 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 DETECTED_HOLD touch=0x3f zones=6 mean=215 drop=138
+oct. 01 14:18:26.350718 Pegasus fprintd[149390]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 01 14:18:26.644409 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 300% -> 300% (90000 us)
+oct. 01 14:18:26.646117 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 rejected by quality gate
+oct. 01 14:18:26.816088 Pegasus fprintd[149390]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 01 14:18:26.942120 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=353 drop=0 floor=329 threshold_drop=30 touch=0x00 zones=0
+oct. 01 14:18:26.942131 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG stopped: finger not detected on current press
+oct. 01 14:18:27.716433 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=1 best=0 threshold=7
+oct. 01 14:18:27.818737 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 01 14:18:27.818969 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 READY
+oct. 01 14:18:28.403544 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 DETECTED_HOLD touch=0x3f zones=6 mean=225 drop=127
+oct. 01 14:18:29.239755 Pegasus fprintd[149390]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 01 14:18:29.531748 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 300% -> 300% (90000 us)
+oct. 01 14:18:29.577975 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=4 threshold=7 candidate=0
+oct. 01 14:18:29.662150 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=200 drop=153 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 01 14:18:29.662170 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=90000 us
+oct. 01 14:18:30.028798 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 2/3 score=4 threshold=7 candidate=0
+oct. 01 14:18:30.134167 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=200 drop=152 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 01 14:18:30.134181 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=90000 us
+oct. 01 14:18:30.439324 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 3/3 rejected by quality gate
+oct. 01 14:18:31.218594 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=3 best=4 threshold=7
+oct. 01 14:18:31.289153 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 LIFT_NOW
+oct. 01 14:18:31.571187 Pegasus fprintd[149390]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 01 14:18:31.698003 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 RELEASED
+oct. 01 14:18:31.703233 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 01 14:18:31.703254 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE MCU rearmed after failed usable press before retry 2/3
+oct. 01 14:18:31.703301 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 READY
+oct. 01 14:18:32.086987 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 DETECTED_HOLD touch=0x3f zones=6 mean=249 drop=104
+oct. 01 14:18:32.924717 Pegasus fprintd[149390]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 01 14:18:33.216492 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 300% -> 300% (90000 us)
+oct. 01 14:18:33.255656 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=3 threshold=7 candidate=0
+oct. 01 14:18:33.425548 Pegasus fprintd[149390]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 01 14:18:33.550355 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE same-press FDT mean=353 drop=0 floor=329 threshold_drop=30 touch=0x00 zones=0
+oct. 01 14:18:33.550370 Pegasus fprintd[149390]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG stopped: finger not detected on current press
+oct. 01 14:18:34.294243 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=1 best=3 threshold=7
+oct. 01 14:18:34.339454 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 LIFT_NOW
+oct. 01 14:18:34.621936 Pegasus fprintd[149390]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 01 14:18:35.330596 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 RELEASED
+oct. 01 14:18:35.335834 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 01 14:18:35.335853 Pegasus fprintd[149390]: GXFP51A0 AUTH_TRACE MCU rearmed after failed usable press before retry 3/3
+oct. 01 14:18:35.335912 Pegasus fprintd[149390]: GXFP51A0 IDENTIFY_TRACE physical press 3/3 READY
+
+found 1 devices
+Device at /net/reactivated/Fprint/Device/0
+Using device /net/reactivated/Fprint/Device/0
+Fingerprints for user arezki on Goodix GXFP51A0 SPI (ST411 / experimental) (press):
+ - #0: right-index-finger
+ - #1: left-index-finger
+ - #2: right-middle-finger
