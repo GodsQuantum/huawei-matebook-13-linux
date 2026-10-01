@@ -474,6 +474,29 @@ Verification observations:
 - live runtime at this point remains rel71 + fprintd 1.94.5-2.1; enrollments
   remain untouched
 
+## 15B. LIVE REL72 INSTALLATION — PRE-GATE-1
+
+rel72 was installed live on Pegasus from the two exact canonical packages above.
+No reboot, lock, suspend, poweroff or re-enrollment was triggered automatically.
+
+Post-install state:
+- libfprint-goodix51a0 1.94.100.goodix51a0-72
+- fprintd 1.94.5-72
+- fprintd restarted successfully at 2026-10-01 12:26:18 CEST
+- the live fprintd binary contains the rel72 temporary-open/close markers
+- the live libfprint binary contains the rel72 S3_PARK / 0x60 markers
+- all three enrollments remain intact: right-index, left-index, right-middle
+- pacman -Qkk: 0 modified files for both rel72 packages
+- gxfp51a0-fprintd-suspend.service unit file is absent
+- the inherited post_upgrade enable attempt failed because that rel71 unit no
+  longer exists
+- a stale sleep.target.wants symlink from rel71 was found after upgrade; it was
+  removed with systemctl --no-ask-password disable
+- after daemon-reload, sleep.target has no fingerprint Wants dependency
+- gxfp51a0-fprintd-suspend.service is not-found/inactive
+- systemctl --failed: 0 units
+- Gate 1 normal lock/unlock is still NOT RUN
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
