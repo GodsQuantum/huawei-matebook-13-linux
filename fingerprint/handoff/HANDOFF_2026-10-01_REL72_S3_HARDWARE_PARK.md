@@ -429,6 +429,51 @@ LoginCancelled
 Then:
 journalctl -b -u fprintd.service --since '-15 min' --no-pager -o short-precise
 
+## 15A. CANONICAL REL72 REBUILD RECOVERY — 2026-10-01
+
+Before the first live rel72 installation, the previously cleaned package artifacts
+were reconstructed from the checked-in recipes and compared against the hashes
+recorded in this handoff. No runtime package was installed during this recovery.
+
+The raw Arch package hash is sensitive to makepkg's SOURCE_DATE_EPOCH and to the
+installed-package inventory recorded in .BUILDINFO. The timestamps printed by
+makepkg are one second later than the SOURCE_DATE_EPOCH captured at process
+initialization in these two historical builds.
+
+Exact canonical reconstruction:
+
+- libfprint-goodix51a0 1.94.100.goodix51a0-72
+  - canonical SOURCE_DATE_EPOCH: 1790840963 = 2026-10-01 09:49:23 +0200
+  - the historical build occurred before fprintd makedepends were installed;
+    .BUILDINFO therefore contains 1540 installed packages
+  - the nine later packages absent from that inventory are:
+    glib2-docs, gtk-doc, meson, ninja, pam_wrapper, python-dbusmock,
+    python-lxml, python-pygments and python-tqdm
+  - reconstructed SHA256:
+    7adc8c66389a76c87c35960ede04f0adaf1108745d7ac1c0714554cea3fc5c01
+
+- fprintd 1.94.5-72
+  - canonical SOURCE_DATE_EPOCH: 1790841108 = 2026-10-01 09:51:48 +0200
+  - all nine fprintd makedepends were already installed, matching the live
+    package inventory used by the historical build
+  - reconstructed SHA256:
+    9f45604f88d28aaf014ff85940f783411a83d8c8ed635e6ba1b19ab6ed4321e0
+
+Verification observations:
+- libfprint source-safety test: PASS
+- libfprint build gates: PASS
+- ACTIVE_SENSOR_IO=NONE
+- GPIO_WRITES=NONE
+- MMIO_WRITES=NONE
+- FIRMWARE_ACTIONS=NONE
+- repackaging at the same epoch reproduces the same package hash bit-for-bit
+- fprintd upstream signing key fingerprint verified:
+  D4C501DA48EB797A081750939449C2F50996635F
+- exact canonical copies staged only in /tmp/gxfp51a0-rel72-install for the
+  installation gate; generated repo build trees were removed afterward
+- live runtime at this point remains rel71 + fprintd 1.94.5-2.1; enrollments
+  remain untouched
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
