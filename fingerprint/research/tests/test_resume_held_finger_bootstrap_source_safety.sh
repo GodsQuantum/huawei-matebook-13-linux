@@ -15,9 +15,8 @@ d="$root/driver/goodix51a0/goodix51a0.c"
 # Resume remains native and deterministic: an idle S3 is detected at the next
 # Claim; an active S3 marks the session cold and lets libfprint cancel it.
 grep -Fq 'gx_warm_crossed_sleep' "$d"
-grep -Fq 'GXFP51A0 S3_CLEAN fallback' "$d"
-! grep -Fq 'fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED)' "$d"
+grep -Fq 'active S3 boundary detected during authentication' "$d"
+grep -Fq 'FP_DEVICE_ERROR_NOT_SUPPORTED' "$d"
 grep -Fq 'self->force_cold_reset = TRUE' "$d"
-grep -Fq 'cancelling parked action for fresh Claim/Open' "$d"
 
 echo 'test_resume_held_finger_bootstrap_source_safety: OK (stale background bootstrap absent)'

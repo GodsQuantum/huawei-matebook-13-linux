@@ -14,7 +14,9 @@ post_install() {
   # These files contain no biometric/secret material and are obsolete.
   rm -f /var/lib/fprint/.goodix51a0-timing         /var/lib/fprint/.goodix51a0-capture-timing
   systemctl daemon-reload || true
-  systemctl enable gxfp51a0-boot-prewarm.service || true
+  # Functional rel61 baseline: boot-prewarm stays installed but disabled; it must
+  # not create a warm sensor session before the first real PAM Claim.
+  systemctl disable --now gxfp51a0-boot-prewarm.service 2>/dev/null || true
   systemctl enable gxfp51a0-fprintd-suspend.service || true
   systemctl restart --no-block fprintd.service || true
   if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then

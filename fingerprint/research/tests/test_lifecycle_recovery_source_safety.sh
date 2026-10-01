@@ -27,8 +27,6 @@ open_=fn("gx_dev_open")
 close=fn("gx_dev_close")
 suspend=fn("gx_dev_suspend")
 resume=fn("gx_dev_resume")
-init=fn("fpi_device_goodix51a0_init")
-finalize=fn("fpi_device_goodix51a0_finalize")
 klass=fn("fpi_device_goodix51a0_class_init")
 
 assert "CLOCK_BOOTTIME" in sleep and "CLOCK_MONOTONIC" in sleep
@@ -54,13 +52,10 @@ assert "gx_warm_idle_expired (self)" in open_
 assert open_.index("gx_warm_idle_expired (self)") < open_.index("gx_transport_open")
 assert "slept || expired || self->force_cold_reset" in open_
 
-# Stale sensor-side TLS must be abandoned host-side, not close-notified. The
-# process-local S3 epoch is lifecycle evidence and must survive warm discard.
+# Stale sensor-side TLS must be abandoned host-side, not close-notified.
 assert "gx_tls_teardown" not in abandon
 assert "g_clear_pointer (&self->tls, gx_tls_free)" in abandon
-assert "warm_sleep_delta_us = 0" not in abandon
-assert "warm_sleep_clock_valid = FALSE" not in abandon
-assert "gx_sleep_delta_us (&self->warm_sleep_delta_us)" in init
+assert "self->warm_sleep_clock_valid = FALSE" in abandon
 
 # A retained context refreshes the exact encrypted image path and adopts that
 # proven no-finger frame as the new background/FDT baseline. If the user is
@@ -89,17 +84,13 @@ assert open_.index("gx_warm_crossed_sleep (self)") < open_.index("gx_transport_o
 assert "gx_gpio_reset (self)" in open_
 assert "self->capture_gap_scale = 0" in open_
 
-# Never cancel/close while libfprint still marks the device suspended. Park the
-# action, complete suspend cleanly, clear suspended state on resume, then cancel
-# the stale action so fprintd can Release/Close and the next Claim gets a fresh Open.
+# For an active action, upstream libfprint requires an error when the action
+# cannot safely continue across suspend; NOT_SUPPORTED triggers cancellation.
+assert "FP_DEVICE_ERROR_NOT_SUPPORTED" in suspend
+assert "fpi_device_suspend_complete" in suspend
 assert "self->force_cold_reset = TRUE" in suspend
-assert "suspend_action_cancellable" in suspend
-assert "fpi_device_suspend_complete (dev, NULL)" in suspend
-assert "FP_DEVICE_ERROR_NOT_SUPPORTED" not in suspend
 assert "fpi_device_resume_complete (dev, NULL)" in resume
-assert "g_cancellable_cancel" in resume
-assert resume.index("fpi_device_resume_complete (dev, NULL)") < resume.index("g_cancellable_cancel")
-assert "g_clear_object (&self->suspend_action_cancellable)" in finalize
+assert "g_cancellable_cancel" not in resume
 
 assert "dev_class->suspend = gx_dev_suspend" in klass
 assert "dev_class->resume = gx_dev_resume" in klass

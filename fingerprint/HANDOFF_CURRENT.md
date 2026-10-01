@@ -2974,3 +2974,24 @@ Prochain gate: un deep S3 humain, puis logs avant tout code.
 - Source lifecycle test, systemd-analyze verify, reproducible build and artifact gates all PASS.
 - No reboot, no re-enrollment, no matcher/threshold change.
 - Human gate: one manual deep S3 on installed rel70; inspect logs before any further code modification.
+
+
+## 2026-10-01 09:02 — rel71 functional-driver reconstruction
+
+- Verified the user's suspected rel70 S3 test: it DID execute a real deep S3.
+- Crucial evidence: fprintd was stopped before S3 at 01:11:22.676, PM entered `suspend entry (deep)`, resume occurred at 08:49:52, and a fresh fprintd PID 44964 was started afterward. Therefore the rel70 daemon boundary worked and was not the remaining failure.
+- Post-resume rel66/70 driver still produced target-ACK retries, 100%→300% timing escalation, GET_IMAGE/TLS timeout, recovery, READY and no usable match.
+- Conclusion: the remaining regression is in the rel62→rel66 driver lifecycle/recovery path, not the fprintd/PAM lifecycle.
+- Created branch `fingerprint-rel71-rel61-driver-reconstruction` from rel70.
+- Restored the entire Goodix driver tree verbatim from functional rel61 baseline commit `0e8a50a` (the rel61 KScreenLocker commit whose driver is the validated rel60 core).
+- Removed rel66 Windows-deactivate sensor sleep, rel62+ DriverState-once optimization, FAST_RESUME reset+A8 path, and rel65/66 lifecycle changes from the driver.
+- Retained only the userspace `gxfp51a0-fprintd-suspend.service` boundary outside the driver.
+- Boot-prewarm is now installed but disabled, matching the functional rel61 baseline.
+- Updated package to `1.94.100.goodix51a0-71` and installed it.
+- Current installed: `libfprint-goodix51a0 1.94.100.goodix51a0-71`, `fprintd 1.94.5-2.1`, `kscreenlocker 6.7.5-1.5`, `plasma-login-manager 6.7.5-3.9`.
+- Full `make -C fingerprint/research test`: PASS.
+- Package reproducible build + artifact gates: PASS.
+- Installed libfprint SHA256: `d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997`.
+- Package SHA256: `0b6ea6afd3966f453023b8aaaaee47ab119ec4b6b422af6da5cfb41cbc5d69f4`.
+- New handoff: `fingerprint/handoff/HANDOFF_2026-10-01_REL71_REL61_DRIVER_RECONSTRUCTION.md`.
+- Human gate: one manual deep S3 with already-enrolled finger; do not reboot or re-enroll. If it fails, read the complete trace and compare against the stored rel61 successful 20/7 trace before making any further driver change.

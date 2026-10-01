@@ -73,7 +73,7 @@ test -L /usr/lib/systemd/system/graphical.target.wants/fprintd.service
 systemctl cat fprintd.service | grep -Fq '/usr/lib/fprintd --no-timeout'
 systemctl cat fprintd.service | grep -Fq 'Before=display-manager.service'
 test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
-test -L /usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service
+! test -L /usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service
 systemctl cat gxfp51a0-boot-prewarm.service >/dev/null
 test -L /etc/systemd/system/sleep.target.wants/gxfp51a0-fprintd-suspend.service
 systemctl cat gxfp51a0-fprintd-suspend.service >/dev/null
@@ -97,11 +97,13 @@ GXFP51A0 now follows the native libfprint SPI path:
   udev -> spidev -> libfprint probe/open -> standard fprintd -> PAM/KDE
 
 The standard fprintd daemon starts early and stays alive with --no-timeout.
-A bounded cold-boot Claim prepares TLS/background/FDT before the greeter.
+The driver follows the rel61 functional cold-Claim path: GPIO reset, Windows
+DriverState Install, firmware/A8 initialization, TLS, fresh background/FDT.
 For every sleep.target cycle, the package stops fprintd before the kernel sleep
-boundary and starts a fresh fprintd instance after resume. The GXFP51A0 driver
-still retains its validated Windows-deactivate sleep boundary on normal Close.
-There is no periodic synthetic keepalive. Runtime timing adaptation is session-local and
+boundary and starts a fresh fprintd instance after resume. The rel61 driver is
+therefore reopened from a clean daemon/device lifecycle instead of carrying a
+post-S3 warm session. Boot-prewarm remains installed but disabled. There is no
+periodic synthetic keepalive. Runtime timing adaptation is session-local and
 always starts from the validated nominal 100% values after a fresh lifecycle. KDE Plasma
 is detected automatically: on the validated 6.7.5 lock screen, fingerprint PAM
 is armed at lock creation instead of waiting for mouse/keyboard activity.
