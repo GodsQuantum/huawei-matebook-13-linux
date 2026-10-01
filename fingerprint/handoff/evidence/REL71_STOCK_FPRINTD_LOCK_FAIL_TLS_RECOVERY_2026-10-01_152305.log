@@ -1,0 +1,147 @@
+# rel71 + stock fprintd normal-lock failure — TLS recovery evidence
+# Pegasus — 2026-10-01
+
+libfprint-goodix51a0 1.94.100.goodix51a0-71
+fprintd 1.94.5-2.1
+d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997  /usr/lib/libfprint-2.so.2.0.0
+db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63  /usr/lib/fprintd
+
+oct. 01 15:23:05.806613 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:05.806620 Pegasus fprintd[169734]: GXFP51A0 protocol timing auto-calibration: 100% -> 150% after target-ack miss; session-local only
+oct. 01 15:23:05.987884 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:05.987891 Pegasus fprintd[169734]: GXFP51A0 protocol timing auto-calibration: 150% -> 200% after target-ack miss; session-local only
+oct. 01 15:23:06.145787 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:06.145794 Pegasus fprintd[169734]: GXFP51A0 protocol timing auto-calibration: 200% -> 250% after target-ack miss; session-local only
+oct. 01 15:23:06.310808 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:06.310814 Pegasus fprintd[169734]: GXFP51A0 protocol timing auto-calibration: 250% -> 300% after target-ack miss; session-local only
+oct. 01 15:23:06.504870 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:06.653667 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:06.801729 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:06.949489 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:07.097090 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:07.247091 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:11.606572 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:12.656422 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:12.849228 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:13.021956 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:13.195512 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:13.390022 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:13.539343 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:13.687886 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:13.837128 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:13.986392 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:14.137211 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:14.248961 Pegasus fprintd[169734]: TLS handshake failed (-1/5) error:0A000095:SSL routines::digest check failed
+oct. 01 15:23:15.297868 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:15.492264 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:15.667729 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:15.840885 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:16.035312 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:16.183699 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:16.331885 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:16.480219 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:16.628170 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:16.778956 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:21.115980 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:22.164516 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:22.359294 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:22.532776 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:22.706624 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:22.900836 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:23.050185 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:23.199383 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:23.348578 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:23.498728 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:23.650570 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:28.023679 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:29.073396 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:29.268667 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:29.442224 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:29.616183 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:29.812166 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:29.961726 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:30.111463 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:30.259500 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:30.408609 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:30.558698 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:34.899730 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:35.840191 Pegasus fprintd[169734]: GXFP51A0 cached PMK could not establish TLS; trying fresh staging without deleting validated cache
+oct. 01 15:23:37.860358 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:38.054159 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:38.227243 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:38.400053 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:38.594454 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:38.743138 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:38.891428 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:39.039360 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:39.187508 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:39.337846 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:39.450823 Pegasus fprintd[169734]: TLS handshake failed (-1/5) error:0A000095:SSL routines::digest check failed
+oct. 01 15:23:39.450873 Pegasus fprintd[169734]: GXFP51A0 fresh staging fallback failed; validated cache file retained
+oct. 01 15:23:39.450879 Pegasus fprintd[169734]: no TLS session after 5/5 attempts; if this persists the sensor needs a full recovery (long reset plus an spidev rebind)
+oct. 01 15:23:39.450884 Pegasus fprintd[169734]: GXFP51A0 capture-context preparation failed attempt=1/2
+oct. 01 15:23:40.500664 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:40.695982 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:40.870122 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:41.043210 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:41.238708 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:41.389997 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:41.538602 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:41.687713 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:41.836430 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:41.985741 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:42.076683 Pegasus fprintd[169734]: TLS handshake failed (-1/6) error:0A00041A:SSL routines::tlsv1 alert decode error
+oct. 01 15:23:43.126089 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:43.321603 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:43.494849 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:43.669248 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:43.864446 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:44.013612 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:44.166327 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:44.324091 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:44.476797 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:44.631746 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:44.746900 Pegasus fprintd[169734]: TLS handshake failed (-1/5) error:0A000095:SSL routines::digest check failed
+oct. 01 15:23:45.798803 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:45.992896 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:46.165290 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:46.341979 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:46.537883 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:46.686892 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:46.835160 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:46.983238 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:47.131652 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:47.282271 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:51.647433 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:52.697227 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:52.890626 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:53.062678 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:23:53.236992 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:53.432226 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:23:53.580247 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:53.728395 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:53.876329 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:54.024146 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:23:54.174445 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 01 15:23:58.519695 Pegasus fprintd[169734]: TLS handshake failed (-1/5) 
+oct. 01 15:23:59.568790 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:23:59.763068 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 01 15:23:59.936152 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 01 15:24:00.109993 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 01 15:24:00.304084 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 01 15:24:00.452431 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:24:00.601096 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:24:00.749835 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:24:00.907713 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 01 15:24:01.060581 Pegasus fprintd[169734]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+
+IDX BOOT ID                          FIRST ENTRY                  LAST ENTRY
+  0 c96092901ea340658432fd4ad6357aee Thu 2026-10-01 01:11:21 CEST Thu 2026-10-01 15:24:39 CEST
+
+found 1 devices
+Device at /net/reactivated/Fprint/Device/0
+Using device /net/reactivated/Fprint/Device/0
+Fingerprints for user arezki on Goodix GXFP51A0 SPI (ST411 / experimental) (press):
+ - #0: right-index-finger
+ - #1: left-index-finger
+ - #2: right-middle-finger

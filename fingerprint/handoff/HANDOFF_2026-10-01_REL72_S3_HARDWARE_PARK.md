@@ -637,6 +637,40 @@ Next gate:
 - if this still fails, preserve logs and investigate persistent sensor state /
   cold-preparation behavior rather than changing matcher, threshold or templates
 
+## 15F. KNOWN-GOOD STACK STILL FAILS — HARDWARE/TLS STATE REBOOT GATE
+
+Human result:
+- `stack restaurée lock échoué`
+
+This test finally used the genuinely restored known-good userspace stack:
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- exact historical libfprint SHA256 d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- stock CachyOS fprintd 1.94.5-2.1
+- fresh stock fprintd PID 169734, started 14:20:38
+- all three enrollments intact
+- no rel71 sleep hook active
+
+The failure is now below fprintd/PAM/matcher:
+- repeated target ACK no-IRQ retries immediately on cold preparation
+- session-local protocol timing escalated 100% -> 300%
+- TLS handshake repeatedly failed
+- observed OpenSSL errors included digest-check failure and TLS decode alert
+- cached PMK failed and fresh staging fallback also failed
+- driver exhausted TLS attempts and explicitly logged:
+  `no TLS session after 5/5 attempts; if this persists the sensor needs a full recovery (long reset plus an spidev rebind)`
+- capture-context preparation consequently failed
+
+Conclusion:
+- rel72 libfprint is not the root cause of the current failure
+- fprintd-72 is not the root cause either
+- the sensor/SPI/TLS state has become persistently unhealthy within the current boot
+- do NOT change matcher, threshold, templates or create rel73
+- next gate is a USER-TRIGGERED NORMAL REBOOT, not suspend/S3
+- assistant must not reboot Pegasus remotely
+- immediately after reboot, before any S3 or driver changes, test ONE normal lock with the same rel71 + stock-fprintd stack
+- if reboot restores normal lock, persistent hardware/session state is confirmed
+- if reboot still fails, next action is explicit full-recovery investigation (long reset + spidev rebind) from the proven rel71 code path, not another speculative release
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
