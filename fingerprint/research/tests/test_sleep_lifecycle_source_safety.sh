@@ -5,31 +5,37 @@ driver="$root/driver/goodix51a0/goodix51a0.c"
 defs="$root/driver/goodix51a0/goodix51a0.h"
 target="$root/driver/goodix51a0/gx51_target.c"
 header="$root/driver/goodix51a0/gx51_target.h"
+fpatch="$root/integration/fprintd-1.94.5-goodix51a0-s3/0001-goodix51a0-open-before-suspend.patch"
 
-# The functional rel61 driver deliberately has no in-driver 0x60 sleep command.
-# The S3 boundary is handled above libfprint: stop fprintd before sleep and start
-# a fresh daemon after resume. This is now the tested lifecycle contract.
-! grep -Fq '#define GOODIX_CMD_SLEEP' "$defs"
-! grep -Fq 'gxfp_build_sleep' "$target"
-! grep -Fq 'gx_sensor_sleep' "$driver"
+# rel72 deliberately moves Windows 0x60 sleep out of normal Close. Normal warm
+# operation remains rel61/rel59/rel60; only the actual suspend callback parks the MCU.
+grep -Fq '#define GOODIX_CMD_SLEEP       0x60' "$defs"
+grep -Fq 'gxfp_build_sleep' "$target"
+grep -Fq 'gxfp_build_sleep' "$header"
+grep -Fq 'gx_sensor_sleep' "$driver"
+grep -Fq 'GXFP51A0 S3_PARK' "$driver"
 
-# Keep the rel61 driver semantics: suspend invalidates the context and asks
-# libfprint to cancel the active action; resume completes the PM transition.
-grep -Fq 'self->force_cold_reset = TRUE' "$driver"
-grep -Fq 'fpi_device_suspend_complete (' "$driver"
-grep -Fq 'FP_DEVICE_ERROR_NOT_SUPPORTED' "$driver"
-grep -Fq 'fpi_device_resume_complete (dev, NULL)' "$driver"
+# The driver must not sleep on ordinary fp_device_close.
+close_block="$(sed -n '/^gx_dev_close (FpDevice \*dev)/,/^static void$/p' "$driver")"
+! grep -Fq 'gx_sensor_sleep' <<<"$close_block"
 
-# Do not add a legacy system-sleep script: systemd's sleep.target ordering is the
-# userspace daemon boundary used by the rel70/71 reconstruction.
+# The actual sleep park belongs to the suspend callback and forces a cold Claim/Open next time.
+suspend_block="$(sed -n '/^gx_dev_suspend (FpDevice \*dev)/,/^static void$/p' "$driver")"
+grep -Fq 'gx_sensor_sleep' <<<"$suspend_block"
+grep -Fq 'fpi_device_suspend_complete' <<<"$suspend_block"
+grep -Fq 'FP_DEVICE_ERROR_NOT_SUPPORTED' <<<"$suspend_block"
+grep -Fq 'gx_transport_close' <<<"$suspend_block"
 
-# The daemon boundary is deliberate: stop fprintd before sleep, start it after resume.
-sleep_unit="$root/integration/systemd/gxfp51a0-fprintd-suspend.service"
-test -f "$sleep_unit"
-grep -Fq 'Before=sleep.target' "$sleep_unit"
-grep -Fq 'StopWhenUnneeded=yes' "$sleep_unit"
-grep -Fq 'RemainAfterExit=yes' "$sleep_unit"
-grep -Fq 'ExecStart=/usr/bin/systemctl stop fprintd.service' "$sleep_unit"
-grep -Fq 'ExecStop=/usr/bin/systemctl start fprintd.service' "$sleep_unit"
+# fprintd rel72 makes the idle/closed case reachable by opening this exact driver before suspend.
+test -s "$fpatch"
+grep -Fq 'fp_device_get_driver' "$fpatch"
+grep -Fq 'goodix51a0' "$fpatch"
+grep -Fq 'fp_device_is_open' "$fpatch"
+grep -Fq 'fp_device_open' "$fpatch"
+grep -Fq 'fp_device_close' "$fpatch"
+grep -Fq 'opened_for_sleep' "$fpatch"
 
-echo 'test_sleep_lifecycle_source_safety: OK (rel61 driver + fprintd sleep boundary)'
+# The obsolete stop/start sleep.target service must be gone.
+! test -e "$root/integration/systemd/gxfp51a0-fprintd-suspend.service"
+
+echo 'test_sleep_lifecycle_source_safety: OK (rel72 driver park + fprintd pre-open boundary)'

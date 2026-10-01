@@ -1,0 +1,114 @@
+--- a/src/device.c	2025-02-20 21:20:51.000000000 +0100
++++ b/src/device.c	2026-10-01 09:46:02.631967945 +0200
+@@ -119,6 +119,11 @@
+   FprintDeviceAction     current_action;
+   GCancellable          *current_cancellable;
+   GDBusMethodInvocation *current_cancel_invocation;
++
++  /* rel72: Goodix GXFP51A0 must be opened before PrepareForSleep so its
++   * driver can issue the validated Windows 0x60 park command even when the
++   * reader was idle/closed before suspend. Close it again after resume. */
++  gboolean          opened_for_sleep;
+ } FprintDevicePrivate;
+ 
+ G_DEFINE_TYPE_WITH_CODE (FprintDevice, fprint_device,
+@@ -493,18 +498,71 @@
+ }
+ 
+ static void
++suspend_after_open_cb (GObject      *source_obj,
++                       GAsyncResult *res,
++                       gpointer      user_data)
++{
++  g_autoptr(GTask) task = user_data;
++  FprintDevice *rdev = g_task_get_source_object (task);
++  FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
++  GError *error = NULL;
++
++  if (!fp_device_open_finish (FP_DEVICE (source_obj), res, &error))
++    {
++      priv->opened_for_sleep = FALSE;
++      g_task_return_error (task, error);
++      return;
++    }
++
++  g_debug ("rel72: opened Goodix GXFP51A0 before suspend so the driver can park the MCU");
++  fp_device_suspend (priv->dev, NULL, suspend_cb, g_object_ref (task));
++}
++
++static void
++resume_close_cb (GObject      *source_obj,
++                 GAsyncResult *res,
++                 gpointer      user_data)
++{
++  g_autoptr(GTask) task = user_data;
++  FprintDevice *rdev = g_task_get_source_object (task);
++  FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
++  GError *error = NULL;
++
++  if (!fp_device_close_finish (FP_DEVICE (source_obj), res, &error))
++    {
++      priv->opened_for_sleep = FALSE;
++      g_task_return_error (task, error);
++      return;
++    }
++
++  priv->opened_for_sleep = FALSE;
++  g_task_return_boolean (task, TRUE);
++}
++
++static void
+ resume_cb (GObject      *source_obj,
+            GAsyncResult *res,
+            gpointer      user_data)
+ {
+   g_autoptr(GTask) task = user_data;
++  FprintDevice *rdev = g_task_get_source_object (task);
++  FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
+   GError *error = NULL;
+ 
+-  fp_device_resume_finish (FP_DEVICE (source_obj), res, &error);
+-  if (error)
+-    g_task_return_error (task, error);
+-  else
+-    g_task_return_boolean (task, TRUE);
++  if (!fp_device_resume_finish (FP_DEVICE (source_obj), res, &error))
++    {
++      g_task_return_error (task, error);
++      return;
++    }
++
++  if (priv->opened_for_sleep)
++    {
++      g_debug ("rel72: closing Goodix GXFP51A0 after resume to force a fresh Claim/Open");
++      fp_device_close (priv->dev, NULL, resume_close_cb, g_object_ref (task));
++      return;
++    }
++
++  g_task_return_boolean (task, TRUE);
+ }
+ 
+ void
+@@ -515,9 +573,20 @@
+   GTask *task = NULL;
+   FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
+ 
+-  /* Just forward to libfprint. */
+-
+   task = g_task_new (rdev, NULL, callback, user_data);
++
++  /* A normal idle fprintd device is closed, so libfprint's suspend vfunc would
++   * otherwise be skipped. The ST411 needs its Windows 0x60 park command while
++   * the host transport is still live. Restrict this lifecycle opening to our
++   * exact driver; other fingerprint devices retain native fprintd semantics. */
++  if (g_strcmp0 (fp_device_get_driver (priv->dev), "goodix51a0") == 0 &&
++      !fp_device_is_open (priv->dev))
++    {
++      priv->opened_for_sleep = TRUE;
++      fp_device_open (priv->dev, NULL, suspend_after_open_cb, task);
++      return;
++    }
++
+   fp_device_suspend (priv->dev, NULL, suspend_cb, task);
+ }
+ 

@@ -116,6 +116,7 @@ struct _FpiDeviceGoodix51A0
   gint64        warm_sleep_delta_us; /* CLOCK_BOOTTIME-MONOTONIC when warm state was armed */
   gboolean      warm_sleep_clock_valid; /* baseline validity; zero is a legitimate pre-first-suspend value */
   gboolean      force_cold_reset; /* suspend/lifecycle invalidation: never reuse stale sensor state */
+  gboolean      sensor_sleeping; /* Windows 0x60 sleep acknowledged during real suspend preparation */
 };
 
 G_DECLARE_FINAL_TYPE (FpiDeviceGoodix51A0, fpi_device_goodix51a0, FPI,
@@ -177,6 +178,7 @@ gx_wakeup_mcu (FpiDeviceGoodix51A0 *self)
     }
 
   g_usleep (5000);
+  self->sensor_sleeping = FALSE;
   fp_warn ("GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete");
   return TRUE;
 }
@@ -648,6 +650,25 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
     }
 
   return FALSE;
+}
+
+static gboolean
+gx_sensor_sleep (FpiDeviceGoodix51A0 *self)
+{
+  struct gxfp_target_packet packet;
+
+  if (!gxfp_build_sleep (&packet))
+    return FALSE;
+
+  if (!gx_target_send_ack (self, &packet, GOODIX_CMD_SLEEP, NULL))
+    {
+      fp_warn ("GXFP51A0 S3_PARK SLEEP 0x60/01 00 was not acknowledged");
+      return FALSE;
+    }
+
+  self->sensor_sleeping = TRUE;
+  fp_warn ("GXFP51A0 S3_PARK Windows deactivate SLEEP 0x60/01 00 acknowledged");
+  return TRUE;
 }
 
 static bool
@@ -3817,6 +3838,7 @@ gx_warm_abandon (FpiDeviceGoodix51A0 *self)
   self->warm_last_activity_us = 0;
   self->warm_sleep_delta_us = 0;
   self->warm_sleep_clock_valid = FALSE;
+  self->sensor_sleeping = FALSE;
   g_clear_pointer (&self->tls, gx_tls_free);
   gx_pmk_clear (self);
   g_clear_pointer (&self->bg_frame, g_free);
@@ -4158,15 +4180,40 @@ static void
 gx_dev_suspend (FpDevice *dev)
 {
   FpiDeviceGoodix51A0 *self = FPI_DEVICE_GOODIX51A0 (dev);
+  gboolean parked = FALSE;
 
-  /* The ST411 does not preserve TLS/FDT state across S3, so an interactive
-   * action cannot safely continue after resume.  libfprint explicitly asks
-   * such drivers to return NOT_SUPPORTED: it cancels the current action before
-   * forwarding the suspend result to fprintd, which accepts this condition. */
+  /* libfprint/fprintd calls this at the real PrepareForSleep boundary.
+   * rel71 proved that stopping fprintd before this callback is the wrong
+   * lifecycle: an idle/closed ST411 never receives a driver suspend callback.
+   * rel66 proved the hardware path we actually want: Windows 0x60/01 00 ACK
+   * before S3, then a genuinely cold session on the next Claim. rel72 therefore
+   * parks the MCU HERE, and only HERE; normal fp_device_close keeps the proven
+   * rel61 warm path untouched. fprintd rel72 integration ensures this driver is
+   * opened before suspend when it was idle/closed. */
+  if (!self->sensor_sleeping && self->spi_fd >= 0 && self->irq_fd >= 0 && self->production_ready)
+    parked = gx_sensor_sleep (self);
+
   self->force_cold_reset = TRUE;
   self->warm_valid = FALSE;
   self->production_ready = FALSE;
-  fp_info ("GXFP51A0 suspend: cancelling active action; cold reset required after resume");
+  self->capture_recovery_pending = FALSE;
+  self->capture_gap_scale = 0;
+  self->capture_clean_streak = 0;
+  self->capture_retry_seen = FALSE;
+  self->capture_pacing_suppressed = TRUE;
+
+  if (parked)
+    {
+      /* Do not retain stale TLS/FDT host state across S3. The MCU is already
+       * explicitly parked, so transport closure is safe and makes the next
+       * Claim/Open an unambiguous cold boundary. */
+      gx_pmk_clear (self);
+      gx_transport_close (self);
+      fp_info ("GXFP51A0 S3_PARK complete; transport closed, next Claim requires fresh cold preparation");
+    }
+  else
+    fp_warn ("GXFP51A0 S3_PARK could not issue Windows sleep; keeping cold-reset semantics without claiming hardware park");
+
   fpi_device_suspend_complete (
     dev, fpi_device_error_new (FP_DEVICE_ERROR_NOT_SUPPORTED));
 }

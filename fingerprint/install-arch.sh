@@ -75,8 +75,7 @@ systemctl cat fprintd.service | grep -Fq 'Before=display-manager.service'
 test "$(readlink -f /usr/lib/systemd/system/graphical.target.wants/fprintd.service)" =   "$(readlink -f /usr/lib/systemd/system/fprintd.service)"
 ! test -L /usr/lib/systemd/system/graphical.target.wants/gxfp51a0-boot-prewarm.service
 systemctl cat gxfp51a0-boot-prewarm.service >/dev/null
-test -L /etc/systemd/system/sleep.target.wants/gxfp51a0-fprintd-suspend.service
-systemctl cat gxfp51a0-fprintd-suspend.service >/dev/null
+! test -e /etc/systemd/system/sleep.target.wants/gxfp51a0-fprintd-suspend.service
 if [[ -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml ]]; then
   sudo /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply
   sudo /usr/libexec/gxfp51a0-kde-lockscreen-integrate --check
@@ -99,10 +98,11 @@ GXFP51A0 now follows the native libfprint SPI path:
 The standard fprintd daemon starts early and stays alive with --no-timeout.
 The driver follows the rel61 functional cold-Claim path: GPIO reset, Windows
 DriverState Install, firmware/A8 initialization, TLS, fresh background/FDT.
-For every sleep.target cycle, the package stops fprintd before the kernel sleep
-boundary and starts a fresh fprintd instance after resume. The rel61 driver is
-therefore reopened from a clean daemon/device lifecycle instead of carrying a
-post-S3 warm session. Boot-prewarm remains installed but disabled. There is no
+Rel72 does NOT stop fprintd before sleep. The ST411 S3 boundary is instead
+handled by the candidate fprintd integration patch: fprintd opens the exact
+goodix51a0 driver before PrepareForSleep so the driver can send Windows SLEEP
+0x60/01 00, then closes it after resume so the next PAM Claim gets a fresh
+cold driver session. Boot-prewarm remains installed but disabled. There is no
 periodic synthetic keepalive. Runtime timing adaptation is session-local and
 always starts from the validated nominal 100% values after a fresh lifecycle. KDE Plasma
 is detected automatically: on the validated 6.7.5 lock screen, fingerprint PAM

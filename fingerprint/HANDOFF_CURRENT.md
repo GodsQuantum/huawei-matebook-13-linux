@@ -1,3 +1,19 @@
+# HANDOFF CURRENT — GXFP51A0 / GF3658 ST411
+
+**Authoritative current handoff:** `fingerprint/handoff/HANDOFF_2026-10-01_REL72_S3_HARDWARE_PARK.md`
+
+**Current branch:** `fingerprint-rel72-s3-hardware-park`
+
+**Current live runtime:** rel71 (`libfprint-goodix51a0 1.94.100.goodix51a0-71`; fprintd `1.94.5-2.1`). rel72 is built but NOT installed.
+
+**Current objective:** validate the rel72 S3 hardware-park architecture without disturbing the proven rel60/61 biometric path.
+
+**Critical rule:** no automatic reboot; physical fingerprint/S3 gates are human-triggered.
+
+**Historical material below is retained for forensic context; the rel72 handoff above supersedes its old current-state claims.**
+
+---
+
 # HANDOFF — GXFP51A0 / GF3658 ST411 — rel38 definitive verify WIP
 
 Date: 2026-09-23

@@ -117,6 +117,14 @@ static bool build_payload_command(uint8_t command,
     return build_fixed(body, payload_len + 4u, packet);
 }
 
+bool gxfp_build_sleep(struct gxfp_target_packet *packet)
+{
+    /* Windows Goodix 1.1.141.36 FpMcuSwitchToSleepMode: command 0x60,
+     * payload 01 00. The MCU ACKs 0x60 before the later power transition. */
+    static const uint8_t payload[] = {0x01u, 0x00u};
+    return build_payload_command(0x60u, payload, sizeof payload, packet);
+}
+
 bool gxfp_build_reg_read(uint16_t address, uint16_t len,
                          struct gxfp_target_packet *packet)
 {
