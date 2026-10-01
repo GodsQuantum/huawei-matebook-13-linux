@@ -497,6 +497,58 @@ Post-install state:
 - systemctl --failed: 0 units
 - Gate 1 normal lock/unlock is still NOT RUN
 
+## 15C. GATE 1 NORMAL LOCK — FAIL
+
+Human result: `rel72 lock échoué`.
+
+Exact gate window:
+- KScreenLocker greeter visible: 2026-10-01 12:51:04.759 CEST
+- fingerprint READY: 12:51:19.293
+- greeter -> READY: about 14.53 s
+- first real DETECTED_HOLD: 12:51:19.488, touch=0x3f, zones=6,
+  mean=242, drop=111
+- first GET_IMAGE had no ACK/TLS and used the existing safe retry
+- retry-assisted same-press pacing reached 300% / 90000 us
+- genuine image 1: score 3/7
+- genuine image 2: score 3/7
+- finger release was then proven
+- MCU rearm executed before retry pose 2/3
+- physical press 2/3 reached READY, but the lock was left via password before
+  another biometric pose was completed
+
+Cold-preparation observations before READY:
+- target-ACK misses on commands 0xa2, 0x82, 0xa6, 0xa2 caused session-local
+  protocol timing to climb 100% -> 150% -> 200% -> 250% -> 300%
+- repeated early touches were correctly rejected as contaminated background:
+  means 209, 216, 213 with touch=0x3f; they were NOT accepted as background
+- the driver eventually reached a genuine READY boundary
+- current D-Bus state after password unlock is not stuck:
+  finger-needed=false, finger-present=false
+
+Critical lifecycle proof:
+- there was NO PrepareForSleep event between rel72 installation and Gate 1
+- there was NO kernel suspend event
+- there was NO S3_PARK event
+- the rel72 fprintd temporary-open suspend path never ran
+- therefore the new rel72 S3-specific path did not execute during this failed
+  normal lock
+
+Comparison:
+- rel59 normal lock PASS: 5 -> 6 -> 7
+- rel60 normal lock PASS: first genuine image 9/7
+- rel61 deep-S3 PASS: first genuine post-READY image 20/7
+- current rel72 Gate 1: 3/7, 3/7
+- rel72 source diff versus rel71 changes only suspend/resume lifecycle plus the
+  sensor_sleeping bookkeeping; normal Open/Identify/Capture logic is otherwise
+  the rel60/61 biometric core
+
+Classification:
+- Gate 1 FAIL = capture/background/timing quality problem, not PAM/UI
+- do NOT test S3
+- do NOT lower threshold, re-enroll, change matcher or create rel73
+- preserve this evidence and use rel71 normal-lock rollback/A-B only after its
+  exact package provenance has been verified
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
