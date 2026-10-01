@@ -549,6 +549,46 @@ Classification:
 - preserve this evidence and use rel71 normal-lock rollback/A-B only after its
   exact package provenance has been verified
 
+## 15D. NORMAL-LOCK A/B — EXACT REL71 DRIVER RESTORED
+
+To isolate the failed rel72 Gate 1 without creating rel73, an A/B rollback of only
+the libfprint driver was prepared.
+
+Provenance:
+- rel71 source commit: 13fb428160414425a87e37bdfcf24644b537907f
+- original rel71 build was performed from the canonical workspace around
+  2026-10-01 09:00:11 CEST
+- rebuilding rel71 from /tmp did NOT reproduce the historical installed binary,
+  so it was rejected and never installed
+- rebuilding from the canonical workspace path DID reproduce the exact
+  human-validated rel71 libfprint binary:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- this confirms build-path/LTO reproducibility mattered for the binary identity
+
+Live A/B runtime:
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- live libfprint SHA256:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- fprintd intentionally remains 1.94.5-72
+- reason: the rel72 fprintd delta is restricted to PrepareForSleep
+  suspend/resume handling and never executed during the failed normal lock;
+  keeping it isolates the libfprint driver variable
+- fprintd restarted at 13:01:27 CEST, PID 149390
+- all three enrollments intact
+- pacman -Qkk: 0 modified files for both live packages
+- rel71 gxfp51a0-fprintd-suspend.service was disabled again after install
+- sleep.target has no fingerprint Wants dependency
+- systemd failed units: 0
+- no S3 test is authorized in this mixed A/B state
+- next physical action: exactly ONE normal lock/unlock fingerprint test
+
+Interpretation of the next A/B result:
+- if normal lock PASSes with exact rel71 driver + fprintd-72, the regression is
+  localized to the rel72 libfprint binary/source delta despite the S3-only design
+- if normal lock FAILs similarly, rel72 driver delta is not sufficient to explain
+  the issue; next isolation step is restoring stock fprintd 1.94.5-2.1 and/or
+  classifying persistent sensor/runtime state before any new driver work
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
