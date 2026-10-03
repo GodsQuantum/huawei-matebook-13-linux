@@ -1,0 +1,339 @@
+# Exact rel71 + stock fprintd + linux-cachyos 7.2.8-1 — human deep-S3 PASS
+
+Linux Pegasus 7.2.8-1-cachyos #1 SMP PREEMPT_DYNAMIC Sat, 26 Sep 2026 19:43:45 +0000 x86_64 GNU/Linux
+linux-cachyos 7.2.8-1
+linux-cachyos-headers 7.2.8-1
+libfprint-goodix51a0 1.94.100.goodix51a0-71
+fprintd 1.94.5-2.1
+kscreenlocker 6.7.5-1.5
+plasma-login-manager 6.7.5-3.9
+d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997  /usr/lib/libfprint-2.so.2.0.0
+db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63  /usr/lib/fprintd
+
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Sat 2026-10-03 15:34:30 CEST
+MainPID=740
+
+oct. 03 17:45:57.484087 Pegasus syncthing[2132]: Failed to delete directory (folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive dir.name="Ssker Content Production/ScribeWatch/target" dir.permissions=0775 error="directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" log.pkg=model)
+oct. 03 17:45:57.486629 Pegasus syncthing[2132]: Failed to delete directory (folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive dir.name="Ssker Content Production/ScribeWatch/frontend/.svelte-kit/output" dir.permissions=0775 error="directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" log.pkg=model)
+oct. 03 17:45:57.489080 Pegasus syncthing[2132]: Failed to delete directory (folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive dir.name="Ssker Content Production/ScribeWatch/frontend/.svelte-kit" dir.permissions=0775 error="directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" log.pkg=model)
+oct. 03 17:45:57.490390 Pegasus syncthing[2132]: Failed to delete directory (folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive dir.name="Ssker Content Production/ScribeWatch/frontend/.svelte-kit/output/server" dir.permissions=0775 error="directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" log.pkg=model)
+oct. 03 17:45:57.490390 Pegasus syncthing[2132]: Failed to sync (path="Ssker Content Production/ScribeWatch/frontend/.svelte-kit/output/client" error="syncing: delete dir: directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:57.490390 Pegasus syncthing[2132]: Failed to sync (path="Ssker Content Production/ScribeWatch/target" error="syncing: delete dir: directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:57.490390 Pegasus syncthing[2132]: Failed to sync (path="Ssker Content Production/ScribeWatch/frontend/.svelte-kit/output" error="syncing: delete dir: directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:57.490644 Pegasus syncthing[2132]: Failed to sync (path="Ssker Content Production/ScribeWatch/frontend/.svelte-kit" error="syncing: delete dir: directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:57.490644 Pegasus syncthing[2132]: Failed to sync (path="Ssker Content Production/ScribeWatch/frontend/.svelte-kit/output/server" error="syncing: delete dir: directory has been deleted on a remote device but is not empty; the contents are probably ignored on that remote device, but not locally" folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:57.490644 Pegasus syncthing[2132]: Folder failed to sync, will be retried (wait=8m6s folder.label=Projets folder.id=sn2dy-cfumv folder.type=sendreceive log.pkg=model)
+oct. 03 17:45:58.936066 Pegasus systemd[2112]: Starting Release idle Huawei MateBook MX250...
+oct. 03 17:45:58.975191 Pegasus sudo[5471]:   arezki : PWD=/home/arezki ; USER=root ; COMMAND=/usr/local/sbin/huawei-matebook-dgpu-power cleanup
+oct. 03 17:45:58.981076 Pegasus sudo[5471]: pam_unix(sudo:session): session opened for user root(uid=0) by arezki(uid=1000)
+oct. 03 17:45:59.029953 Pegasus sudo[5471]: pam_unix(sudo:session): session closed for user root
+oct. 03 17:45:59.033477 Pegasus systemd[2112]: Finished Release idle Huawei MateBook MX250.
+oct. 03 17:46:00.417998 Pegasus systemd-logind[655]: suspend requested from client PID 2366 ('plasmashell') (unit user@1000.service)...
+oct. 03 17:46:00.422751 Pegasus systemd-logind[655]: The system will suspend now!
+oct. 03 17:46:00.423021 Pegasus NetworkManager[639]: <info>  [1791042360.4229] manager: sleep: sleep requested (sleeping: no  enabled: yes)
+oct. 03 17:46:00.424695 Pegasus org_kde_powerdevil[2395]: [  2493][763.675397] (ldbus_handle_message)Received dbus signal PrepareForSleep(true=prepare)
+oct. 03 17:46:00.427171 Pegasus NetworkManager[639]: <info>  [1791042360.4270] device (p2p-dev-wlp0s20f3): state change: disconnected -> unmanaged (reason 'unmanaged-nm-disabled', managed-type: 'full')
+oct. 03 17:46:00.428599 Pegasus NetworkManager[639]: <info>  [1791042360.4285] manager: NetworkManager state is now DISABLED (ASLEEP)
+oct. 03 17:46:00.429825 Pegasus NetworkManager[639]: <info>  [1791042360.4297] device (wlp0s20f3): state change: activated -> deactivating (reason 'sleeping', managed-type: 'full')
+oct. 03 17:46:00.429900 Pegasus NetworkManager[639]: <info>  [1791042360.4298] dhcp4 (wlp0s20f3): canceled DHCP transaction
+oct. 03 17:46:00.429916 Pegasus NetworkManager[639]: <info>  [1791042360.4299] dhcp4 (wlp0s20f3): activation: beginning transaction (timeout in 45 seconds)
+oct. 03 17:46:00.429936 Pegasus NetworkManager[639]: <info>  [1791042360.4299] dhcp4 (wlp0s20f3): state changed no lease
+oct. 03 17:46:00.438068 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.1.20 on wlp0s20f3.
+oct. 03 17:46:00.438132 Pegasus avahi-daemon[640]: Leaving mDNS multicast group on interface wlp0s20f3.IPv4 with address 192.168.1.20.
+oct. 03 17:46:00.444293 Pegasus avahi-daemon[640]: Interface wlp0s20f3.IPv4 no longer relevant for mDNS.
+oct. 03 17:46:00.458259 Pegasus systemd[1]: Starting Network Manager Script Dispatcher Service...
+oct. 03 17:46:00.523266 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client reset search domain list.
+oct. 03 17:46:00.533535 Pegasus systemd[1]: Started Network Manager Script Dispatcher Service.
+oct. 03 17:46:00.548804 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client set default route setting: no
+oct. 03 17:46:00.554515 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client reset DNS server list.
+oct. 03 17:46:00.621892 Pegasus dnsmasq[912]: reading /etc/resolv.conf
+oct. 03 17:46:00.625145 Pegasus dnsmasq[912]: using nameserver 127.0.0.53#53
+oct. 03 17:46:00.651812 Pegasus systemd-resolved[373]: Switching to fallback DNS server 9.9.9.9#dns.quad9.net.
+oct. 03 17:46:00.891967 Pegasus kernel: wlp0s20f3: deauthenticating from 22:66:cf:6b:01:d0 by local choice (Reason: 3=DEAUTH_LEAVING)
+oct. 03 17:46:00.948528 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-DISCONNECTED bssid=22:66:cf:6b:01:d0 reason=3 locally_generated=1
+oct. 03 17:46:00.949329 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-DSCP-POLICY clear_all
+oct. 03 17:46:00.949819 Pegasus NetworkManager[639]: <info>  [1791042360.9497] device (wlp0s20f3): state change: deactivating -> disconnected (reason 'sleeping', managed-type: 'full')
+oct. 03 17:46:00.950301 Pegasus avahi-daemon[640]: Withdrawing address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.
+oct. 03 17:46:00.950360 Pegasus avahi-daemon[640]: Leaving mDNS multicast group on interface wlp0s20f3.IPv6 with address 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b.
+oct. 03 17:46:00.950419 Pegasus avahi-daemon[640]: Joining mDNS multicast group on interface wlp0s20f3.IPv6 with address fe80::d8ad:5dfa:123f:4744.
+oct. 03 17:46:00.950454 Pegasus avahi-daemon[640]: Registering new address record for fe80::d8ad:5dfa:123f:4744 on wlp0s20f3.*.
+oct. 03 17:46:00.951280 Pegasus avahi-daemon[640]: Withdrawing address record for fe80::d8ad:5dfa:123f:4744 on wlp0s20f3.
+oct. 03 17:46:00.951320 Pegasus avahi-daemon[640]: Leaving mDNS multicast group on interface wlp0s20f3.IPv6 with address fe80::d8ad:5dfa:123f:4744.
+oct. 03 17:46:00.951363 Pegasus avahi-daemon[640]: Interface wlp0s20f3.IPv6 no longer relevant for mDNS.
+oct. 03 17:46:00.963112 Pegasus NetworkManager[639]: <info>  [1791042360.9630] device (wlp0s20f3): set-hw-addr: set MAC address to D6:B0:D4:98:08:3A (scanning)
+oct. 03 17:46:00.977241 Pegasus NetworkManager[639]: <info>  [1791042360.9771] device (wlp0s20f3): supplicant interface state: completed -> disconnected
+oct. 03 17:46:00.978144 Pegasus NetworkManager[639]: <info>  [1791042360.9781] device (wlp0s20f3): state change: disconnected -> unmanaged (reason 'unmanaged-nm-disabled', managed-type: 'full')
+oct. 03 17:46:01.045357 Pegasus kscreenlocker_greet[5497]: Icon theme "Numix-Circle" not found.
+oct. 03 17:46:01.213842 Pegasus NetworkManager[639]: <info>  [1791042361.2138] device (wlp0s20f3): set-hw-addr: reset MAC address to 60:F2:62:C7:4D:59 (unmanage)
+oct. 03 17:46:01.220014 Pegasus wpa_supplicant[787]: p2p-dev-wlp0s20: CTRL-EVENT-DSCP-POLICY clear_all
+oct. 03 17:46:01.220196 Pegasus wpa_supplicant[787]: p2p-dev-wlp0s20: CTRL-EVENT-DSCP-POLICY clear_all
+oct. 03 17:46:01.220232 Pegasus wpa_supplicant[787]: nl80211: deinit ifname=p2p-dev-wlp0s20 disabled_11b_rates=0
+oct. 03 17:46:01.230044 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-DSCP-POLICY clear_all
+oct. 03 17:46:01.259299 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-DSCP-POLICY clear_all
+oct. 03 17:46:01.259313 Pegasus wpa_supplicant[787]: nl80211: deinit ifname=wlp0s20f3 disabled_11b_rates=0
+oct. 03 17:46:01.429471 Pegasus systemd[1]: Reached target Sleep.
+oct. 03 17:46:01.432563 Pegasus systemd[1]: Starting NVIDIA system suspend actions...
+oct. 03 17:46:01.454526 Pegasus suspend[5544]: nvidia-suspend.service
+oct. 03 17:46:01.455117 Pegasus logger[5544]: <13>Oct  3 17:46:01 suspend: nvidia-suspend.service
+oct. 03 17:46:01.478120 Pegasus systemd[1]: nvidia-suspend.service: Deactivated successfully.
+oct. 03 17:46:01.478871 Pegasus systemd[1]: Finished NVIDIA system suspend actions.
+oct. 03 17:46:01.482831 Pegasus systemd[1]: Starting System Suspend...
+oct. 03 17:46:01.512253 Pegasus systemd-sleep[5548]: User sessions remain unfrozen on explicit request ($SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0).
+oct. 03 17:46:01.512262 Pegasus systemd-sleep[5548]: This is not recommended, and might result in unexpected behavior, particularly
+oct. 03 17:46:01.512267 Pegasus systemd-sleep[5548]: in suspend-then-hibernate operations or setups with encrypted home directories.
+oct. 03 17:46:01.517433 Pegasus systemd-sleep[5548]: Performing sleep operation 'suspend'...
+oct. 03 17:46:01.517790 Pegasus kernel: PM: suspend entry (deep)
+oct. 03 17:46:01.591747 Pegasus kernel: Filesystems sync: 0.074 seconds
+oct. 03 17:46:05.473208 Pegasus kernel: Freezing user space processes
+oct. 03 17:46:05.473344 Pegasus kernel: Freezing user space processes completed (elapsed 0.003 seconds)
+oct. 03 17:46:05.473251 Pegasus systemd-resolved[373]: Clock change detected. Flushing caches.
+oct. 03 17:46:05.474564 Pegasus kernel: OOM killer disabled.
+oct. 03 17:46:05.474615 Pegasus kernel: Freezing remaining freezable tasks
+oct. 03 17:46:05.474678 Pegasus kernel: Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+oct. 03 17:46:05.474745 Pegasus kernel: printk: Suspending console(s) (use no_console_suspend to debug)
+oct. 03 17:46:05.474812 Pegasus kernel: ACPI: EC: interrupt blocked
+oct. 03 17:46:05.474865 Pegasus kernel: ACPI: PM: Preparing to enter system sleep state S3
+oct. 03 17:46:05.474919 Pegasus kernel: ACPI: EC: event blocked
+oct. 03 17:46:05.474991 Pegasus kernel: ACPI: EC: EC stopped
+oct. 03 17:46:05.475038 Pegasus kernel: ACPI: PM: Saving platform NVS memory
+oct. 03 17:46:05.475094 Pegasus kernel: Disabling non-boot CPUs ...
+oct. 03 17:46:05.477610 Pegasus kernel: smpboot: CPU 7 is now offline
+oct. 03 17:46:05.477758 Pegasus kernel: smpboot: CPU 6 is now offline
+oct. 03 17:46:05.477838 Pegasus kernel: smpboot: CPU 5 is now offline
+oct. 03 17:46:05.477917 Pegasus kernel: smpboot: CPU 4 is now offline
+oct. 03 17:46:05.477985 Pegasus kernel: smpboot: CPU 3 is now offline
+oct. 03 17:46:05.478043 Pegasus kernel: smpboot: CPU 2 is now offline
+oct. 03 17:46:05.478088 Pegasus kernel: smpboot: CPU 1 is now offline
+oct. 03 17:46:05.478140 Pegasus kernel: [Firmware Bug]: TSC ADJUST differs: CPU0 0 --> 18223817062522. Restoring
+oct. 03 17:46:05.478203 Pegasus kernel: ACPI: PM: Low-level resume complete
+oct. 03 17:46:05.478251 Pegasus kernel: ACPI: EC: EC started
+oct. 03 17:46:05.478289 Pegasus kernel: ACPI: PM: Restoring platform NVS memory
+oct. 03 17:46:05.478344 Pegasus kernel: Enabling non-boot CPUs ...
+oct. 03 17:46:05.478416 Pegasus kernel: smpboot: Booting Node 0 Processor 1 APIC 0x2
+oct. 03 17:46:05.478533 Pegasus kernel: CPU1 is up
+oct. 03 17:46:05.478674 Pegasus kernel: smpboot: Booting Node 0 Processor 2 APIC 0x4
+oct. 03 17:46:05.478725 Pegasus kernel: CPU2 is up
+oct. 03 17:46:05.478775 Pegasus kernel: smpboot: Booting Node 0 Processor 3 APIC 0x6
+oct. 03 17:46:05.478838 Pegasus kernel: CPU3 is up
+oct. 03 17:46:05.478890 Pegasus kernel: smpboot: Booting Node 0 Processor 4 APIC 0x1
+oct. 03 17:46:05.478941 Pegasus kernel: CPU4 is up
+oct. 03 17:46:05.478985 Pegasus kernel: smpboot: Booting Node 0 Processor 5 APIC 0x3
+oct. 03 17:46:05.479028 Pegasus kernel: CPU5 is up
+oct. 03 17:46:05.479063 Pegasus kernel: smpboot: Booting Node 0 Processor 6 APIC 0x5
+oct. 03 17:46:05.479146 Pegasus kernel: CPU6 is up
+oct. 03 17:46:05.479881 Pegasus kernel: smpboot: Booting Node 0 Processor 7 APIC 0x7
+oct. 03 17:46:05.479960 Pegasus kernel: CPU7 is up
+oct. 03 17:46:05.480001 Pegasus kernel: ACPI: PM: Waking up from system sleep state S3
+oct. 03 17:46:05.480042 Pegasus kernel: ACPI: button: [Firmware Bug]: Unexpected lid state reported by firmware
+oct. 03 17:46:05.480124 Pegasus kernel: ACPI: EC: interrupt unblocked
+oct. 03 17:46:05.480184 Pegasus kernel: ACPI: EC: event unblocked
+oct. 03 17:46:05.480246 Pegasus kernel: i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io,decodes=io:owns=io+mem
+oct. 03 17:46:05.481129 Pegasus kernel: nvme nvme0: 8/0/0 default/read/poll queues
+oct. 03 17:46:05.481066 Pegasus systemd[2112]: Starting Run arch-update auto check...
+oct. 03 17:46:05.483881 Pegasus kernel: usb 1-4: reset high-speed USB device number 2 using xhci_hcd
+oct. 03 17:46:05.486997 Pegasus kernel: ata3: SATA link down (SStatus 4 SControl 300)
+oct. 03 17:46:05.487104 Pegasus kernel: OOM killer enabled.
+oct. 03 17:46:05.487177 Pegasus kernel: Restarting tasks: Starting
+oct. 03 17:46:05.487249 Pegasus kernel: mei_hdcp 0000:00:16.0-b638ab7e-94e2-4ea2-a552-d1c54b627f04: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+oct. 03 17:46:05.487515 Pegasus kernel: Restarting tasks: Done
+oct. 03 17:46:05.487561 Pegasus kernel: efivarfs: resyncing variable state
+oct. 03 17:46:05.713675 Pegasus kernel: pci 0000:01:00.0: [10de:1d13] type 00 class 0x030200 PCIe Endpoint
+oct. 03 17:46:05.714071 Pegasus kernel: pci 0000:01:00.0: BAR 0 [mem 0x00000000-0x00ffffff]
+oct. 03 17:46:05.715278 Pegasus kernel: pci 0000:01:00.0: BAR 1 [mem 0x00000000-0x0fffffff 64bit pref]
+oct. 03 17:46:05.715577 Pegasus kernel: pci 0000:01:00.0: BAR 3 [mem 0x00000000-0x01ffffff 64bit pref]
+oct. 03 17:46:05.720810 Pegasus kernel: pci 0000:01:00.0: BAR 5 [io  0x0000-0x007f]
+oct. 03 17:46:05.721573 Pegasus kernel: pci 0000:01:00.0: ROM [mem 0x00000000-0x0007ffff pref]
+oct. 03 17:46:05.722426 Pegasus kernel: pci 0000:01:00.0: Max Payload Size set to 256 (was 128, max 256)
+oct. 03 17:46:05.725890 Pegasus kernel: pci 0000:01:00.0: Enabling HDA controller
+oct. 03 17:46:05.727680 Pegasus kernel: pci 0000:01:00.0: BAR 1 [mem 0xa0000000-0xafffffff 64bit pref]: assigned
+oct. 03 17:46:05.728508 Pegasus kernel: pci 0000:01:00.0: BAR 3 [mem 0xb0000000-0xb1ffffff 64bit pref]: assigned
+oct. 03 17:46:05.731606 Pegasus kernel: pci 0000:01:00.0: BAR 0 [mem 0xb3000000-0xb3ffffff]: assigned
+oct. 03 17:46:05.734777 Pegasus kernel: pci 0000:01:00.0: ROM [mem size 0x00080000 pref]: can't assign; no space
+oct. 03 17:46:05.736251 Pegasus kernel: pci 0000:01:00.0: ROM [mem size 0x00080000 pref]: failed to assign
+oct. 03 17:46:05.740984 Pegasus kernel: pci 0000:01:00.0: BAR 5 [io  0x3000-0x307f]: assigned
+oct. 03 17:46:05.762652 Pegasus kernel: efivarfs: finished resyncing variable state
+oct. 03 17:46:05.762764 Pegasus kernel: random: crng reseeded on system resumption
+oct. 03 17:46:05.780841 Pegasus systemd-sleep[5548]: System returned from sleep operation 'suspend'.
+oct. 03 17:46:05.780950 Pegasus bluetoothd[641]: Controller resume with wake event 0x0
+oct. 03 17:46:05.782939 Pegasus kernel: PM: suspend exit
+oct. 03 17:46:05.792033 Pegasus systemd[1]: systemd-suspend.service: Deactivated successfully.
+oct. 03 17:46:05.792635 Pegasus systemd[1]: Finished System Suspend.
+oct. 03 17:46:05.794639 Pegasus systemd[1]: Stopped target Sleep.
+oct. 03 17:46:05.795051 Pegasus systemd[1]: Reached target Suspend.
+oct. 03 17:46:05.797511 Pegasus systemd-logind[655]: Operation 'suspend' finished.
+oct. 03 17:46:05.798240 Pegasus systemd[1]: Starting NVIDIA system resume actions...
+oct. 03 17:46:05.799176 Pegasus systemd-resolved[373]: Closing all remaining TCP connections.
+oct. 03 17:46:05.800856 Pegasus org_kde_powerdevil[2395]: [  2493][769.051556] (ldbus_handle_message)Received dbus signal PrepareForSleep(false=resume)
+oct. 03 17:46:05.799196 Pegasus systemd-resolved[373]: Resetting learnt feature levels on all servers.
+oct. 03 17:46:05.799939 Pegasus systemd[1]: Stopped target Suspend.
+oct. 03 17:46:05.801544 Pegasus NetworkManager[639]: <info>  [1791042365.8015] manager: sleep: wake requested (sleeping: yes  enabled: yes)
+oct. 03 17:46:05.801655 Pegasus NetworkManager[639]: <info>  [1791042365.8016] device (wlp0s20f3): state change: unmanaged -> unavailable (reason 'managed', managed-type: 'external')
+oct. 03 17:46:05.810999 Pegasus NetworkManager[639]: <info>  [1791042365.8109] device (p2p-dev-wlp0s20f3): state change: unmanaged -> unavailable (reason 'managed', managed-type: 'external')
+oct. 03 17:46:05.811413 Pegasus NetworkManager[639]: <warn>  [1791042365.8113] device (p2p-dev-wlp0s20f3): error setting IPv4 forwarding to '1': Ressource temporairement non disponible
+oct. 03 17:46:05.811597 Pegasus wpa_supplicant[787]: wlp0s20f3: nl80211: kernel reports: multicast RX registrations are not supported
+oct. 03 17:46:05.812789 Pegasus NetworkManager[639]: <info>  [1791042365.8127] manager: NetworkManager state is now CONNECTED_LOCAL
+oct. 03 17:46:05.828364 Pegasus suspend[5635]: nvidia-resume.service
+oct. 03 17:46:05.829122 Pegasus logger[5635]: <13>Oct  3 17:46:05 suspend: nvidia-resume.service
+oct. 03 17:46:05.833755 Pegasus wpa_supplicant[787]: p2p-dev-wlp0s20: nl80211: kernel reports: multicast RX registrations are not supported
+oct. 03 17:46:05.849439 Pegasus NetworkManager[639]: <info>  [1791042365.8494] device (wlp0s20f3): supplicant interface state: internal-starting -> disconnected
+oct. 03 17:46:05.850722 Pegasus NetworkManager[639]: <info>  [1791042365.8506] device (p2p-dev-wlp0s20f3): state change: unavailable -> unmanaged (reason 'unmanaged-link-not-init', managed-type: 'removed')
+oct. 03 17:46:05.852159 Pegasus NetworkManager[639]: <info>  [1791042365.8521] Wi-Fi P2P device controlled by interface wlp0s20f3 created
+oct. 03 17:46:05.853050 Pegasus NetworkManager[639]: <info>  [1791042365.8530] manager: (p2p-dev-wlp0s20f3): new 802.11 Wi-Fi P2P device (/org/freedesktop/NetworkManager/Devices/6)
+oct. 03 17:46:05.853948 Pegasus NetworkManager[639]: <info>  [1791042365.8539] device (p2p-dev-wlp0s20f3): state change: unmanaged -> unavailable (reason 'managed', managed-type: 'external')
+oct. 03 17:46:05.854049 Pegasus NetworkManager[639]: <warn>  [1791042365.8540] device (p2p-dev-wlp0s20f3): error setting IPv4 forwarding to '1': Ressource temporairement non disponible
+oct. 03 17:46:05.856312 Pegasus NetworkManager[639]: <info>  [1791042365.8562] device (wlp0s20f3): state change: unavailable -> disconnected (reason 'supplicant-available', managed-type: 'full')
+oct. 03 17:46:05.857858 Pegasus NetworkManager[639]: <info>  [1791042365.8578] device (p2p-dev-wlp0s20f3): state change: unavailable -> disconnected (reason 'none', managed-type: 'full')
+oct. 03 17:46:05.876412 Pegasus systemd[1]: nvidia-resume.service: Deactivated successfully.
+oct. 03 17:46:05.878656 Pegasus systemd[1]: Finished NVIDIA system resume actions.
+oct. 03 17:46:05.939197 Pegasus brave[2654]: [2654:2771:1003/174605.939146:ERROR:brave/components/brave_news/browser/publishers_parsing.cc:26] Publisher data expected to be a list: null
+oct. 03 17:46:06.050164 Pegasus systemd[2112]: Reached target Bluetooth.
+oct. 03 17:46:06.374515 Pegasus kernel: input: HUAWEI Mouse CD23 SE Mouse as /devices/virtual/misc/uhid/0005:12D1:10CD.0004/input/input34
+oct. 03 17:46:06.374678 Pegasus kernel: input: HUAWEI Mouse CD23 SE Consumer Control as /devices/virtual/misc/uhid/0005:12D1:10CD.0004/input/input35
+oct. 03 17:46:06.374751 Pegasus kernel: hid-generic 0005:12D1:10CD.0004: input,hidraw2: BLUETOOTH HID v10.13 Mouse [HUAWEI Mouse CD23 SE] on 60:f2:62:c7:4d:5d
+oct. 03 17:46:07.105178 Pegasus arch-update[5629]: ==> ERROR: Cannot fetch updates
+oct. 03 17:46:07.145587 Pegasus arch-update[5712]: Error updating: Error updating appstream2: No such ref 'appstream2/x86_64' in remote flathub; Error updating appstream: No such ref 'appstream/x86_64' in remote flathub
+oct. 03 17:46:07.207279 Pegasus arch-update[5725]: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname
+oct. 03 17:46:07.224446 Pegasus systemd[2112]: Finished Run arch-update auto check.
+oct. 03 17:46:07.224765 Pegasus systemd[2112]: arch-update.service: Consumed 1.088s CPU time over 1.742s wall clock time, 7M memory peak.
+oct. 03 17:46:07.923485 Pegasus NetworkManager[639]: <info>  [1791042367.9234] policy: auto-activating connection 'Hachis Parmentier' (aed4c867-cfcd-4e6f-a66c-59683178a8d4)
+oct. 03 17:46:07.924102 Pegasus NetworkManager[639]: <info>  [1791042367.9240] device (wlp0s20f3): Activation: starting connection 'Hachis Parmentier' (aed4c867-cfcd-4e6f-a66c-59683178a8d4)
+oct. 03 17:46:07.924239 Pegasus NetworkManager[639]: <info>  [1791042367.9242] device (wlp0s20f3): state change: disconnected -> prepare (reason 'none', managed-type: 'full')
+oct. 03 17:46:07.924655 Pegasus NetworkManager[639]: <info>  [1791042367.9246] manager: NetworkManager state is now CONNECTING
+oct. 03 17:46:07.925434 Pegasus NetworkManager[639]: <info>  [1791042367.9254] device (wlp0s20f3): state change: prepare -> config (reason 'none', managed-type: 'full')
+oct. 03 17:46:07.925758 Pegasus NetworkManager[639]: <info>  [1791042367.9257] device (wlp0s20f3): Activation: (wifi) access point 'Hachis Parmentier' has security, but secrets are required.
+oct. 03 17:46:07.925772 Pegasus NetworkManager[639]: <info>  [1791042367.9257] device (wlp0s20f3): state change: config -> need-auth (reason 'none', managed-type: 'full')
+oct. 03 17:46:07.925935 Pegasus NetworkManager[639]: <info>  [1791042367.9259] sup-iface[271d64cb74007d4b,1,wlp0s20f3]: wps: type pbc start...
+oct. 03 17:46:07.926859 Pegasus wpa_supplicant[787]: wlp0s20f3: WPS-PBC-ACTIVE
+oct. 03 17:46:07.927707 Pegasus NetworkManager[639]: <info>  [1791042367.9276] device (wlp0s20f3): state change: need-auth -> prepare (reason 'none', managed-type: 'full')
+oct. 03 17:46:07.928320 Pegasus NetworkManager[639]: <info>  [1791042367.9283] device (wlp0s20f3): state change: prepare -> config (reason 'none', managed-type: 'full')
+oct. 03 17:46:07.928438 Pegasus wpa_supplicant[787]: wlp0s20f3: WPS-CANCEL
+oct. 03 17:46:07.928728 Pegasus NetworkManager[639]: <info>  [1791042367.9287] device (wlp0s20f3): Activation: (wifi) connection 'Hachis Parmentier' has security, and secrets exist.  No new secrets needed.
+oct. 03 17:46:07.928850 Pegasus NetworkManager[639]: <info>  [1791042367.9288] Config: added 'ssid' value 'Hachis Parmentier'
+oct. 03 17:46:07.928863 Pegasus NetworkManager[639]: <info>  [1791042367.9288] Config: added 'scan_ssid' value '1'
+oct. 03 17:46:07.928872 Pegasus NetworkManager[639]: <info>  [1791042367.9288] Config: added 'bgscan' value 'simple:30:-65:300'
+oct. 03 17:46:07.928888 Pegasus NetworkManager[639]: <info>  [1791042367.9288] Config: added 'key_mgmt' value 'WPA-PSK WPA-PSK-SHA256 FT-PSK SAE FT-SAE'
+oct. 03 17:46:07.928896 Pegasus NetworkManager[639]: <info>  [1791042367.9288] Config: added 'psk' value '<hidden>'
+oct. 03 17:46:07.929378 Pegasus NetworkManager[639]: <info>  [1791042367.9293] device (wlp0s20f3): supplicant interface state: disconnected -> scanning
+oct. 03 17:46:07.929419 Pegasus NetworkManager[639]: <info>  [1791042367.9293] device (p2p-dev-wlp0s20f3): supplicant management interface state: disconnected -> scanning
+oct. 03 17:46:07.944724 Pegasus wpa_supplicant[787]: wlp0s20f3: SME: Trying to authenticate with 22:66:cf:6b:01:d0 (SSID='Hachis Parmentier' freq=5280 MHz)
+oct. 03 17:46:07.948637 Pegasus kernel: wlp0s20f3: authenticate with 22:66:cf:6b:01:d0 (local address=60:f2:62:c7:4d:59)
+oct. 03 17:46:07.949296 Pegasus NetworkManager[639]: <info>  [1791042367.9492] device (wlp0s20f3): supplicant interface state: scanning -> authenticating
+oct. 03 17:46:07.949318 Pegasus NetworkManager[639]: <info>  [1791042367.9493] device (p2p-dev-wlp0s20f3): supplicant management interface state: scanning -> authenticating
+oct. 03 17:46:07.949633 Pegasus kernel: wlp0s20f3: send auth to 22:66:cf:6b:01:d0 (try 1/3)
+oct. 03 17:46:07.981772 Pegasus wpa_supplicant[787]: wlp0s20f3: Trying to associate with 22:66:cf:6b:01:d0 (SSID='Hachis Parmentier' freq=5280 MHz)
+oct. 03 17:46:07.982276 Pegasus NetworkManager[639]: <info>  [1791042367.9822] device (wlp0s20f3): supplicant interface state: authenticating -> associating
+oct. 03 17:46:07.982292 Pegasus NetworkManager[639]: <info>  [1791042367.9822] device (p2p-dev-wlp0s20f3): supplicant management interface state: authenticating -> associating
+oct. 03 17:46:07.982634 Pegasus kernel: wlp0s20f3: authenticated
+oct. 03 17:46:07.982692 Pegasus kernel: wlp0s20f3: associate with 22:66:cf:6b:01:d0 (try 1/3)
+oct. 03 17:46:07.989632 Pegasus kernel: wlp0s20f3: RX AssocResp from 22:66:cf:6b:01:d0 (capab=0x1111 status=0 aid=2)
+oct. 03 17:46:07.997635 Pegasus kernel: wlp0s20f3: associated
+oct. 03 17:46:07.998003 Pegasus wpa_supplicant[787]: wlp0s20f3: Associated with 22:66:cf:6b:01:d0
+oct. 03 17:46:07.998281 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-SUBNET-STATUS-UPDATE status=0
+oct. 03 17:46:08.019425 Pegasus wpa_supplicant[787]: wlp0s20f3: WPA: Key negotiation completed with 22:66:cf:6b:01:d0 [PTK=CCMP GTK=CCMP]
+oct. 03 17:46:08.019445 Pegasus wpa_supplicant[787]: wlp0s20f3: CTRL-EVENT-CONNECTED - Connection to 22:66:cf:6b:01:d0 completed [id=0 id_str=]
+oct. 03 17:46:08.026836 Pegasus NetworkManager[639]: <info>  [1791042368.0268] device (wlp0s20f3): supplicant interface state: associating -> completed
+oct. 03 17:46:08.026856 Pegasus NetworkManager[639]: <info>  [1791042368.0268] device (wlp0s20f3): Activation: (wifi) Stage 2 of 5 (Device Configure) successful. Connected to wireless network "Hachis Parmentier"
+oct. 03 17:46:08.026871 Pegasus NetworkManager[639]: <info>  [1791042368.0268] device (p2p-dev-wlp0s20f3): supplicant management interface state: associating -> completed
+oct. 03 17:46:08.027016 Pegasus NetworkManager[639]: <info>  [1791042368.0270] device (wlp0s20f3): state change: config -> ip-config (reason 'none', managed-type: 'full')
+oct. 03 17:46:08.027889 Pegasus NetworkManager[639]: <info>  [1791042368.0278] dhcp4 (wlp0s20f3): activation: beginning transaction (timeout in 45 seconds)
+oct. 03 17:46:08.039294 Pegasus NetworkManager[639]: <info>  [1791042368.0392] dhcp4 (wlp0s20f3): state changed new lease, address=192.168.1.20, acd pending
+oct. 03 17:46:08.092638 Pegasus kernel: wlp0s20f3: Limiting TX power to 23 (23 - 0) dBm as advertised by 22:66:cf:6b:01:d0
+oct. 03 17:46:08.209755 Pegasus NetworkManager[639]: <info>  [1791042368.2097] dhcp4 (wlp0s20f3): state changed new lease, address=192.168.1.20
+oct. 03 17:46:08.210271 Pegasus avahi-daemon[640]: Joining mDNS multicast group on interface wlp0s20f3.IPv4 with address 192.168.1.20.
+oct. 03 17:46:08.211310 Pegasus avahi-daemon[640]: New relevant interface wlp0s20f3.IPv4 for mDNS.
+oct. 03 17:46:08.211355 Pegasus avahi-daemon[640]: Registering new address record for 192.168.1.20 on wlp0s20f3.IPv4.
+oct. 03 17:46:08.213570 Pegasus NetworkManager[639]: <info>  [1791042368.2135] policy: set 'Hachis Parmentier' (wlp0s20f3) as default for IPv4 routing and DNS
+oct. 03 17:46:08.218891 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client set search domain list to: home
+oct. 03 17:46:08.219397 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client set default route setting: yes
+oct. 03 17:46:08.220278 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client set DNS server list to: 192.168.1.210, 1.1.1.1
+oct. 03 17:46:08.222689 Pegasus dnsmasq[912]: reading /etc/resolv.conf
+oct. 03 17:46:08.222791 Pegasus dnsmasq[912]: using nameserver 127.0.0.53#53
+oct. 03 17:46:08.233981 Pegasus NetworkManager[639]: <info>  [1791042368.2339] device (wlp0s20f3): state change: ip-config -> ip-check (reason 'none', managed-type: 'full')
+oct. 03 17:46:08.239459 Pegasus NetworkManager[639]: <info>  [1791042368.2394] device (wlp0s20f3): state change: ip-check -> secondaries (reason 'none', managed-type: 'full')
+oct. 03 17:46:08.240088 Pegasus NetworkManager[639]: <info>  [1791042368.2400] device (wlp0s20f3): state change: secondaries -> activated (reason 'none', managed-type: 'full')
+oct. 03 17:46:08.241416 Pegasus NetworkManager[639]: <info>  [1791042368.2412] manager: NetworkManager state is now CONNECTED_SITE
+oct. 03 17:46:08.244231 Pegasus NetworkManager[639]: <info>  [1791042368.2442] device (wlp0s20f3): Activation: successful, device activated.
+oct. 03 17:46:08.348823 Pegasus NetworkManager[639]: <info>  [1791042368.3487] manager: NetworkManager state is now CONNECTED_GLOBAL
+oct. 03 17:46:09.035295 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 03 17:46:09.232537 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x82 attempt=1/2
+oct. 03 17:46:09.409031 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa6 attempt=1/2
+oct. 03 17:46:09.585792 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0xa2 attempt=1/2
+oct. 03 17:46:09.759736 Pegasus avahi-daemon[640]: Joining mDNS multicast group on interface wlp0s20f3.IPv6 with address fe80::d8ad:5dfa:123f:4744.
+oct. 03 17:46:09.760094 Pegasus avahi-daemon[640]: New relevant interface wlp0s20f3.IPv6 for mDNS.
+oct. 03 17:46:09.760142 Pegasus avahi-daemon[640]: Registering new address record for fe80::d8ad:5dfa:123f:4744 on wlp0s20f3.*.
+oct. 03 17:46:09.783113 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x70 attempt=1/2
+oct. 03 17:46:09.849636 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff02:0000:0000:0000:0000:0000:0001:0003 LEN=73 TC=0 HOPLIMIT=255 FLOWLBL=752870 PROTO=UDP SPT=5355 DPT=5355 LEN=33 
+oct. 03 17:46:09.885707 Pegasus NetworkManager[639]: <info>  [1791042369.8856] policy: set 'Hachis Parmentier' (wlp0s20f3) as default for IPv6 routing and DNS
+oct. 03 17:46:09.887435 Pegasus systemd-resolved[373]: wlp0s20f3: Bus client set DNS server list to: 192.168.1.210, 1.1.1.1, fd0f:ee:b0::1
+oct. 03 17:46:09.890989 Pegasus dnsmasq[912]: reading /etc/resolv.conf
+oct. 03 17:46:09.891087 Pegasus dnsmasq[912]: using nameserver 127.0.0.53#53
+oct. 03 17:46:09.935562 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 03 17:46:10.041732 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff02:0000:0000:0000:0000:0000:0001:0003 LEN=73 TC=0 HOPLIMIT=255 FLOWLBL=752870 PROTO=UDP SPT=5355 DPT=5355 LEN=33 
+oct. 03 17:46:10.089196 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 03 17:46:10.243274 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 03 17:46:10.245688 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff02:0000:0000:0000:0000:0000:0001:0003 LEN=73 TC=0 HOPLIMIT=255 FLOWLBL=752870 PROTO=UDP SPT=5355 DPT=5355 LEN=33 
+oct. 03 17:46:10.398371 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x80 attempt=1/2
+oct. 03 17:46:10.554376 Pegasus fprintd[740]: GXFP51A0 target ACK diagnostic: no-irq retry cmd=0x90 attempt=1/2
+oct. 03 17:46:10.879898 Pegasus fprintd[740]: GXFP51A0 calibration waiting for sensor clear: mean=209 floor=340
+oct. 03 17:46:11.552551 Pegasus avahi-daemon[640]: Leaving mDNS multicast group on interface wlp0s20f3.IPv6 with address fe80::d8ad:5dfa:123f:4744.
+oct. 03 17:46:11.552582 Pegasus avahi-daemon[640]: Joining mDNS multicast group on interface wlp0s20f3.IPv6 with address 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b.
+oct. 03 17:46:11.552596 Pegasus avahi-daemon[640]: Registering new address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.*.
+oct. 03 17:46:11.552698 Pegasus avahi-daemon[640]: Withdrawing address record for fe80::d8ad:5dfa:123f:4744 on wlp0s20f3.
+oct. 03 17:46:11.932718 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.122.1 on virbr0.
+oct. 03 17:46:11.932739 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.1.20 on wlp0s20f3.
+oct. 03 17:46:11.932754 Pegasus avahi-daemon[640]: Withdrawing address record for ::1 on lo.
+oct. 03 17:46:11.932770 Pegasus avahi-daemon[640]: Withdrawing address record for 127.0.0.1 on lo.
+oct. 03 17:46:11.932841 Pegasus avahi-daemon[640]: Host name conflict, retrying with Pegasus-10
+oct. 03 17:46:11.932904 Pegasus avahi-daemon[640]: Registering new address record for 192.168.122.1 on virbr0.IPv4.
+oct. 03 17:46:11.932935 Pegasus avahi-daemon[640]: Registering new address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.*.
+oct. 03 17:46:11.932979 Pegasus avahi-daemon[640]: Registering new address record for 192.168.1.20 on wlp0s20f3.IPv4.
+oct. 03 17:46:11.933006 Pegasus avahi-daemon[640]: Registering new address record for ::1 on lo.*.
+oct. 03 17:46:11.933055 Pegasus avahi-daemon[640]: Registering new address record for 127.0.0.1 on lo.IPv4.
+oct. 03 17:46:13.059360 Pegasus fprintd[740]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 03 17:46:13.523881 Pegasus avahi-daemon[640]: Server startup complete. Host name is Pegasus-10.local. Local service cookie is 2475384352.
+oct. 03 17:46:13.550206 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 03 17:46:13.550420 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 READY
+oct. 03 17:46:13.745602 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 DETECTED_HOLD touch=0x3f zones=6 mean=225 drop=128
+oct. 03 17:46:14.002354 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.122.1 on virbr0.
+oct. 03 17:46:14.002385 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.1.20 on wlp0s20f3.
+oct. 03 17:46:14.002404 Pegasus avahi-daemon[640]: Withdrawing address record for ::1 on lo.
+oct. 03 17:46:14.002426 Pegasus avahi-daemon[640]: Withdrawing address record for 127.0.0.1 on lo.
+oct. 03 17:46:14.002505 Pegasus avahi-daemon[640]: Host name conflict, retrying with Pegasus-11
+oct. 03 17:46:14.002602 Pegasus avahi-daemon[640]: Registering new address record for 192.168.122.1 on virbr0.IPv4.
+oct. 03 17:46:14.002647 Pegasus avahi-daemon[640]: Registering new address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.*.
+oct. 03 17:46:14.002695 Pegasus avahi-daemon[640]: Registering new address record for 192.168.1.20 on wlp0s20f3.IPv4.
+oct. 03 17:46:14.002721 Pegasus avahi-daemon[640]: Registering new address record for ::1 on lo.*.
+oct. 03 17:46:14.002765 Pegasus avahi-daemon[640]: Registering new address record for 127.0.0.1 on lo.IPv4.
+oct. 03 17:46:14.501585 Pegasus fprintd[740]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 03 17:46:14.777177 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 250% -> 300% (90000 us)
+oct. 03 17:46:14.814831 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=15 threshold=7 candidate=0
+oct. 03 17:46:14.974708 Pegasus avahi-daemon[640]: Server startup complete. Host name is Pegasus-11.local. Local service cookie is 2475384352.
+oct. 03 17:46:15.472393 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.122.1 on virbr0.
+oct. 03 17:46:15.472424 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.1.20 on wlp0s20f3.
+oct. 03 17:46:15.472443 Pegasus avahi-daemon[640]: Withdrawing address record for ::1 on lo.
+oct. 03 17:46:15.472474 Pegasus avahi-daemon[640]: Withdrawing address record for 127.0.0.1 on lo.
+oct. 03 17:46:15.472551 Pegasus avahi-daemon[640]: Host name conflict, retrying with Pegasus-12
+oct. 03 17:46:15.472616 Pegasus avahi-daemon[640]: Registering new address record for 192.168.122.1 on virbr0.IPv4.
+oct. 03 17:46:15.472660 Pegasus avahi-daemon[640]: Registering new address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.*.
+oct. 03 17:46:15.472710 Pegasus avahi-daemon[640]: Registering new address record for 192.168.1.20 on wlp0s20f3.IPv4.
+oct. 03 17:46:15.472737 Pegasus avahi-daemon[640]: Registering new address record for ::1 on lo.*.
+oct. 03 17:46:15.472787 Pegasus avahi-daemon[640]: Registering new address record for 127.0.0.1 on lo.IPv4.
+oct. 03 17:46:15.557682 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=1 best=15 threshold=7
+oct. 03 17:46:15.616409 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 LIFT_NOW
+oct. 03 17:46:16.444145 Pegasus avahi-daemon[640]: Server startup complete. Host name is Pegasus-12.local. Local service cookie is 2475384352.
+oct. 03 17:46:17.074985 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.122.1 on virbr0.
+oct. 03 17:46:17.075016 Pegasus avahi-daemon[640]: Withdrawing address record for 192.168.1.20 on wlp0s20f3.
+oct. 03 17:46:17.075036 Pegasus avahi-daemon[640]: Withdrawing address record for ::1 on lo.
+oct. 03 17:46:17.075063 Pegasus avahi-daemon[640]: Withdrawing address record for 127.0.0.1 on lo.
+oct. 03 17:46:17.075158 Pegasus avahi-daemon[640]: Host name conflict, retrying with Pegasus-13
+oct. 03 17:46:17.075236 Pegasus avahi-daemon[640]: Registering new address record for 192.168.122.1 on virbr0.IPv4.
+oct. 03 17:46:17.075275 Pegasus avahi-daemon[640]: Registering new address record for 2a01:e0a:eca:4050:fd6b:c4e8:c5b9:916b on wlp0s20f3.*.
+oct. 03 17:46:17.075331 Pegasus avahi-daemon[640]: Registering new address record for 192.168.1.20 on wlp0s20f3.IPv4.
+oct. 03 17:46:17.075363 Pegasus avahi-daemon[640]: Registering new address record for ::1 on lo.*.
+oct. 03 17:46:17.075420 Pegasus avahi-daemon[640]: Registering new address record for 127.0.0.1 on lo.IPv4.
+oct. 03 17:46:18.046041 Pegasus avahi-daemon[640]: Server startup complete. Host name is Pegasus-13.local. Local service cookie is 2475384352.
+oct. 03 17:46:18.331735 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff12:0000:0000:0000:0000:0000:0000:8384 LEN=311 TC=0 HOPLIMIT=1 FLOWLBL=701518 PROTO=UDP SPT=47094 DPT=21027 LEN=271 
+oct. 03 17:46:19.907933 Pegasus systemd[1]: NetworkManager-dispatcher.service: Deactivated successfully.
+oct. 03 17:46:24.949689 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC=60:f2:62:c7:4d:59:bc:24:11:3c:80:43:08:00 SRC=192.168.1.202 DST=192.168.1.20 LEN=32 TOS=0x00 PREC=0x00 TTL=64 ID=61246 DF PROTO=UDP SPT=47695 DPT=32108 LEN=12 

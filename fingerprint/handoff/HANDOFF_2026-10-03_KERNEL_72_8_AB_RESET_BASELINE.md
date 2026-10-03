@@ -165,17 +165,70 @@ A/B conclusion:
 - no further rel73/74/75-style userspace tuning should be layered onto the
   currently working baseline before the S3 gate.
 
-Next gate:
-1. keep exact rel71 + stock fprintd + kernel 7.2.8-1
-2. user-trigger exactly ONE deep S3
-3. on resume, use enrolled finger once lockscreen fingerprint is ready
-4. inspect:
-   - real deep S3 entry/resume
-   - fresh KScreenLocker PAM transaction
-   - Claim/Open/cold prepare
-   - READY latency
-   - DETECTED_HOLD
-   - first genuine score
-   - actual unlock
-5. only after S3 validation decide whether to pin 7.2.8-1 temporarily or build a
-   controlled 7.2.8-2 kernel/toolchain bisect.
+## A/B RESULT — DEEP S3 PASS — 2026-10-03 17:46 CEST
+
+User result:
+- deep S3 succeeded
+- fingerprint unlock succeeded on what the user experienced as the second pose
+
+Verified sleep:
+- PM: suspend entry (deep): 17:46:01.517790
+- ACPI S3 entry occurred
+- PM: suspend exit: 17:46:05.782939
+- no external GXFP system-sleep hook
+- fprintd remained the same PID 740 across S3
+
+Post-resume authentication:
+- first transport activity: 17:46:09.035295
+- READY: 17:46:13.550420
+- resume -> READY: about 7.77 s
+- DETECTED_HOLD: 17:46:13.745602
+  - touch=0x3f
+  - zones=6
+  - mean=225
+  - drop=128
+- GET_IMAGE used the existing safe no-evidence retry
+- retry-assisted pacing applied: 250% -> 300%, 90 ms
+- first biometric image captured after READY:
+  score=15 threshold=7 candidate=0
+- best=15/7
+- user confirms successful unlock
+
+The user's perceived “second pose” is consistent with the first physical placement
+landing during post-resume transport/calibration before READY. The first pose that
+the driver actually accepted after READY was successful immediately at 15/7.
+
+Evidence:
+- fingerprint/handoff/evidence/REL71_KERNEL72_8_1_DEEP_S3_PASS_2026-10-03_174601.log
+- SHA256:
+  284eb7b85dfb9ae79639b38a591fc4a0046c00ac5a8b1cabdac1f17cd9419e4f
+
+## Stable-today decision
+
+The validated runtime for Pegasus is now:
+- linux-cachyos 7.2.8-1
+- exact rel71/rel61 libfprint binary
+- stock fprintd 1.94.5-2.1
+- kscreenlocker 6.7.5-1.5
+- plasma-login-manager 6.7.5-3.9
+- SIGFM threshold 7
+- no external fingerprint sleep hook
+- no heartbeat/keepalive
+- no persistent timing-learning file
+- no re-enrollment
+
+Human gates passed on this exact baseline:
+1. normal graphical lock -> fingerprint unlock PASS, first accepted image 7/7
+2. genuine deep S3 -> fingerprint unlock PASS, first accepted post-READY image 15/7
+
+Therefore:
+- do not create rel76 today
+- do not layer rel73/74/75 changes onto the working runtime
+- keep the temporary linux-cachyos / headers hold so unrelated system updates do
+  not silently reinstall 7.2.8-2 before the kernel regression is resolved
+- normal package updates remain possible; only these two kernel packages are held
+- future engineering should reproduce/fix the 7.2.8-2 SPI/kernel-build regression
+  separately, with the stable 7.2.8-1 + rel71 runtime preserved as the control
+- do not market or tag a “universal/perfect” driver yet: distro portability is
+  already strong, but kernel-build portability is not solved until the -2
+  regression is understood or compensated without harming this baseline
