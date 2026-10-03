@@ -97,5 +97,13 @@ Gate 2 only after Gate 1 passes: install native fprintd PrepareForSleep open bou
 then one deep-S3 test; require 0x60 ACK before D3, fresh post-resume Claim/Open,
 READY, score >=7, unlock, and password fallback.
 
+Prepared but NOT installed fprintd S3 package:
+- fprintd 1.94.5-73
+- SHA256: 62b66445da23cb0e49287bc9bbf3f5516ab77c116d14c109bf999dfb05561f86
+- source-safety gate: PASS
+- compile/package: PASS
+- upstream PAM test suite is path-sensitive and fails because pam_wrapper splits the canonical project path at the spaces in 'Capteur Empreinte Huawei'; the failure is environmental, before any hardware I/O and unrelated to the S3 patch. Package was therefore produced with --nocheck after source gates and successful compilation.
+- temporary build dependencies were removed afterward; no new pacman orphans remain.
+
 Only repeatable human success can promote rel73 to stable. Portability is a target;
 do not claim every distribution is validated before actual cross-distro testing.

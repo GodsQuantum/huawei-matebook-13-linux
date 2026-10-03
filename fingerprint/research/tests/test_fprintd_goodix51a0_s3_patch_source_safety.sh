@@ -13,7 +13,7 @@ grep -Fq 'fp_device_close' "$patch"
 grep -Fq 'opened_for_sleep' "$patch"
 grep -Fq 'PrepareForSleep' "$patch" || true
 grep -Fq 'pkgver=1.94.5' "$pkg"
-grep -Fq 'pkgrel=72' "$pkg"
+grep -Fq 'pkgrel=73' "$pkg"
 grep -Fq '0001-goodix51a0-open-before-suspend.patch' "$pkg"
 
 echo 'test_fprintd_goodix51a0_s3_patch_source_safety: OK'

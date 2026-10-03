@@ -1,10 +1,10 @@
-# rel72 candidate: fprintd 1.94.5 + Goodix GXFP51A0 S3-open boundary.
+# rel73 candidate: fprintd 1.94.5 + Goodix GXFP51A0 S3-open boundary.
 # This is intentionally separate from install-arch.sh until the human S3 gate passes.
 
 pkgname=fprintd
 pkgver=1.94.5
-pkgrel=72
-pkgdesc="D-Bus service to access fingerprint readers (GXFP51A0 rel72 S3 lifecycle)"
+pkgrel=73
+pkgdesc="D-Bus service to access fingerprint readers (GXFP51A0 rel73 S3 lifecycle)"
 url="https://fprint.freedesktop.org/"
 arch=(x86_64)
 license=(GPL-2.0-or-later)
