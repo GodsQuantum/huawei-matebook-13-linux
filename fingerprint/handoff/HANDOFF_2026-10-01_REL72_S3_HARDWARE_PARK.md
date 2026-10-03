@@ -720,6 +720,58 @@ Next physical gate:
 - if PASS: the external GPIO264 + spidev rebind is a confirmed live recovery primitive and the remaining engineering target is automatic pre-S3 park/post-S3 lifecycle recovery
 - if FAIL: inspect the post-recovery Claim/Open logs before changing code; do not re-enroll and do not lower SIGFM threshold 7
 
+## 15H. POST-RECOVERY LOW-SCORE FAIL + KERNEL A/B PREPARED
+
+Human result:
+- `recovery lock échoué`
+
+The external GPIO264 + spidev rebind DID recover transport/TLS enough for normal operation:
+- cold preparation completed
+- WakeupMCU completed
+- Identify reached READY
+- genuine finger was detected with all 6 zones
+- actual TLS image records were received and scored
+
+Failure was now biometric image quality, not TLS/PAM:
+- press 1: score 3/7, 3/7
+- press 2: score 4/7, 4/7, third image rejected by quality gate
+- FDT finger drops were strong (122-150)
+- GET_IMAGE still needed retry-assisted pacing
+- protocol timing again escalated from 100% to 300% after target ACK/FDT misses
+- no threshold/enrollment/matcher change was made
+
+New environmental variable isolated:
+- historical rel59/60/61/66 success and the rel71 reconstruction occurred while
+  linux-cachyos 7.2.8-1 was installed/running
+- linux-cachyos 7.2.8-2 was installed only on 2026-10-02 21:27
+- current 2026-10-03 boot is the first fingerprint validation boot on 7.2.8-2
+- current running kernel before A/B reboot:
+  7.2.8-2-cachyos
+- the exact rel71 libfprint binary is unchanged, so kernel/SPI runtime is now a
+  first-class variable rather than another speculative libfprint release
+
+Kernel A/B prepared:
+- signed CachyOS cache packages verified:
+  linux-cachyos 7.2.8-1
+  linux-cachyos-headers 7.2.8-1
+- packages downgraded on disk from 7.2.8-2 to 7.2.8-1
+- initramfs regenerated successfully
+- Limine boot artifacts regenerated successfully
+- NVIDIA 580.178.04 DKMS rebuilt and installed for 7.2.8-1-cachyos
+- LTS NVIDIA DKMS installation remains intact
+- no failed systemd units
+- currently running kernel remains 7.2.8-2 until the USER triggers reboot/power-cycle
+
+Next gate:
+1. user-triggered reboot or power-off/power-on
+2. verify with `uname -r` that Pegasus is actually on 7.2.8-1-cachyos
+3. before any S3, run exactly ONE normal lock fingerprint test
+4. compare target ACK retry count, timing_scale, GET_IMAGE retries and genuine scores
+5. do not change rel71, fprintd, enrollments, SIGFM threshold or matcher before this A/B
+
+Evidence:
+- fingerprint/handoff/evidence/REL71_RECOVERY_LOCK_FAIL_LOW_SCORE_KERNEL72_8_2_2026-10-03_122559.log
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
