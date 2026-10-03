@@ -305,6 +305,18 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 #define GX_GET_IMAGE_ATTEMPTS 2
 #endif
 
+/* Hardware-validated Chicago/ST411 implementations show that after GET_IMAGE
+ * is ACKed the sensor spends about 73 ms reading the array into its buffer.
+ * Windows stays silent on SPI during that analog readout.  Polling an asserted
+ * IRQ by repeatedly clocking SPI can truncate/corrupt the frame, especially on
+ * faster host-controller/kernel combinations. */
+#ifndef GX_IMAGE_READOUT_SETTLE_US
+#define GX_IMAGE_READOUT_SETTLE_US 80000
+#endif
+#ifndef GX_IRQ_HIGH_EMPTY_BACKOFF_US
+#define GX_IRQ_HIGH_EMPTY_BACKOFF_US 3000
+#endif
+
   static guint8 scratch[GOODIX_RX_MAX];
   int expected_plain_replies = 0;
   int attempts = 1;
@@ -392,6 +404,22 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
               if (gxfp_parse_ack (scratch, r, body[0], &ack_status) &&
                   gxfp_ack_status_success (ack_status))
                 ack_seen = TRUE;
+
+              /* GET_IMAGE ACK means the MCU accepted the capture and has
+               * entered its analog array readout.  Do not touch SPI again
+               * until the measured hardware readout window has elapsed.
+               * The TLS record may queue while we sleep and is consumed later
+               * by gx_take_tls_frame(). */
+              if (body[0] == 0x20u && ack_seen)
+                {
+                  if (out_ack_seen)
+                    *out_ack_seen = TRUE;
+                  fp_dbg ("GXFP51A0 GET_IMAGE ACK; SPI quiet for %u us readout",
+                          (unsigned) GX_IMAGE_READOUT_SETTLE_US);
+                  g_usleep (GX_IMAGE_READOUT_SETTLE_US);
+                  return TRUE;
+                }
+
               if (expected_plain_replies > 0 && got >= expected_plain_replies)
                 {
                   fp_dbg ("drain cmd=%02x: expected %d replies received; finish",
@@ -411,6 +439,11 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
                       body[0], r);
               break;
             }
+
+          /* IRQ may remain asserted while image conversion/readout is not yet
+           * packet-ready.  Never hammer the SPI bus in that state. */
+          if (body[0] == 0x20u)
+            g_usleep (GX_IRQ_HIGH_EMPTY_BACKOFF_US);
 
           misses++;
           if (got && misses >= GX_DRAIN_SILENCE)
@@ -534,6 +567,10 @@ gx_bio_recv (gpointer ctx, guint8 *b, gsize l)
               fp_dbg ("bio_recv: TLS frame %d bytes (attempt %d)", r, i);
               break;
             }
+
+          /* An asserted IRQ is not proof that a complete packet is readable:
+           * the image engine can hold it high during analog readout. */
+          g_usleep (GX_IRQ_HIGH_EMPTY_BACKOFF_US);
           r = -1;
         }
       if (r <= 0)
@@ -1333,6 +1370,10 @@ gx_take_tls_frame (FpiDeviceGoodix51A0 *self, guint8 *rec, gsize cap)
       raw = gx_read_frame (self, &ty, rec, cap);
       if (raw > 0 && ty == GOODIX_PKT_TLS)
         return raw;
+
+      /* Avoid repeated SPI clocks while IRQ is high but the image packet is
+       * still being assembled. */
+      g_usleep (GX_IRQ_HIGH_EMPTY_BACKOFF_US);
     }
   return -1;
 }
