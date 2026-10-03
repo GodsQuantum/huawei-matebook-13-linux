@@ -96,3 +96,22 @@ After install + fprintd restart:
      official-policy whole-command retry for cmd=ae
    - compare finger-detect -> GET_IMAGE latency and genuine scores with rel74
 5. only a normal-lock PASS may proceed to deep S3.
+
+## Live installation — 2026-10-03 14:36 CEST
+
+Installed without reboot:
+- running kernel: 7.2.8-2-cachyos
+- libfprint-goodix51a0 1.94.100.goodix51a0-75
+- live lib SHA256:
+  001d022a997e04755240856d19b2b69a2875eeaa59b7b7c7d07057ff236c1469
+- fprintd 1.94.5-73 unchanged
+- live fprintd SHA256:
+  3145f89a59127e96fec6a64f4330ee0470f8959a3a8b9ba3dabcff1293064b10
+- fprintd restarted only; PID 315948
+- three enrollments intact
+- package integrity: zero modified files
+- D-Bus idle after restart
+- zero failed systemd units
+- live library contains rel75 advisory-MCU-state marker
+
+No lock, suspend, reboot, enrollment or threshold change was triggered by the assistant.
