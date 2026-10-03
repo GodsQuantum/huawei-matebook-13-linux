@@ -671,6 +671,55 @@ Conclusion:
 - if reboot restores normal lock, persistent hardware/session state is confirmed
 - if reboot still fails, next action is explicit full-recovery investigation (long reset + spidev rebind) from the proven rel71 code path, not another speculative release
 
+## 15G. 2026-10-03 POWER-CYCLE EVIDENCE + EXTERNAL POST-S3 RECOVERY
+
+User reported a real power-off/power-on before the next lock attempt.
+
+Important chronology from the fresh boot:
+- stock fprintd 1.94.5-2.1 + exact historical rel71 libfprint remained installed
+- at initial boot authentication preparation, the sensor progressed through TLS/background work and reached:
+  `IDENTIFY_TRACE physical press 1/3 READY`
+- therefore the power cycle did recover the sensor far enough to establish a usable pre-authentication state
+- later in the same boot, real deep S3 cycles occurred at 11:15 and 11:55
+- immediately after those S3 resumes, rel71 repeatedly failed with target ACK misses, TLS digest/decode failures, GET_IMAGE TLS timeouts and bounded cold-preparation failure
+- the user's reported 12:00 normal-lock failure therefore happened after S3 contamination, not on a pristine cold-boot state
+
+This changes the diagnosis:
+- a full power cycle is capable of recovering the device
+- rel71 still cannot reliably recover the GXFP51A0 after deep S3 in the current lifecycle configuration
+- do not treat the 12:00 failure as evidence that cold boot itself is broken
+
+External recovery performed at 12:03 without reboot, suspend, re-enrollment or matcher changes:
+1. stopped fprintd
+2. built and safety-checked the existing project reset helper
+3. executed only the reviewed GPIO264 reset primitive:
+   - HIGH 300 ms
+   - LOW 600 ms
+   - final state LOW
+   - result 0
+4. unbound `spi-GXFP51A0:00` from spidev
+5. rebound the same device to spidev
+6. verified `/dev/spidev1.0` was recreated
+7. restarted stock fprintd
+
+Post-recovery state:
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- exact rel71 libfprint SHA unchanged:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- fprintd 1.94.5-2.1
+- all three enrollments intact
+- package integrity: zero modified files
+- spidev binding present
+- D-Bus idle state: finger-needed=false, finger-present=false
+- no fingerprint sleep.target Wants dependency
+- no failed systemd units
+
+Next physical gate:
+- exactly ONE normal lock/unlock fingerprint test now, before any further S3
+- do not suspend first
+- if PASS: the external GPIO264 + spidev rebind is a confirmed live recovery primitive and the remaining engineering target is automatic pre-S3 park/post-S3 lifecycle recovery
+- if FAIL: inspect the post-recovery Claim/Open logs before changing code; do not re-enroll and do not lower SIGFM threshold 7
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
