@@ -17,7 +17,9 @@ post_install() {
   # Functional rel61 baseline: boot-prewarm stays installed but disabled; it must
   # not create a warm sensor session before the first real PAM Claim.
   systemctl disable --now gxfp51a0-boot-prewarm.service 2>/dev/null || true
-  systemctl enable gxfp51a0-fprintd-suspend.service || true
+  # rel73: suspend belongs to the native libfprint/fprintd lifecycle only.
+  # Explicitly keep the obsolete external system-sleep helper disabled.
+  systemctl disable --now gxfp51a0-fprintd-suspend.service 2>/dev/null || true
   systemctl restart --no-block fprintd.service || true
   if [[ -x /usr/libexec/gxfp51a0-kde-lockscreen-integrate ]]; then
     /usr/libexec/gxfp51a0-kde-lockscreen-integrate --apply || true

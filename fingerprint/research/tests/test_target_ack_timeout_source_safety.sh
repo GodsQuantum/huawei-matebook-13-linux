@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 driver="$(cd "$(dirname "$0")/../.." && pwd)/driver/goodix51a0/goodix51a0.c"
-grep -Fq '#define GX_TARGET_ACK_IRQ_TIMEOUT_MS 100' "$driver"
+grep -Fq '#define GX_TARGET_ACK_IRQ_TIMEOUT_MS 1000' "$driver"
 grep -Fq 'gx51_wait_irq_gpio48 (self->irq_fd, GX_TARGET_ACK_IRQ_TIMEOUT_MS)' "$driver"
 python3 - "$driver" <<'PY2'
 from pathlib import Path

@@ -70,7 +70,11 @@ G_STATIC_ASSERT (GOODIX_PSK_LEN == GXFP_FACTORY_PMK_LEN);
 #define GOODIX_RX_MAX        24000
 #define GXFP_PMK_ACQUIRE_ATTEMPTS 4
 #define GX_TARGET_ACK_ATTEMPTS 2
-#define GX_TARGET_ACK_IRQ_TIMEOUT_MS 100
+/* Windows gfspi normalizes ACK deadlines below one second to a full
+ * 1000 ms window. wait_irq returns immediately on a prompt IRQ, so this adds
+ * no fast-path latency and only avoids false transport misses on slower
+ * kernel/controller/toolchain combinations. */
+#define GX_TARGET_ACK_IRQ_TIMEOUT_MS 1000
 #define GX_PMK_CACHE_DIR  "/var/lib/fprint"
 #define GX_PMK_CACHE_FILE "/var/lib/fprint/.goodix51a0-pmk"
 
@@ -262,6 +266,8 @@ gx_read_frame (FpiDeviceGoodix51A0 *self, guint8 *out_type,
 static gboolean
 gx_send_plain_raw (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n)
 {
+  /* Match the official one-millisecond pre-submit guard. */
+  g_usleep (1000);
   if (!gx_write_frame (self, GOODIX_PKT_PLAIN, GX_AMORCE, sizeof GX_AMORCE))
     return FALSE;
   g_usleep (8000);
@@ -292,13 +298,16 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 #ifndef GX_DRAIN_IRQ_POLL_MS
 #define GX_DRAIN_IRQ_POLL_MS 10
 #endif
+#ifndef GX_DRAIN_NO_REPLY_TIMEOUT_MS
+#define GX_DRAIN_NO_REPLY_TIMEOUT_MS 1000
+#endif
 #ifndef GX_GET_IMAGE_ATTEMPTS
 #define GX_GET_IMAGE_ATTEMPTS 2
 #endif
 
   static guint8 scratch[GOODIX_RX_MAX];
   int expected_plain_replies = 0;
-  int attempts = body[0] == 0x20u ? GX_GET_IMAGE_ATTEMPTS : 1;
+  int attempts = 1;
   int attempt;
 
   /* Reply counts observed stable across the GXFP51A0 capture path and matching
@@ -315,6 +324,12 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
     default: break;
     }
 
+  /* Official Goodix transport retries the whole lower command once only when
+   * its ACK/required response never arrived. Apply that policy to every
+   * response-bearing capture command, not just GET_IMAGE. */
+  if (body[0] == 0x20u || expected_plain_replies > 0)
+    attempts = 2;
+
   if (out_ack_seen)
     *out_ack_seen = FALSE;
   if (out_tls_seen)
@@ -326,8 +341,13 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
       gboolean ack_seen = FALSE;
       gboolean tls_seen = FALSE;
       int no_reply_miss_limit =
-        (body[0] == 0x20u || body[0] == 0xaeu) ? 12 : 25;
+        (body[0] == 0x20u || expected_plain_replies > 0)
+          ? (GX_DRAIN_NO_REPLY_TIMEOUT_MS / GX_DRAIN_IRQ_POLL_MS)
+          : 25;
       int r, got = 0, i, misses = 0;
+
+      /* gfspi sleeps 1 ms before the initial command submission. */
+      g_usleep (1000);
 
       /* Capture commands are sent directly. The recipe carries explicit NOPs
        * at the positions observed on GXFP51A0; do not prepend one here. */
@@ -408,7 +428,24 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
         *out_tls_seen = TRUE;
 
       if (body[0] != 0x20u)
-        return TRUE;
+        {
+          if (expected_plain_replies == 0 || got >= expected_plain_replies)
+            return TRUE;
+
+          if (attempt < attempts)
+            {
+              fp_warn ("GXFP51A0 cmd=%02x missing required response (%d/%d); "
+                       "official-policy whole-command retry attempt=%d/%d",
+                       body[0], got, expected_plain_replies,
+                       attempt + 1, attempts);
+              g_usleep (1000);
+              continue;
+            }
+
+          fp_warn ("GXFP51A0 cmd=%02x failed: required response count %d/%d",
+                   body[0], got, expected_plain_replies);
+          return FALSE;
+        }
 
       /* Windows and the validated Linux background path both receive a
        * cleartext ACK for GET_IMAGE before the oversized TLS record. If neither
@@ -589,6 +626,8 @@ gx_target_send_ack (FpiDeviceGoodix51A0       *self,
           return FALSE;
         }
 
+      /* Match gfspi's 1 ms pre-submit boundary. */
+      g_usleep (1000);
       if (!gx_write_frame (self, GOODIX_PKT_PLAIN,
                            packet->inner, packet->inner_len))
         {
@@ -1513,7 +1552,9 @@ gx_capture_avg (FpiDeviceGoodix51A0 *self, int nframes, guint16 *avg)
  * values DOWN by roughly 100 counts (around 335/371/361 idle against
  * 229/269/275 with a finger), which is what makes cheap polling possible. */
 #define GX_FDT_PROBE_ATTEMPTS 3
-#define GX_FDT_IRQ_TIMEOUT_MS 100
+/* FDT manual uses the same minimum one-second ACK/response transport
+ * contract. Successful IRQs still return immediately. */
+#define GX_FDT_IRQ_TIMEOUT_MS 1000
 
 static int
 gx_fdt_probe_ex (FpiDeviceGoodix51A0 *self,
