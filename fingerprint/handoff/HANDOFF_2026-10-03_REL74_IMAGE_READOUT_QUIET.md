@@ -254,3 +254,41 @@ window. No reboot is required for the next rel74 tests.
 7. Read logs for S3_PARK ACK, fresh post-resume Claim/Open, READY, scores and unlock.
 
 No reboot, re-enrollment, threshold change or new release before those gates.
+
+## Human gate — rel74 normal lock FAIL — 2026-10-03 14:17 CEST
+
+User result: `rel74 lock échoué`.
+
+Exact live stack:
+- kernel 7.2.8-2-cachyos
+- libfprint-goodix51a0 1.94.100.goodix51a0-74
+- libfprint live SHA256 7c21497018438b7780803575fcaac99a680f8cc32d5f6c299e6e020a82c9f8d8
+- fprintd 1.94.5-73
+- fprintd live SHA256 3145f89a59127e96fec6a64f4330ee0470f8959a3a8b9ba3dabcff1293064b10
+
+Runtime facts:
+- greeter ~14:17:18.441
+- first TLS handshake failed once; timing 100 -> 150%
+- one FDT ACK miss raised timing 150 -> 200%
+- WakeupMCU succeeded
+- READY 14:17:31.714
+- genuine DETECTED_HOLD touch=0x3f zones=6 mean=235 drop=117
+- immediately before GET_IMAGE, cmd=AE saw 0/2 replies and rel73 policy replayed the whole AE request
+- first GET_IMAGE then needed the safe no-evidence retry
+- image scores: 3/7, 4/7, 3/7; best 4/7
+- same-press FDT used floor=329, implying an idle baseline near 353; background/FDT calibration was not obviously contaminated
+- MCU rearm after lift executed normally
+- no S3 occurred
+
+Evidence:
+- fingerprint/handoff/evidence/REL74_LOCK_FAIL_LOW_SCORE_2026-10-03_141718.log
+- SHA256 719b56c467be6d2536872a812f226cf42c2299ced5d5169c8cad79464b6ce532
+
+Diagnosis after exact Windows 14115 transcript review:
+- GXFP51A0 real finger image command 0x20 remains correct; do NOT port GDIX51C0 0x22.
+- AE/GetMcuState genuinely has two responses when used by Windows: ACK then AE data.
+- however Windows transcript uses the observed AE query at TLS/init; the real finger capture sequence is FDT-down -> image and does not show a fresh AE replay immediately before image.
+- rel40 through rel61 all contained the same historical finger recipe with AE, so removing AE entirely would discard human-validated lineage.
+- the actionable regression is narrower: rel61 expected two AE replies but did NOT replay non-image capture commands on missing responses; rel73 generalized whole-command retry to AE. The rel74 failure exercised that new AE replay immediately before the low-score image.
+
+Next candidate must therefore preserve the historical recipe but make AE a non-replayed observational query again. Do not change matcher, threshold, templates, background algorithm, image command, GPIO, S3 park or enrollment in the same experiment.

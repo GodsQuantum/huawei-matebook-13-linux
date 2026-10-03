@@ -1,0 +1,44 @@
+oct. 03 14:17:15.126375 Pegasus systemd[1205]: Stopping [systemd-run] /home/arezki/.local/bin/betterbird-synced...
+oct. 03 14:17:15.127075 Pegasus systemd[1205]: Stopped [systemd-run] /home/arezki/.local/bin/betterbird-synced.
+oct. 03 14:17:15.127288 Pegasus systemd[1205]: betterbird-native.service: Consumed 8.290s CPU time over 3min 17.620s wall clock time, 2.5G memory peak, 80M memory swap peak.
+oct. 03 14:17:17.357387 Pegasus systemd[1205]: Started [systemd-run] /home/arezki/.local/bin/betterbird-synced.
+oct. 03 14:17:18.191484 Pegasus eu.betterbird.Betterbird[298922]: Failed to load module "appmenu-gtk-module"
+oct. 03 14:17:18.191925 Pegasus systemd[1]: Starting Time & Date Service...
+oct. 03 14:17:18.248215 Pegasus systemd[1]: Started Time & Date Service.
+oct. 03 14:17:18.441510 Pegasus kscreenlocker_greet[299025]: Icon theme "Numix-Circle" not found.
+oct. 03 14:17:18.860454 Pegasus betterbird-synced[298922]: Betterbird: Detected desktop environment kde.
+oct. 03 14:17:22.234785 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC=60:f2:62:c7:4d:59:bc:24:11:3c:80:43:08:00 SRC=192.168.1.202 DST=192.168.1.20 LEN=32 TOS=0x00 PREC=0x00 TTL=64 ID=37840 DF PROTO=UDP SPT=47695 DPT=32108 LEN=12 
+oct. 03 14:17:24.837162 Pegasus systemd[1205]: app-DaVinciResolve@a301d85636c74c6ab77006066d68ca52.service: Consumed 3min 14.178s CPU time over 18min 44.834s wall clock time, 5G memory peak, 2.5G memory swap peak.
+oct. 03 14:17:25.782643 Pegasus fprintd[269037]: TLS handshake failed (-1/5) 
+oct. 03 14:17:25.782754 Pegasus fprintd[269037]: GXFP51A0 protocol timing auto-calibration: 100% -> 150% after tls-handshake miss; session-local only
+oct. 03 14:17:27.175887 Pegasus fprintd[269037]: GXFP51A0 calibration waiting for sensor clear: mean=190 floor=340
+oct. 03 14:17:29.213830 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff12:0000:0000:0000:0000:0000:0000:8384 LEN=314 TC=0 HOPLIMIT=1 FLOWLBL=22365 PROTO=UDP SPT=36474 DPT=21027 LEN=274 
+oct. 03 14:17:31.346572 Pegasus fprintd[269037]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 03 14:17:31.346583 Pegasus fprintd[269037]: GXFP51A0 protocol timing auto-calibration: 150% -> 200% after ack miss; session-local only
+oct. 03 14:17:31.713905 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 03 14:17:31.714003 Pegasus fprintd[269037]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 READY
+oct. 03 14:17:33.078543 Pegasus fprintd[269037]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 DETECTED_HOLD touch=0x3f zones=6 mean=235 drop=117
+oct. 03 14:17:34.407010 Pegasus fprintd[269037]: GXFP51A0 cmd=ae missing required response (0/2); official-policy whole-command retry attempt=2/2
+oct. 03 14:17:34.626286 Pegasus fprintd[269037]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 03 14:17:34.903749 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 150% -> 200% (60000 us)
+oct. 03 14:17:34.928995 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=3 threshold=7 candidate=0
+oct. 03 14:17:36.149387 Pegasus fprintd[269037]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 03 14:17:36.149397 Pegasus fprintd[269037]: GXFP51A0 protocol timing auto-calibration: 200% -> 250% after ack miss; session-local only
+oct. 03 14:17:36.261398 Pegasus fprintd[269037]: GXFP51A0 VERIFY_TRACE same-press FDT mean=206 drop=146 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 03 14:17:36.261417 Pegasus fprintd[269037]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=60000 us
+oct. 03 14:17:36.580541 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE mode=identify same-press image 2/3 score=4 threshold=7 candidate=0
+oct. 03 14:17:36.654358 Pegasus fprintd[269037]: GXFP51A0 VERIFY_TRACE same-press FDT mean=206 drop=147 floor=329 threshold_drop=30 touch=0x3f zones=6
+oct. 03 14:17:36.654376 Pegasus fprintd[269037]: GXFP51A0 VERIFY_TRACE RetryCaptureIMG pacing barrier=60000 us
+oct. 03 14:17:36.956874 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE mode=identify same-press image 3/3 score=3 threshold=7 candidate=0
+oct. 03 14:17:37.602327 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=3 best=4 threshold=7
+oct. 03 14:17:37.656717 Pegasus fprintd[269037]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 LIFT_NOW
+oct. 03 14:17:37.845432 Pegasus fprintd[269037]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 RELEASED
+oct. 03 14:17:37.850949 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 03 14:17:37.850985 Pegasus fprintd[269037]: GXFP51A0 AUTH_TRACE MCU rearmed after failed usable press before retry 2/3
+oct. 03 14:17:37.851069 Pegasus fprintd[269037]: GXFP51A0 IDENTIFY_TRACE physical press 2/3 READY
+oct. 03 14:17:43.424390 Pegasus systemd[1205]: Starting Release idle Huawei MateBook MX250...
+oct. 03 14:17:43.537997 Pegasus sudo[300291]:   arezki : PWD=/home/arezki ; USER=root ; COMMAND=/usr/local/sbin/huawei-matebook-dgpu-power cleanup
+oct. 03 14:17:43.543443 Pegasus sudo[300291]: pam_unix(sudo:session): session opened for user root(uid=0) by arezki(uid=1000)
+oct. 03 14:17:43.737823 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC=60:f2:62:c7:4d:59:bc:24:11:3c:80:43:08:00 SRC=192.168.1.202 DST=192.168.1.20 LEN=32 TOS=0x00 PREC=0x00 TTL=64 ID=54293 DF PROTO=UDP SPT=47695 DPT=32108 LEN=12 
+oct. 03 14:17:44.231626 Pegasus sudo[300291]: pam_unix(sudo:session): session closed for user root
+oct. 03 14:17:44.233265 Pegasus systemd[1205]: Finished Release idle Huawei MateBook MX250.
