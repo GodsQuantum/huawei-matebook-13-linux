@@ -772,6 +772,46 @@ Next gate:
 Evidence:
 - fingerprint/handoff/evidence/REL71_RECOVERY_LOCK_FAIL_LOW_SCORE_KERNEL72_8_2_2026-10-03_122559.log
 
+## 15I. NO-REBOOT ANALYSIS — KERNEL TOOLCHAIN DIFFERENCE IS REAL
+
+Further offline comparison was performed without rebooting Pegasus.
+
+Results:
+- spi-pxa2xx-platform source/version and executable text are identical between
+  7.2.8-1 and 7.2.8-2 except vermagic/container metadata
+- spi-pxa2xx-core reports the same srcversion in both kernels:
+  8DDEB6F30DE40E68573678B
+- nevertheless its executable .text differs
+- normalized disassembly shows a small but real code-generation difference
+  inside pxa2xx_spi_transfer_one(), the transfer path relevant to GXFP51A0
+- spi-dw code generation also differs substantially
+
+Critical build-environment difference:
+- linux-cachyos 7.2.8-1 was built with:
+  clang 22.1.8, llvm 22.1.8, lld 22.1.8
+- linux-cachyos 7.2.8-2 was built with:
+  clang 23.1.1, llvm 23.1.1, lld 23.1.1
+- glibc in the kernel build environment also changed from
+  2.44+r24 to 2.44+r50
+
+Interpretation:
+- there is no evidence yet of a source-level PXA2xx regression
+- there IS a real machine-code/runtime difference in the SPI transfer path
+  between the historically good kernel build and the current one
+- this is compatible with the observed new target-ACK misses and transport
+  pacing escalation on the current 7.2.8-2 boot
+- do not hot-unload/rebind the PXA2xx host controller to force an old module;
+  historical project safety rules explicitly reject that experiment
+- no repeated reboot loop is required: continue diagnosis and userspace timing
+  work on the currently running 7.2.8-2 kernel; reserve one 7.2.8-1 boot as a
+  later discriminating A/B gate
+
+Operational policy from this point:
+- Pegasus may remain up for Cloud9 work
+- no reboot is required for intermediate libfprint/fprintd experiments
+- prefer fprintd restarts + normal lock tests only
+- retain the prepared 7.2.8-1 kernel on disk for a later user-chosen maintenance window
+
 ## 16. DOCUMENTATION / SYNC REQUIREMENT
 
 Every meaningful test result, conclusion, package hash and decision must be
