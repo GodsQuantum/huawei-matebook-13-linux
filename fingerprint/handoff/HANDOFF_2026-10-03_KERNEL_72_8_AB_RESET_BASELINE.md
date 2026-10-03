@@ -107,3 +107,75 @@ Interpretation:
 - PASS on -1 with exact rel71 strongly implicates the -2 kernel/toolchain/runtime boundary.
 - FAIL on -1 means the kernel difference is insufficient and another changed
   environmental/hardware-state variable must be identified.
+
+## A/B RESULT — NORMAL LOCK PASS — 2026-10-03 17:34 CEST
+
+User report:
+- rebooted Pegasus
+- locked the session
+- placed enrolled finger
+- session unlocked successfully
+
+Verified runtime after reboot:
+- kernel: 7.2.8-1-cachyos
+- boot ID: a707242c-0601-4222-8ea8-f2886e382f50
+- libfprint-goodix51a0 1.94.100.goodix51a0-71
+- libfprint SHA:
+  d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997
+- fprintd 1.94.5-2.1
+- fprintd SHA:
+  db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63
+- kscreenlocker 6.7.5-1.5
+- plasma-login-manager 6.7.5-3.9
+- external gxfp51a0 suspend service disabled
+- sleep.target Wants empty
+
+Normal-lock trace:
+- KScreenLocker lock started ~17:34:45
+- one FDT ACK retry occurred
+- warm rebase was safely discarded because the finger landed during background capture
+- READY: 17:34:48.216458
+- DETECTED_HOLD: 17:34:48.411998
+  - touch=0x3f
+  - zones=6
+  - mean=204
+  - drop=151
+- first GET_IMAGE needed the existing safe no-evidence retry
+- rel59 retry-assisted pacing rose from 250% to 300% (90 ms)
+- first genuine biometric image:
+  score=7 threshold=7 candidate=0
+- completed with best=7/7
+- user confirms actual unlock
+
+Evidence:
+- fingerprint/handoff/evidence/REL71_KERNEL72_8_1_NORMAL_LOCK_PASS_2026-10-03_173445.log
+- SHA256:
+  f023d3e7b652df8929fa3e42d1556f1d255256337907edad5562e441a2e0e7e1
+
+A/B conclusion:
+- the exact same rel71/rel61 runtime binary that scored only 3-4/7 on
+  linux-cachyos 7.2.8-2 now reaches the acceptance threshold and unlocks on
+  linux-cachyos 7.2.8-1 after a clean reboot.
+- this is strong evidence that the 7.2.8-2 kernel/build/runtime boundary is a
+  material cause of the regression.
+- it does NOT yet prove whether the root cause is Clang/LLVM 23.1.1, LTO/code
+  generation, another packaging/config difference, or a kernel-side runtime
+  interaction. Do not overstate the exact mechanism without a narrower kernel
+  build test.
+- no further rel73/74/75-style userspace tuning should be layered onto the
+  currently working baseline before the S3 gate.
+
+Next gate:
+1. keep exact rel71 + stock fprintd + kernel 7.2.8-1
+2. user-trigger exactly ONE deep S3
+3. on resume, use enrolled finger once lockscreen fingerprint is ready
+4. inspect:
+   - real deep S3 entry/resume
+   - fresh KScreenLocker PAM transaction
+   - Claim/Open/cold prepare
+   - READY latency
+   - DETECTED_HOLD
+   - first genuine score
+   - actual unlock
+5. only after S3 validation decide whether to pin 7.2.8-1 temporarily or build a
+   controlled 7.2.8-2 kernel/toolchain bisect.

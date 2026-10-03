@@ -1,0 +1,31 @@
+# Exact rel71 + stock fprintd + linux-cachyos 7.2.8-1 — human normal-lock PASS
+
+Linux Pegasus 7.2.8-1-cachyos #1 SMP PREEMPT_DYNAMIC Sat, 26 Sep 2026 19:43:45 +0000 x86_64 GNU/Linux
+linux-cachyos 7.2.8-1
+linux-cachyos-headers 7.2.8-1
+libfprint-goodix51a0 1.94.100.goodix51a0-71
+fprintd 1.94.5-2.1
+kscreenlocker 6.7.5-1.5
+plasma-login-manager 6.7.5-3.9
+d7d4b1d7d56e33b1a2e8c33ada0fc11984229d2507c5ec797816d4b338d9c997  /usr/lib/libfprint-2.so.2.0.0
+db4e909a968af7b19cff249b2b3546fefdc80f277c11afb7ee083e0878c2cb63  /usr/lib/fprintd
+
+oct. 03 17:34:45.366770 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC= SRC=fe80:0000:0000:0000:d8ad:5dfa:123f:4744 DST=ff12:0000:0000:0000:0000:0000:0000:8384 LEN=311 TC=0 HOPLIMIT=1 FLOWLBL=701518 PROTO=UDP SPT=47094 DPT=21027 LEN=271 
+oct. 03 17:34:45.405939 Pegasus kscreenlocker_greet[4226]: Icon theme "Numix-Circle" not found.
+oct. 03 17:34:48.056493 Pegasus fprintd[740]: GXFP51A0 FDT probe retry: stage=ack attempt=1/3
+oct. 03 17:34:48.181912 Pegasus fprintd[740]: GXFP51A0 WARM_REBASE discarded: finger landed during background capture (FDT mean=218 floor=340)
+oct. 03 17:34:48.216356 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE WakeupMCU raw SPI write complete
+oct. 03 17:34:48.216458 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 READY
+oct. 03 17:34:48.411998 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 DETECTED_HOLD touch=0x3f zones=6 mean=204 drop=151
+oct. 03 17:34:49.167249 Pegasus fprintd[740]: GXFP51A0 GET_IMAGE had no ACK/TLS; retrying attempt=2/2
+oct. 03 17:34:49.444186 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press retry-assisted pacing applied before next image: 250% -> 300% (90000 us)
+oct. 03 17:34:49.509818 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press image 1/3 score=7 threshold=7 candidate=0
+oct. 03 17:34:50.273777 Pegasus fprintd[740]: GXFP51A0 AUTH_TRACE mode=identify same-press completed images=1 best=7 threshold=7
+oct. 03 17:34:50.324435 Pegasus fprintd[740]: GXFP51A0 IDENTIFY_TRACE physical press 1/3 LIFT_NOW
+oct. 03 17:34:54.393777 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC=33:33:00:00:83:84:bc:24:11:e4:e6:cb:86:dd SRC=fe80:0000:0000:0000:be24:11ff:fee4:e6cb DST=ff12:0000:0000:0000:0000:0000:0000:8384 LEN=609 TC=0 HOPLIMIT=1 FLOWLBL=486887 PROTO=UDP SPT=45057 DPT=21027 LEN=569 
+oct. 03 17:34:58.933975 Pegasus systemd[2112]: Starting Release idle Huawei MateBook MX250...
+oct. 03 17:34:58.964338 Pegasus sudo[4274]:   arezki : PWD=/home/arezki ; USER=root ; COMMAND=/usr/local/sbin/huawei-matebook-dgpu-power cleanup
+oct. 03 17:34:58.967863 Pegasus sudo[4274]: pam_unix(sudo:session): session opened for user root(uid=0) by arezki(uid=1000)
+oct. 03 17:34:59.007077 Pegasus sudo[4274]: pam_unix(sudo:session): session closed for user root
+oct. 03 17:34:59.009153 Pegasus systemd[2112]: Finished Release idle Huawei MateBook MX250.
+oct. 03 17:35:00.432748 Pegasus kernel: [UFW BLOCK] IN=wlp0s20f3 OUT= MAC=60:f2:62:c7:4d:59:bc:24:11:3c:80:43:08:00 SRC=192.168.1.202 DST=192.168.1.20 LEN=32 TOS=0x00 PREC=0x00 TTL=64 ID=63311 DF PROTO=UDP SPT=47695 DPT=32108 LEN=12 
