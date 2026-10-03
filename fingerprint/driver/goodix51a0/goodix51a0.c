@@ -301,6 +301,12 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 #ifndef GX_DRAIN_NO_REPLY_TIMEOUT_MS
 #define GX_DRAIN_NO_REPLY_TIMEOUT_MS 1000
 #endif
+/* Exact GXFP51A0/14115 capture lineage: GetMcuState (0xae) is an
+ * observational query. rel40-rel61 tolerated a missing query response rather
+ * than replaying the command immediately before image capture. */
+#ifndef GX_MCU_STATE_NO_REPLY_TIMEOUT_MS
+#define GX_MCU_STATE_NO_REPLY_TIMEOUT_MS 120
+#endif
 #ifndef GX_GET_IMAGE_ATTEMPTS
 #define GX_GET_IMAGE_ATTEMPTS 2
 #endif
@@ -336,10 +342,12 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
     default: break;
     }
 
-  /* Official Goodix transport retries the whole lower command once only when
-   * its ACK/required response never arrived. Apply that policy to every
-   * response-bearing capture command, not just GET_IMAGE. */
-  if (body[0] == 0x20u || expected_plain_replies > 0)
+  /* Official Goodix transport retries a lower command when its required
+   * response never arrives. Keep that for response-bearing capture commands,
+   * except the exact-target advisory 0xae GetMcuState query: the rel40-rel61
+   * human-validated path never replayed that observation before GET_IMAGE. */
+  if (body[0] == 0x20u ||
+      (expected_plain_replies > 0 && body[0] != 0xaeu))
     attempts = 2;
 
   if (out_ack_seen)
@@ -353,9 +361,11 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
       gboolean ack_seen = FALSE;
       gboolean tls_seen = FALSE;
       int no_reply_miss_limit =
-        (body[0] == 0x20u || expected_plain_replies > 0)
-          ? (GX_DRAIN_NO_REPLY_TIMEOUT_MS / GX_DRAIN_IRQ_POLL_MS)
-          : 25;
+        body[0] == 0xaeu
+          ? (GX_MCU_STATE_NO_REPLY_TIMEOUT_MS / GX_DRAIN_IRQ_POLL_MS)
+          : (body[0] == 0x20u || expected_plain_replies > 0)
+              ? (GX_DRAIN_NO_REPLY_TIMEOUT_MS / GX_DRAIN_IRQ_POLL_MS)
+              : 25;
       int r, got = 0, i, misses = 0;
 
       /* gfspi sleeps 1 ms before the initial command submission. */
@@ -462,6 +472,19 @@ gx_send_plain_drain (FpiDeviceGoodix51A0 *self, const guint8 *body, gsize n,
 
       if (body[0] != 0x20u)
         {
+          /* GetMcuState is advisory in the exact GXFP51A0 capture path.
+           * Human-validated rel40-rel61 never replayed this non-image query on
+           * a missed response. Preserve that behavior: accept any replies seen,
+           * but do not duplicate 0xae immediately before GET_IMAGE. */
+          if (body[0] == 0xaeu)
+            {
+              if (got < expected_plain_replies)
+                fp_warn ("GXFP51A0 cmd=ae advisory response incomplete (%d/%d); "
+                         "continuing without replay before image",
+                         got, expected_plain_replies);
+              return TRUE;
+            }
+
           if (expected_plain_replies == 0 || got >= expected_plain_replies)
             return TRUE;
 

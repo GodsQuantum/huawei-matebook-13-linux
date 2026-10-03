@@ -21,7 +21,8 @@ assert "GX_GET_IMAGE_ATTEMPTS" in f
 assert "body[0] == 0x20u" in f
 assert "if (tls_seen || ack_seen)" in f
 assert "GET_IMAGE had no ACK/TLS; retrying" in f
-assert "if (body[0] == 0x20u || expected_plain_replies > 0)" in f
+assert "body[0] == 0x20u ||" in f
+assert "expected_plain_replies > 0 && body[0] != 0xaeu" in f
 assert "attempts = 2;" in f
 # A full two-attempt loss is transport failure, not a biometric decision.
 assert "gx_capture_transport_desync (self);" in f
